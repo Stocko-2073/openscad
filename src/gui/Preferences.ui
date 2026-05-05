@@ -2214,6 +2214,20 @@
                 </widget>
                </item>
                <item>
+                <widget class="QCheckBox" name="checkBoxSimplifyViewerToolbar">
+                 <property name="text">
+                  <string>Simplify viewer toolbar</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QCheckBox" name="checkBoxPickMenuCurrentFileOnly">
+                 <property name="text">
+                  <string>Restrict viewer right-click menu to current file</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
                 <widget class="QCheckBox" name="localizationCheckBox">
                  <property name="text">
                   <string>Enable user interface localization (requires restart of OpenSCAD)</string>

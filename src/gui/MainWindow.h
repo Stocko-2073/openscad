@@ -130,6 +130,9 @@ private:
 
   std::vector<std::pair<Dock *, QString>> docks;
 
+  QList<QAction *> originalViewerToolbarActions;
+  QList<QAction *> simplifiedViewerToolbarActions;
+
   volatile bool isClosing = false;
   bool windowStateSaved = false;
   void saveWindowStateOnClose();
@@ -251,6 +254,7 @@ private:
 
 public slots:
   void updateExportActions();
+  void applySimplifyViewerToolbar(bool simplified);
   void updateRecentFiles(const QString& FileSavedOrOpened);
   void updateRecentFileActions();
   void handleFileDrop(const QUrl& url);

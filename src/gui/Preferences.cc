@@ -625,6 +625,19 @@ void Preferences::on_checkBoxMouseCentricZoom_toggled(bool val)
   emit updateMouseCentricZoom(val);
 }
 
+void Preferences::on_checkBoxSimplifyViewerToolbar_toggled(bool val)
+{
+  Settings::Settings::simplifyViewerToolbar.setValue(val);
+  writeSettings();
+  emit updateSimplifyViewerToolbar(val);
+}
+
+void Preferences::on_checkBoxPickMenuCurrentFileOnly_toggled(bool val)
+{
+  Settings::Settings::pickMenuCurrentFileOnly.setValue(val);
+  writeSettings();
+}
+
 void Preferences::on_spinBoxIndentationWidth_valueChanged(int val)
 {
   Settings::Settings::indentationWidth.setValue(val);
@@ -1452,6 +1465,8 @@ void Preferences::updateGUI()
   initUpdateCheckBox(this->checkBoxEnableNumberScrollWheel, Settings::Settings::enableNumberScrollWheel);
   initUpdateCheckBox(this->checkBoxShowWarningsIn3dView, Settings::Settings::showWarningsIn3dView);
   initUpdateCheckBox(this->checkBoxMouseCentricZoom, Settings::Settings::mouseCentricZoom);
+  initUpdateCheckBox(this->checkBoxSimplifyViewerToolbar, Settings::Settings::simplifyViewerToolbar);
+  initUpdateCheckBox(this->checkBoxPickMenuCurrentFileOnly, Settings::Settings::pickMenuCurrentFileOnly);
   initUpdateCheckBox(this->checkBoxEnableLineNumbers, Settings::Settings::enableLineNumbers);
 
   /* Next Line disables the Indent Spin-Box,for 'Same' and 'Indented' LineWrapStyle selection from

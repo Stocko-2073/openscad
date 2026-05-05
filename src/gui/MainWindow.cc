@@ -409,9 +409,38 @@ void MainWindow::updateExportActions()
 
   // handle the hide/show of export action in view toolbar according to the visibility of editor dock
   removeExportActions(viewerToolBar, this->viewActionViewAll);
-  if (!editorDock->isVisible()) {
+  if (!editorDock->isVisible() && !Settings::Settings::simplifyViewerToolbar.value()) {
     addExportActions(viewerToolBar, this->viewActionViewAll);
   }
+}
+
+void MainWindow::applySimplifyViewerToolbar(bool simplified)
+{
+  if (simplifiedViewerToolbarActions.isEmpty()) {
+    originalViewerToolbarActions = viewerToolBar->actions();
+
+    auto makeSeparator = [this]() {
+      auto *sep = new QAction(this);
+      sep->setSeparator(true);
+      return sep;
+    };
+    simplifiedViewerToolbarActions = {
+      this->viewActionPerspective, this->viewActionOrthogonal, makeSeparator(),
+      this->viewActionRight, this->viewActionLeft,
+      this->viewActionBack,  this->viewActionFront,
+      this->viewActionTop,   this->viewActionBottom, makeSeparator(),
+      this->viewActionShowAxes, this->viewActionShowScaleProportional, makeSeparator(),
+      this->designActionMeasureDist, this->designActionMeasureAngle,
+    };
+  }
+
+  for (QAction *a : viewerToolBar->actions()) {
+    viewerToolBar->removeAction(a);
+  }
+  for (QAction *a : simplified ? simplifiedViewerToolbarActions : originalViewerToolbarActions) {
+    viewerToolBar->addAction(a);
+  }
+  updateExportActions();
 }
 
 void MainWindow::openFileFromPath(const QString& path, int line)
@@ -2068,12 +2097,19 @@ void MainWindow::rightClick(QPoint position)
     // Create context menu with the backtrace
     QMenu tracemenu(this);
     std::stringstream ss;
+    const bool currentFileOnly = Settings::Settings::pickMenuCurrentFileOnly.value();
     for (auto& step : path) {
       // Skip certain node types
       if (step->name() == "root") {
         continue;
       }
       const bool hasSourceRef = step->modinst && !step->modinst->location().isNone();
+      if (currentFileOnly) {
+        if (!hasSourceRef) continue;
+        const auto& fileName = step->modinst->location().fileName();
+        if (!get_library_for_path(step->modinst->location().filePath()).empty()) continue;
+        if (renderedEditor->filepath.toStdString() != fileName) continue;
+      }
       if (!hasSourceRef) {
         // Show an entry so the backtrace stays complete; no jump/highlight (no "id", no hover)
         std::string name;
@@ -3471,6 +3507,9 @@ void MainWindow::setupPreferences()
           QOverload<>::of(&QGLView::update));
   connect(GlobalPreferences::inst(), &Preferences::updateMouseCentricZoom, this->qglview,
           &QGLView::setMouseCentricZoom);
+  connect(GlobalPreferences::inst(), &Preferences::updateSimplifyViewerToolbar, this,
+          &MainWindow::applySimplifyViewerToolbar);
+  applySimplifyViewerToolbar(Settings::Settings::simplifyViewerToolbar.value());
   connect(GlobalPreferences::inst()->MouseConfig, &MouseConfigWidget::updateMouseActions, this,
           &MainWindow::setAllMouseViewActions);
 
@@ -3982,6 +4021,11 @@ void MainWindow::restoreWindowState()
 #endif  // ifdef Q_OS_WIN
   }
 
+  QSettingsCached migration;
+  if (!migration.value("window/colorListHiddenByDefaultMigrated", false).toBool()) {
+    colorListDock->hide();
+    migration.setValue("window/colorListHiddenByDefaultMigrated", true);
+  }
 }
 
 void MainWindow::openRemainingFiles(const QStringList& filenames)

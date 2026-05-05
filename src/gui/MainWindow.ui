@@ -694,6 +694,9 @@
    </widget>
   </widget>
   <widget class="Dock" name="colorListDock">
+   <property name="visible">
+    <bool>false</bool>
+   </property>
    <attribute name="dockWidgetArea">
     <number>8</number>
    </attribute>
