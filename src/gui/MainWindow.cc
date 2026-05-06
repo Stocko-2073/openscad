@@ -424,7 +424,13 @@ void MainWindow::applySimplifyViewerToolbar(bool simplified)
       sep->setSeparator(true);
       return sep;
     };
+    QAction *toggleConsoleAction = consoleDock->toggleViewAction();
+    if (toggleConsoleAction->icon().isNull()) {
+      toggleConsoleAction->setIcon(QIcon::fromTheme("chokusen-console"));
+    }
+    toggleConsoleAction->setToolTip(_("Show/Hide Console"));
     simplifiedViewerToolbarActions = {
+      toggleConsoleAction, makeSeparator(),
       this->viewActionPerspective, this->viewActionOrthogonal, makeSeparator(),
       this->viewActionRight, this->viewActionLeft,
       this->viewActionBack,  this->viewActionFront,
