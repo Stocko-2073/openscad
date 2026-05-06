@@ -1,7 +1,6 @@
-// solve2d_le_distance_smoke.scad — verify con_le_distance parses without
-// crashing. Inequality is not yet enforced (Task 3 only wires parsing).
-// The unconstrained solution gives |ab| = 5; the slack inequality |ab| <= 100
-// should be silently ignored at this stage.
+// solve2d_le_distance_smoke.scad — slack con_le_distance.
+// |ab| = 5 from con_distance; the inequality |ab| <= 100 is slack and
+// should NOT end up in the active set. Loop should converge in 1 iteration.
 
 sol = solve2d([
   point("a", at = [0, 0]),
@@ -9,9 +8,13 @@ sol = solve2d([
   point("b", at = [5, 0]),
   con_horizontal("a", "b"),
   con_distance("a", "b", 5),
-  con_le_distance("a", "b", 100),  // slack — ignored at this stage
+  con_le_distance("a", "b", 100),
 ]);
 
 assert(solved(sol), str("solver failed: ", failed_constraints(sol)));
-echo(b = pt(sol, "b"));
-echo(remaining_dof = dof(sol));
+assert(iterations(sol) == 1,
+       str("expected 1 iteration, got ", iterations(sol)));
+assert(len(active_inequalities(sol)) == 0,
+       str("expected empty active set, got ", active_inequalities(sol)));
+
+echo(iter = iterations(sol), active = active_inequalities(sol), b = pt(sol, "b"));

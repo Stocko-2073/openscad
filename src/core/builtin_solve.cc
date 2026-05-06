@@ -3,6 +3,7 @@
 #include <cstring>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -627,6 +628,32 @@ double constraint_residual(const ConstraintDecl& c,
   return 0.0;
 }
 
+// Signed violation for inequality g(x) <= rhs:
+//   positive ⇒ violated by that amount
+//   non-positive ⇒ slack (constraint satisfied)
+// Returns 0 for unknown kinds and degenerate inputs (no false positives).
+double inequality_violation(const InequalityDecl& ineq,
+                            const std::map<std::string, SolutionType::Point2d>& pts)
+{
+  using P = SolutionType::Point2d;
+  auto get = [&](const std::string& n, P& out) -> bool {
+    auto it = pts.find(n);
+    if (it == pts.end()) return false;
+    out = it->second;
+    return true;
+  };
+  auto sub = [](const P& a, const P& b) -> P { return {a[0]-b[0], a[1]-b[1]}; };
+  auto norm = [](const P& v) { return std::sqrt(v[0]*v[0] + v[1]*v[1]); };
+
+  P a, b;
+  if (ineq.kind == "le_distance" && ineq.points.size() == 2) {
+    if (!get(ineq.points[0], a) || !get(ineq.points[1], b)) return 0.0;
+    return norm(sub(a, b)) - ineq.valA;
+  }
+  // [other kinds added in later tasks]
+  return 0.0;
+}
+
 struct SolveOnceResult {
   int slvs_result = -1;
   bool solved = false;
@@ -634,16 +661,26 @@ struct SolveOnceResult {
   double residual = 0.0;
   std::map<std::string, SolutionType::Point2d> points;
   std::vector<std::string> failed_constraint_names;
+
+  // For active-set loop: handle assigned to each active inequality, so the
+  // outer loop can intersect this with sys.failed to know which actives to
+  // drop. Keys are indices into the inequalities vector.
+  std::map<size_t, Slvs_hConstraint> active_ineq_handles;
+  // Indices of active inequalities found in sys.failed.
+  std::vector<size_t> failed_active_ineqs;
 };
 
-// One Slvs_Solve cycle: build the Slvs_System from `points` and `constraints`,
-// run the solver, apply REDUNDANT_OKAY residual recovery, return results.
+// One Slvs_Solve cycle: build the Slvs_System from `points`, `constraints`,
+// and any active inequalities, run the solver, apply REDUNDANT_OKAY residual
+// recovery, return results.
 // `points` is non-const because each PointDecl receives assigned u_param /
 // v_param / entity handles (used here to read back coordinates).
 SolveOnceResult build_and_solve_once(
     std::vector<PointDecl>& points,
     const std::map<std::string, size_t>& name_to_idx,
     const std::vector<ConstraintDecl>& constraints,
+    const std::vector<InequalityDecl>& inequalities,
+    const std::set<size_t>& active_set,
     const Location& loc,
     const std::string& doc_root)
 {
@@ -956,6 +993,24 @@ SolveOnceResult build_and_solve_once(
     }
   }
 
+  // Active inequalities: treated as equalities by the solver for this iteration.
+  for (size_t idx : active_set) {
+    const auto& ineq = inequalities[idx];
+    Slvs_hConstraint ch = next_constraint++;
+
+    if (ineq.kind == "le_distance" && ineq.points.size() == 2) {
+      Slvs_hEntity a = pt_entity(ineq.kind, ineq.points[0]);
+      Slvs_hEntity b = pt_entity(ineq.kind, ineq.points[1]);
+      if (!a || !b) continue;
+      sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
+                                                 SLVS_C_PT_PT_DISTANCE,
+                                                 wrkpl, ineq.valA, a, b, 0, 0));
+      constraint_name_by_h[ch] = ineq.name;
+      out.active_ineq_handles[idx] = ch;
+    }
+    // [other kinds added in later tasks]
+  }
+
   // Solve
   Slvs_System sys;
   std::memset(&sys, 0, sizeof(sys));
@@ -990,11 +1045,16 @@ SolveOnceResult build_and_solve_once(
   }
 
   for (int i = 0; i < sys.faileds; ++i) {
-    auto it = constraint_name_by_h.find(sys.failed[i]);
+    Slvs_hConstraint h = sys.failed[i];
+    auto it = constraint_name_by_h.find(h);
     if (it != constraint_name_by_h.end()) {
       out.failed_constraint_names.push_back(it->second);
     } else {
-      out.failed_constraint_names.push_back("constraint #" + std::to_string(sys.failed[i]));
+      out.failed_constraint_names.push_back("constraint #" + std::to_string(h));
+    }
+    // Check if this failed handle is one of our active inequalities.
+    for (const auto& [idx, hh] : out.active_ineq_handles) {
+      if (hh == h) out.failed_active_ineqs.push_back(idx);
     }
   }
 
@@ -1009,14 +1069,86 @@ SolveOnceResult build_and_solve_once(
     double r = constraint_residual(c, out.points);
     if (r > max_residual) max_residual = r;
   }
+  // Also include active inequalities in residual (they are treated as equalities).
+  for (size_t idx : active_set) {
+    ConstraintDecl pseudo;
+    if (inequalities[idx].kind == "le_distance") pseudo.kind = "distance";
+    // [more mappings in later tasks]
+    pseudo.points = inequalities[idx].points;
+    pseudo.valA = inequalities[idx].valA;
+    double r = constraint_residual(pseudo, out.points);
+    if (r > max_residual) max_residual = r;
+  }
   out.residual = max_residual;
 
   if (sys.result == SLVS_RESULT_INCONSISTENT && max_residual < RESIDUAL_TOLERANCE) {
     out.solved = true;
     out.failed_constraint_names.clear();
+    out.failed_active_ineqs.clear();   // don't punish a recovered solve
   }
 
   return out;
+}
+
+constexpr int MAX_OUTER_ITERATIONS = 50;
+constexpr double VIOLATION_TOLERANCE = 1e-6;
+
+struct SolveLoopResult {
+  SolveOnceResult last;          // final solve's results
+  int iterations = 0;            // outer-loop iteration count
+  std::set<size_t> active_set;   // final active set
+  bool converged = false;        // true ⇒ feasible solution found
+  std::string failure_reason;    // "cycle" / "max_iter" / "infeasible_base" / ""
+};
+
+SolveLoopResult solve_with_inequalities(
+    std::vector<PointDecl>& points,
+    const std::map<std::string, size_t>& name_to_idx,
+    const std::vector<ConstraintDecl>& constraints,
+    const std::vector<InequalityDecl>& inequalities,
+    const Location& loc,
+    const std::string& doc_root)
+{
+  SolveLoopResult result;
+  std::set<std::set<size_t>> visited;
+
+  for (int iter = 0; iter < MAX_OUTER_ITERATIONS; ++iter) {
+    if (visited.count(result.active_set)) {
+      result.failure_reason = "cycle";
+      return result;
+    }
+    visited.insert(result.active_set);
+
+    result.iterations = iter + 1;
+    result.last = build_and_solve_once(points, name_to_idx, constraints,
+                                       inequalities, result.active_set,
+                                       loc, doc_root);
+
+    if (result.last.solved) {
+      // Check inactive inequalities for violations.
+      std::vector<size_t> violators;
+      for (size_t i = 0; i < inequalities.size(); ++i) {
+        if (result.active_set.count(i)) continue;
+        double v = inequality_violation(inequalities[i], result.last.points);
+        if (v > VIOLATION_TOLERANCE) violators.push_back(i);
+      }
+      if (violators.empty()) {
+        result.converged = true;
+        return result;
+      }
+      for (size_t i : violators) result.active_set.insert(i);
+    } else {
+      // Slvs failed; drop SolveSpace-flagged active inequalities.
+      if (result.last.failed_active_ineqs.empty()) {
+        result.failure_reason = "infeasible_base";
+        return result;
+      }
+      for (size_t i : result.last.failed_active_ineqs) result.active_set.erase(i);
+    }
+  }
+
+  result.failure_reason = "max_iter";
+  return result;
 }
 
 }  // namespace
@@ -1174,16 +1306,38 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
     }
   }
 
-  SolveOnceResult once = build_and_solve_once(points, name_to_idx, constraints, loc, doc_root);
-
   auto data = std::make_shared<SolutionType::Data>();
-  data->result_code = once.slvs_result;
-  data->solved = once.solved;
-  data->dof = once.dof;
-  data->residual = once.residual;
-  data->points = once.points;
-  for (const auto& p : points) data->ordered_names.push_back(p.name);
-  data->failed_constraints = once.failed_constraint_names;
+
+  if (inequalities.empty()) {
+    SolveOnceResult once = build_and_solve_once(points, name_to_idx, constraints,
+                                                inequalities, /*active_set=*/{},
+                                                loc, doc_root);
+    data->result_code = once.slvs_result;
+    data->solved = once.solved;
+    data->dof = once.dof;
+    data->residual = once.residual;
+    data->points = once.points;
+    for (const auto& p : points) data->ordered_names.push_back(p.name);
+    data->failed_constraints = once.failed_constraint_names;
+    data->iterations = 0;
+  } else {
+    SolveLoopResult loop = solve_with_inequalities(points, name_to_idx, constraints,
+                                                   inequalities, loc, doc_root);
+    data->result_code = loop.last.slvs_result;
+    data->solved = loop.converged;
+    data->dof = loop.last.dof;
+    data->residual = loop.last.residual;
+    data->points = loop.last.points;
+    for (const auto& p : points) data->ordered_names.push_back(p.name);
+    data->failed_constraints = loop.last.failed_constraint_names;
+    data->iterations = loop.iterations;
+    for (size_t idx : loop.active_set) {
+      data->active_inequalities.push_back(inequalities[idx].name);
+    }
+    if (!loop.converged && data->failed_constraints.empty()) {
+      data->failed_constraints.push_back("solve2d: " + loop.failure_reason);
+    }
+  }
 
   return Value(SolutionPtr(SolutionType(std::move(data))));
 }
@@ -1316,6 +1470,24 @@ Value builtin_failed_constraints(Arguments arguments, const Location& loc)
   return Value(std::move(result));
 }
 
+Value builtin_iterations(Arguments arguments, const Location& loc)
+{
+  if (!require_solution("iterations", arguments, loc, 1)) return Value::undefined.clone();
+  return Value(static_cast<double>(arguments[0]->toSolution().iterations()));
+}
+
+Value builtin_active_inequalities(Arguments arguments, const Location& loc)
+{
+  if (!require_solution("active_inequalities", arguments, loc, 1)) {
+    return Value::undefined.clone();
+  }
+  const auto& items = arguments[0]->toSolution().active_inequalities();
+  VectorType result(arguments.session());
+  result.reserve(items.size());
+  for (const auto& s : items) result.emplace_back(s);
+  return Value(std::move(result));
+}
+
 Value builtin_angle(Arguments arguments, const Location& loc)
 {
   if (!require_solution("angle", arguments, loc, 2)) return Value::undefined.clone();
@@ -1435,6 +1607,10 @@ void register_builtin_solve()
                  {"poly(sol, [names]) -> [[x,y], ...]"});
   Builtins::init("failed_constraints", new BuiltinFunction(&builtin_failed_constraints),
                  {"failed_constraints(sol) -> [string]"});
+  Builtins::init("iterations", new BuiltinFunction(&builtin_iterations),
+                 {"iterations(sol) -> outer-loop iteration count (0 if no inequalities)"});
+  Builtins::init("active_inequalities", new BuiltinFunction(&builtin_active_inequalities),
+                 {"active_inequalities(sol) -> [string] inequalities that are tight"});
   Builtins::init("angle", new BuiltinFunction(&builtin_angle),
                  {"angle(sol, [a, b, c]) -> CCW degrees at vertex b ([0,360))"});
 }
