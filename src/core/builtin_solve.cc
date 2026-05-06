@@ -423,7 +423,7 @@ namespace {
 
 struct PointDecl {
   std::string name;
-  bool anchored = false;
+  bool has_seed = false;
   double u = 0.0;
   double v = 0.0;
   // Filled during build phase:
@@ -641,7 +641,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       p.name = name;
       double x, y;
       if (field_xy(obj, "at", x, y)) {
-        p.anchored = true;
+        p.has_seed = true;
         p.u = x;
         p.v = y;
       }
@@ -744,8 +744,10 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
   }
 
   // Build phase: assemble Slvs_System
-  // Group 1: workplane (and anchored point params).
-  // Group 2: free point params and all constraints.
+  // Group 1: workplane params (origin + normal). Always fixed.
+  // Group 2: all point params and all constraints. Anchoring of individual
+  //          points is expressed via con_fixed (SLVS_C_WHERE_DRAGGED), not
+  //          group membership.
   const Slvs_hGroup g_fixed = 1;
   const Slvs_hGroup g_solve = 2;
 
@@ -782,24 +784,25 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
   Slvs_hEntity wrkpl = next_entity++;
   sentities.push_back(Slvs_MakeWorkplane(wrkpl, g_fixed, origin_h, normal_h));
 
-  // Points. Free points get a small, unique initial offset to avoid
-  // degenerate starting geometry (e.g., all-coincident points).
-  size_t free_idx = 0;
+  // Points. `at=` supplies a seed (initial guess); points without a seed get
+  // a small, unique offset to avoid degenerate starting geometry (e.g.,
+  // all-coincident points). All point params live in g_solve — pinning is
+  // the job of con_fixed.
+  size_t unseeded_idx = 0;
   for (auto& p : points) {
-    Slvs_hGroup g = p.anchored ? g_fixed : g_solve;
     double init_u = p.u;
     double init_v = p.v;
-    if (!p.anchored) {
-      init_u = static_cast<double>(free_idx) + 1.0;
-      init_v = static_cast<double>(free_idx) * 0.5;
-      ++free_idx;
+    if (!p.has_seed) {
+      init_u = static_cast<double>(unseeded_idx) + 1.0;
+      init_v = static_cast<double>(unseeded_idx) * 0.5;
+      ++unseeded_idx;
     }
     p.u_param = next_param++;
     p.v_param = next_param++;
-    sparams.push_back(Slvs_MakeParam(p.u_param, g, init_u));
-    sparams.push_back(Slvs_MakeParam(p.v_param, g, init_v));
+    sparams.push_back(Slvs_MakeParam(p.u_param, g_solve, init_u));
+    sparams.push_back(Slvs_MakeParam(p.v_param, g_solve, init_v));
     p.entity = next_entity++;
-    sentities.push_back(Slvs_MakePoint2d(p.entity, g, wrkpl, p.u_param, p.v_param));
+    sentities.push_back(Slvs_MakePoint2d(p.entity, g_solve, wrkpl, p.u_param, p.v_param));
   }
 
   // Helper to create line entities on the fly for constraints that need them.
@@ -1301,7 +1304,7 @@ void register_builtin_solve()
 
   Builtins::init("point", new BuiltinFunction(&builtin_point),
                  {"point(name) -> sketch entity",
-                  "point(name, at=[x,y]) -> sketch entity (anchored)"});
+                  "point(name, at=[x,y]) -> sketch entity (at= seeds initial position; use con_fixed to pin)"});
 
   Builtins::init("con_coincident", new BuiltinFunction(&builtin_con_coincident),
                  {"con_coincident(p1, p2) -> sketch constraint"});

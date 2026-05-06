@@ -11,6 +11,7 @@ diagonal = 50;     // try other values: 40 (square), 60, 100
 
 sol = solve2d([
   point("a", at = [0, 0]),
+  con_fixed("a"),
   point("b"),
   point("c"),
   point("d"),

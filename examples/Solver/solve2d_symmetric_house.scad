@@ -14,9 +14,12 @@ wall = 12;
 ridge_height = 6;
 
 sol = solve2d([
-  // Bottom corners: anchored — they define the world frame.
+  // Bottom corners: pinned — they define the world frame. `at=` seeds the
+  // location; `con_fixed` is what actually keeps the solver from moving them.
   point("bl", at = [0,    0]),
   point("br", at = [base, 0]),
+  con_fixed("bl"),
+  con_fixed("br"),
 
   // Wall tops: free; verticals only set orientation, not length.
   point("tl"),

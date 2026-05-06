@@ -10,6 +10,7 @@ thickness = 4;
 
 sol = solve2d([
   point("a", at = [0, 0]),
+  con_fixed("a"),
   point("b"),
   point("c"),
 

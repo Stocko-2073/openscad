@@ -9,8 +9,10 @@ leg = 15;
 thickness = 4;
 
 sol = solve2d([
-  // Three points: one anchored at the origin, two free.
+  // Three points: 'a' is seeded at the origin and pinned there with
+  // con_fixed so the whole sketch hangs off a known reference.
   point("a", at = [0, 0]),
+  con_fixed("a"),
   point("b"),
   point("c"),
 

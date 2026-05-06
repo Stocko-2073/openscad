@@ -5,6 +5,7 @@
 // from alphabetical order ([a, m, z]).
 sol = solve2d([
   point("z", at = [0, 0]),
+  con_fixed("z"),
   point("a"),
   point("m"),
   con_horizontal("z", "a"),

@@ -31,6 +31,7 @@ The smallest useful sketch is two points and a distance:
 ```scad
 sol = solve2d([
   point("a", at = [0, 0]),
+  con_fixed("a"),
   point("b"),
   con_distance("a", "b", 10),
 ]);
@@ -39,25 +40,29 @@ echo(solved(sol));   // true
 echo(pt(sol, "b"));  // [10, 0]  (or some other 10-unit-distant point)
 ```
 
-Three things happen here:
+Four things happen here:
 
-1. **`point("a", at = [0, 0])`** declares an *anchored* point. Its position
-   is fixed before the solver starts.
-2. **`point("b")`** declares a *free* point. The solver will place it.
-3. **`con_distance("a", "b", 10)`** says: the distance between `a` and `b`
+1. **`point("a", at = [0, 0])`** declares a point and *seeds* it at the
+   origin. The seed is the solver's initial guess; on its own it does not
+   pin the point.
+2. **`con_fixed("a")`** pins `a` to its initial position. With the seed
+   above, that pins it to the origin.
+3. **`point("b")`** declares a free point. The solver will place it.
+4. **`con_distance("a", "b", 10)`** says: the distance between `a` and `b`
    must be 10.
 
-The solver places `b` somewhere 10 units from `a`. Since the only constraint
-is the distance, `b` could be anywhere on a circle of radius 10. The solver
-picks one based on `b`'s initial position. You can verify how
-under-constrained the system is with `dof(sol)` — for this sketch, it's 1
-(the angle around `a` is unconstrained).
+The solver places `b` somewhere 10 units from `a`. Since the only
+relational constraint is the distance, `b` could be anywhere on a circle of
+radius 10. The solver picks one based on `b`'s initial position. You can
+verify how under-constrained the system is with `dof(sol)` — for this
+sketch, it's 1 (the angle around `a` is unconstrained).
 
 ## Building a real shape: a right triangle
 
 ```scad
 sol = solve2d([
   point("a", at = [0, 0]),
+  con_fixed("a"),
   point("b"),
   point("c"),
   con_distance("a", "b", 10),
@@ -69,7 +74,7 @@ sol = solve2d([
 linear_extrude(5) polygon(poly(sol, ["a", "b", "c"]));
 ```
 
-Read it as: *put `a` at the origin; `b` is 10 units from `a` along a
+Read it as: *pin `a` at the origin; `b` is 10 units from `a` along a
 horizontal line; `c` is 10 units from `b`; the corner at `b` is a right
 angle.* The result is the upright right-isoceles triangle a 7th-grader would
 draw. `dof(sol)` is 0 — fully constrained.
@@ -80,16 +85,28 @@ give it, ready to drop into `polygon()`.
 `pts(sol)` returns every solved point in declaration order — useful when you
 want the full point set without listing names, e.g. `polygon(pts(sol))`.
 
-## Anchored vs. free points
+## Seeding vs. anchoring vs. free
 
-This is the most important distinction:
+A point's role in the sketch is set by two independent things: whether it
+has a *seed* (initial guess from `at=`) and whether it's *anchored* by
+`con_fixed`.
 
-* **Anchored** (`at = [x, y]`): "I know where this is. Don't move it."
-  Useful for one origin point per sketch, fixed reference positions, or
-  positions you've computed elsewhere in OpenSCAD.
+* **Free** (no `at`, no `con_fixed`): "Figure out where this goes." The
+  solver picks a starting position and moves the point freely to satisfy
+  constraints.
 
-* **Free** (no `at`): "Figure out where this goes." The solver decides,
-  subject to whatever constraints reference the point.
+* **Seeded** (`at = [x, y]`, no `con_fixed`): "Start looking near here, but
+  move me as needed." The seed is just a hint to the solver — useful for
+  picking one solution out of many in under-constrained sketches, or for
+  guiding the solver away from a degenerate start. The point is still free
+  to move during the solve.
+
+* **Anchored** (`con_fixed`, with or without `at=`): "Don't move this
+  point." `con_fixed` pins the point to its initial position. Almost
+  always you want to combine it with `at=` so you control *where* it's
+  pinned: `point("a", at=[0,0]), con_fixed("a")`. Without an `at=`, the
+  pin lands at the implementation's seeding offset, which is rarely what
+  you want.
 
 A common pattern is to anchor exactly one point — usually `(0, 0)` — and
 let everything else be solved relative to it. If you anchor *too much*, you
@@ -112,7 +129,7 @@ with user-defined names like `distance`, `angle`, or `parallel`.
 | `con_perpendicular(p1, v, p2)` | Segments v–p1 and v–p2 form a right angle. |
 | `con_parallel(p1, p2, p3, p4)` | Segment p1–p2 is parallel to p3–p4. |
 | `con_angle(p1, p2, p3, p4, deg)` | Signed angle between p1–p2 and p3–p4. |
-| `con_fixed(p)` | Pin the point to its current solved position. |
+| `con_fixed(p)` | Pin the point to its initial position (the `at=` seed if given, otherwise the default seeding offset). |
 | `con_pt_on_line(p, la, lb)` | `p` lies on the line through la–lb. |
 | `con_pt_line_distance(p, la, lb, d)` | Signed distance from `p` to line la–lb. |
 | `con_at_midpoint(m, la, lb)` | `m` is the midpoint of la–lb. |
@@ -139,6 +156,7 @@ it easy to wrap a sketch in a parametric module:
 module right_tri(leg = 10, thickness = 5) {
   sol = solve2d([
     point("a", at = [0, 0]),
+    con_fixed("a"),
     point("b"),
     point("c"),
     con_distance("a", "b", leg),
@@ -165,7 +183,9 @@ assertion or a diagnostic:
 ```scad
 sol = solve2d([
   point("a", at = [0, 0]),
-  point("b", at = [5, 0]),     // anchored at distance 5 ...
+  con_fixed("a"),
+  point("b", at = [5, 0]),
+  con_fixed("b"),               // pinned at distance 5 ...
   con_distance("a", "b", 10),   // ... but constraint says 10. Conflict!
 ]);
 
@@ -186,11 +206,13 @@ You can also inspect `dof(sol)`:
 
 ## Pitfalls
 
-* **All free points start near the origin.** `solve2d` seeds free points
-  with small staggered initial positions to avoid degenerate starts (every
-  point at `(0,0)` makes constraints like "horizontal" undefined). For
-  simple sketches this is invisible. For complex ones, the solver may pick
-  a layout you didn't expect — anchor a couple of points to nudge it.
+* **Unseeded points start near the origin.** Points without an `at=`
+  seed get small staggered initial positions to avoid degenerate starts
+  (every point at `(0,0)` makes constraints like "horizontal" undefined).
+  For simple sketches this is invisible. For complex ones, the solver may
+  pick a layout you didn't expect — supply `at=` on a few points to nudge
+  it toward the solution branch you want, and `con_fixed` to pin the rest
+  of the geometry to a reference frame.
 
 * **The opaque `Solution` is opaque.** You can't index `sol[0]`, you can't
   iterate it, you can't compare it to an object. Only the accessor

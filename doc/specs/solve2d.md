@@ -16,10 +16,14 @@ A user guide with worked examples lives at [`doc/solve2d_guide.md`](../solve2d_g
   `ObjectType` describing a geometric primitive (currently only points).
 * "Sketch constraint" is a built-in function call that produces a tagged
   `ObjectType` describing a relation between sketch entities.
-* "Anchored point" is a point whose `at` keyword argument is supplied: its
-  coordinates are fixed before solving.
+* "Seeded point" is a point whose `at` keyword argument is supplied: its
+  coordinates are used as the solver's initial guess for that point. The
+  point remains free to move during the solve unless additionally
+  constrained by `con_fixed`.
 * "Free point" is a point whose `at` keyword argument is omitted: its
-  coordinates are solved for.
+  initial coordinates are implementation-defined.
+* "Anchored point" is a point constrained by `con_fixed`: the solver
+  shall not move it from its initial position.
 * "Workplane" is the fixed XY plane at the world origin (Z = 0). All sketch
   geometry lies on it.
 * "Solution" is the opaque value type returned by `solve2d`. It has its own
@@ -51,9 +55,10 @@ A user guide with worked examples lives at [`doc/solve2d_guide.md`](../solve2d_g
   abort — any input element that is not a recognized sketch entity or
   sketch constraint, any constraint with the wrong number or kind of
   arguments, or any constraint referencing an unknown point name.
-* Free points whose initial position is not otherwise determined shall be
-  seeded with implementation-defined non-coincident initial values. The
-  exact seeding scheme is not part of this specification and may change.
+* Points without an explicit `at` seed shall be assigned
+  implementation-defined non-coincident initial values to avoid degenerate
+  starting geometry. The exact seeding scheme is not part of this
+  specification and may change.
 * `solve2d` shall not be re-entrant on a single thread; it owns the
   underlying SolveSpace state for the duration of one call. Independent
   calls in sequence are safe.
@@ -112,9 +117,11 @@ A user guide with worked examples lives at [`doc/solve2d_guide.md`](../solve2d_g
 * `point(name)` and `point(name, at = [x, y])`:
   * `name` shall be a `string`. If not, the call shall return `undef` with
     a warning.
-  * `at`, if supplied, shall be a 2-element vector of numbers. If supplied
-    but malformed, the value shall be ignored and a warning emitted; the
-    resulting point shall be treated as free.
+  * `at`, if supplied, shall be a 2-element vector of numbers used as the
+    solver's initial guess for the point's position. `at` does not pin the
+    point; use `con_fixed(name)` to anchor it. If `at` is supplied but
+    malformed, the value shall be ignored and a warning emitted; the
+    resulting point shall be treated as if no `at` were given.
 
 ### Constraints
 
