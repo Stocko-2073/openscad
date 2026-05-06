@@ -1223,6 +1223,54 @@ Value builtin_failed_constraints(Arguments arguments, const Location& loc)
   return Value(std::move(result));
 }
 
+Value builtin_angle(Arguments arguments, const Location& loc)
+{
+  if (!require_solution("angle", arguments, loc, 2)) return Value::undefined.clone();
+  if (arguments[1]->type() != Value::Type::VECTOR) {
+    LOG(message_group::Warning, loc, arguments.documentRoot(),
+        "angle() expects [a, b, c] as the second argument");
+    return Value::undefined.clone();
+  }
+  const VectorType& names = arguments[1]->toVector();
+  if (names.size() != 3) {
+    LOG(message_group::Warning, loc, arguments.documentRoot(),
+        "angle() expects exactly three point names");
+    return Value::undefined.clone();
+  }
+  std::string n[3];
+  for (int i = 0; i < 3; ++i) {
+    if (names[i].type() != Value::Type::STRING) {
+      LOG(message_group::Warning, loc, arguments.documentRoot(),
+          "angle() point name list must contain only strings");
+      return Value::undefined.clone();
+    }
+    n[i] = names[i].toString();
+  }
+  const SolutionType& sol = arguments[0]->toSolution();
+  SolutionType::Point2d p[3];
+  for (int i = 0; i < 3; ++i) {
+    auto opt = sol.point(n[i]);
+    if (!opt) {
+      LOG(message_group::Warning, loc, arguments.documentRoot(),
+          "angle(): solution has no point named '%1$s'", n[i]);
+      return Value::undefined.clone();
+    }
+    p[i] = *opt;
+  }
+  const double v1x = p[0][0] - p[1][0], v1y = p[0][1] - p[1][1];
+  const double v2x = p[2][0] - p[1][0], v2y = p[2][1] - p[1][1];
+  constexpr double DEGENERATE = 1e-12;
+  if (std::sqrt(v1x*v1x + v1y*v1y) < DEGENERATE ||
+      std::sqrt(v2x*v2x + v2y*v2y) < DEGENERATE) {
+    LOG(message_group::Warning, loc, arguments.documentRoot(),
+        "angle() degenerate: ray endpoint coincides with vertex '%1$s'", n[1]);
+    return Value::undefined.clone();
+  }
+  double raw = std::atan2(v1x*v2y - v1y*v2x, v1x*v2x + v1y*v2y);
+  if (raw < 0) raw += 2.0 * M_PI;
+  return Value(raw * 180.0 / M_PI);
+}
+
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -1290,4 +1338,6 @@ void register_builtin_solve()
                  {"poly(sol, [names]) -> [[x,y], ...]"});
   Builtins::init("failed_constraints", new BuiltinFunction(&builtin_failed_constraints),
                  {"failed_constraints(sol) -> [string]"});
+  Builtins::init("angle", new BuiltinFunction(&builtin_angle),
+                 {"angle(sol, [a, b, c]) -> CCW degrees at vertex b ([0,360))"});
 }
