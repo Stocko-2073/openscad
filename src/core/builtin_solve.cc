@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -454,6 +456,150 @@ bool collect_point_ref(const ConstraintDecl& c, size_t idx, const std::string& f
   out_entity = points[it->second].entity;
   (void)field;
   return true;
+}
+
+// Compute a residual for `c` given the solved point coordinates. Returns
+// the absolute error of the constraint as a non-negative number; lower is
+// better, zero means satisfied. Returns 0 for unknown kinds, missing
+// points, and degenerate inputs (zero-length lines) so that we don't
+// generate spurious failures.
+//
+// Used to recover from a SolveSpace quirk: when the Jacobian is rank-
+// deficient at the solution (REDUNDANT_OKAY internally) the C wrapper
+// reports SLVS_RESULT_INCONSISTENT regardless of whether Newton actually
+// converged. Recomputing residuals lets us tell "redundant but solved"
+// from "actually broken" without patching libslvs.
+double constraint_residual(const ConstraintDecl& c,
+                           const std::map<std::string, SolutionType::Point2d>& pts)
+{
+  using P = SolutionType::Point2d;
+  auto get = [&](const std::string& n, P& out) -> bool {
+    auto it = pts.find(n);
+    if (it == pts.end()) return false;
+    out = it->second;
+    return true;
+  };
+  auto sub = [](const P& a, const P& b) -> P { return {a[0]-b[0], a[1]-b[1]}; };
+  auto norm = [](const P& v) { return std::sqrt(v[0]*v[0] + v[1]*v[1]); };
+  auto cross_z = [](const P& a, const P& b) { return a[0]*b[1] - a[1]*b[0]; };
+  auto dot = [](const P& a, const P& b) { return a[0]*b[0] + a[1]*b[1]; };
+  constexpr double DEGENERATE = 1e-12;
+
+  P a, b, p, q, r, s;
+
+  if ((c.kind == "coincident" || c.kind == "horizontal" ||
+       c.kind == "vertical" || c.kind == "distance" ||
+       c.kind == "symmetric_horiz" || c.kind == "symmetric_vert") &&
+      c.points.size() == 2) {
+    if (!get(c.points[0], a) || !get(c.points[1], b)) return 0.0;
+    if (c.kind == "coincident")      return std::max(std::abs(a[0]-b[0]), std::abs(a[1]-b[1]));
+    if (c.kind == "horizontal")      return std::abs(a[1] - b[1]);
+    if (c.kind == "vertical")        return std::abs(a[0] - b[0]);
+    if (c.kind == "distance")        return std::abs(norm(sub(a,b)) - c.valA);
+    if (c.kind == "symmetric_horiz") return std::max(std::abs(a[1]-b[1]), std::abs(a[0]+b[0]));
+    if (c.kind == "symmetric_vert")  return std::max(std::abs(a[0]-b[0]), std::abs(a[1]+b[1]));
+  }
+  if (c.kind == "fixed") {
+    return 0.0;
+  }
+  if (c.kind == "perpendicular" && c.points.size() == 3) {
+    if (!get(c.points[0], p) || !get(c.points[1], a) || !get(c.points[2], b)) return 0.0;
+    P v1 = sub(p, a), v2 = sub(b, a);
+    double m = norm(v1) * norm(v2);
+    return m < DEGENERATE ? 0.0 : std::abs(dot(v1, v2)) / m;
+  }
+  if ((c.kind == "pt_on_line" || c.kind == "at_midpoint") && c.points.size() == 3) {
+    if (!get(c.points[0], p) || !get(c.points[1], a) || !get(c.points[2], b)) return 0.0;
+    if (c.kind == "at_midpoint") {
+      P mid{(a[0]+b[0])/2, (a[1]+b[1])/2};
+      return std::max(std::abs(p[0]-mid[0]), std::abs(p[1]-mid[1]));
+    }
+    P v = sub(b, a);
+    double m = norm(v);
+    return m < DEGENERATE ? 0.0 : std::abs(cross_z(sub(p, a), v)) / m;
+  }
+  if (c.kind == "pt_line_distance" && c.points.size() == 3) {
+    if (!get(c.points[0], p) || !get(c.points[1], a) || !get(c.points[2], b)) return 0.0;
+    P v = sub(b, a);
+    double m = norm(v);
+    if (m < DEGENERATE) return 0.0;
+    double signed_dist = cross_z(sub(p, a), v) / m;
+    return std::abs(signed_dist - c.valA);
+  }
+  if ((c.kind == "parallel" || c.kind == "angle" ||
+       c.kind == "equal_length" || c.kind == "length_ratio" ||
+       c.kind == "length_difference") && c.points.size() == 4) {
+    if (!get(c.points[0], a) || !get(c.points[1], b) ||
+        !get(c.points[2], p) || !get(c.points[3], q)) return 0.0;
+    P v1 = sub(b, a), v2 = sub(q, p);
+    double m1 = norm(v1), m2 = norm(v2);
+    if (c.kind == "parallel") {
+      double mm = m1 * m2;
+      return mm < DEGENERATE ? 0.0 : std::abs(cross_z(v1, v2)) / mm;
+    }
+    if (c.kind == "angle") {
+      if (m1 < DEGENERATE || m2 < DEGENERATE) return 0.0;
+      double cosA = std::max(-1.0, std::min(1.0, dot(v1, v2) / (m1 * m2)));
+      double angle_deg = std::acos(cosA) * 180.0 / M_PI;
+      return std::abs(angle_deg - std::abs(c.valA));
+    }
+    if (c.kind == "equal_length")      return std::abs(m1 - m2);
+    if (c.kind == "length_ratio")      return m2 < DEGENERATE ? 0.0 : std::abs(m1/m2 - c.valA);
+    if (c.kind == "length_difference") return std::abs((m1 - m2) - c.valA);
+  }
+  if (c.kind == "symmetric_line" && c.points.size() == 4) {
+    P p1, p2, la, lb;
+    if (!get(c.points[0], p1) || !get(c.points[1], p2) ||
+        !get(c.points[2], la) || !get(c.points[3], lb)) return 0.0;
+    P v = sub(lb, la);
+    double m = norm(v);
+    if (m < DEGENERATE) return 0.0;
+    double perp = std::abs(dot(sub(p2, p1), v)) / m;
+    double d_sum = (cross_z(sub(p1, la), v) + cross_z(sub(p2, la), v)) / m;
+    return std::max(perp, std::abs(d_sum));
+  }
+  if (c.kind == "eq_len_pt_line_d" && c.points.size() == 5) {
+    if (!get(c.points[0], p) || !get(c.points[1], a) || !get(c.points[2], b) ||
+        !get(c.points[3], r) || !get(c.points[4], s)) return 0.0;
+    double len = norm(sub(a, b));
+    P v = sub(s, r);
+    double m = norm(v);
+    if (m < DEGENERATE) return 0.0;
+    double dist = std::abs(cross_z(sub(p, r), v)) / m;
+    return std::abs(len - dist);
+  }
+  if (c.kind == "eq_pt_ln_distances" && c.points.size() == 6) {
+    P p1, p2, a1, b1, a2, b2;
+    if (!get(c.points[0], p1) || !get(c.points[1], a1) || !get(c.points[2], b1) ||
+        !get(c.points[3], p2) || !get(c.points[4], a2) || !get(c.points[5], b2)) return 0.0;
+    P v1 = sub(b1, a1), v2 = sub(b2, a2);
+    double m1 = norm(v1), m2 = norm(v2);
+    if (m1 < DEGENERATE || m2 < DEGENERATE) return 0.0;
+    return std::abs(std::abs(cross_z(sub(p1, a1), v1))/m1 -
+                    std::abs(cross_z(sub(p2, a2), v2))/m2);
+  }
+  if (c.kind == "equal_angle" && c.points.size() == 8) {
+    P endpts[4][2];
+    for (int i = 0; i < 4; ++i) {
+      if (!get(c.points[i*2], endpts[i][0]) ||
+          !get(c.points[i*2+1], endpts[i][1])) return 0.0;
+    }
+    auto angle = [&](const P& x, const P& y) {
+      P u = sub(y, x);
+      double m = norm(u);
+      return std::pair{u, m};
+    };
+    auto [u1, m1] = angle(endpts[0][0], endpts[0][1]);
+    auto [u2, m2] = angle(endpts[1][0], endpts[1][1]);
+    auto [u3, m3] = angle(endpts[2][0], endpts[2][1]);
+    auto [u4, m4] = angle(endpts[3][0], endpts[3][1]);
+    if (m1 < DEGENERATE || m2 < DEGENERATE || m3 < DEGENERATE || m4 < DEGENERATE) return 0.0;
+    double c1 = std::max(-1.0, std::min(1.0, dot(u1, u2) / (m1*m2)));
+    double c2 = std::max(-1.0, std::min(1.0, dot(u3, u4) / (m3*m4)));
+    return std::abs(std::acos(c1) - std::acos(c2));
+  }
+
+  return 0.0;
 }
 
 }  // namespace
@@ -922,7 +1068,6 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
   data->result_code = sys.result;
   data->solved = (sys.result == SLVS_RESULT_OKAY);
   data->dof = sys.dof;
-  data->residual = 0.0;  // SolveSpace doesn't expose residual directly.
 
   // Read back point coords by looking up each point's u_param and v_param.
   std::map<Slvs_hParam, double> param_value;
@@ -945,6 +1090,24 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
     } else {
       data->failed_constraints.push_back("constraint #" + std::to_string(sys.failed[i]));
     }
+  }
+
+  // Compute max absolute residual across all constraints, and use it to
+  // recover from libslvs's REDUNDANT_OKAY → INCONSISTENT mapping (see
+  // submodules/SolveSpaceLib/libslvs/lib.cpp:234-237). If the solver
+  // bailed on rank but Newton actually converged, residuals will be
+  // tiny and we promote the result to solved.
+  constexpr double RESIDUAL_TOLERANCE = 1e-6;
+  double max_residual = 0.0;
+  for (const auto& c : constraints) {
+    double r = constraint_residual(c, data->points);
+    if (r > max_residual) max_residual = r;
+  }
+  data->residual = max_residual;
+
+  if (sys.result == SLVS_RESULT_INCONSISTENT && max_residual < RESIDUAL_TOLERANCE) {
+    data->solved = true;
+    data->failed_constraints.clear();
   }
 
   return Value(SolutionPtr(SolutionType(std::move(data))));

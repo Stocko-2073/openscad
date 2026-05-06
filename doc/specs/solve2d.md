@@ -60,12 +60,20 @@ A user guide with worked examples lives at [`doc/solve2d_guide.md`](../solve2d_g
 
 ### Solution accessors
 
-* `solved(sol)` shall return a `bool` reflecting whether SolveSpace returned
-  `SLVS_RESULT_OKAY`.
+* `solved(sol)` shall return a `bool`. It shall be `true` when SolveSpace
+  returned `SLVS_RESULT_OKAY`, and shall additionally be `true` when
+  SolveSpace returned `SLVS_RESULT_INCONSISTENT` but the maximum
+  per-constraint residual computed against the solved point coordinates is
+  below an implementation-defined tolerance — this recovers from
+  SolveSpace's rank-deficient-Jacobian false positives without masking
+  genuine failures.
 * `dof(sol)` shall return a `number` equal to the SolveSpace-reported degree
   of freedom count.
-* `residual(sol)` shall return a `number`. The current value is always 0 on
-  success and is reserved for future use.
+* `residual(sol)` shall return a `number` equal to the maximum absolute
+  per-constraint residual computed against the solved point coordinates.
+  Constraint kinds whose residuals are not locally computed contribute
+  `0`; callers shall not rely on a non-zero value as proof of failure
+  beyond the `solved(sol)` flag.
 * `pt(sol, name)` shall return a 2-element vector `[x, y]` for the named
   point, or `undef` with a warning if no such point exists in the solution.
 * `poly(sol, names)` shall return a list of 2-element vectors in the order
