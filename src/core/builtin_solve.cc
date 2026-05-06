@@ -996,12 +996,12 @@ SolveOnceResult build_and_solve_once(
   // Active inequalities: treated as equalities by the solver for this iteration.
   for (size_t idx : active_set) {
     const auto& ineq = inequalities[idx];
-    Slvs_hConstraint ch = next_constraint++;
 
     if (ineq.kind == "le_distance" && ineq.points.size() == 2) {
       Slvs_hEntity a = pt_entity(ineq.kind, ineq.points[0]);
       Slvs_hEntity b = pt_entity(ineq.kind, ineq.points[1]);
       if (!a || !b) continue;
+      Slvs_hConstraint ch = next_constraint++;
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_PT_PT_DISTANCE,
                                                  wrkpl, ineq.valA, a, b, 0, 0));
