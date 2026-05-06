@@ -226,6 +226,28 @@ Value builtin_con_angle(Arguments arguments, const Location& loc)
   return obj;
 }
 
+Value builtin_con_le_angle(Arguments arguments, const Location& loc)
+{
+  EvaluationSession *session = arguments.session();
+  if (arguments.size() != 5 ||
+      arguments[0]->type() != Value::Type::STRING ||
+      arguments[1]->type() != Value::Type::STRING ||
+      arguments[2]->type() != Value::Type::STRING ||
+      arguments[3]->type() != Value::Type::STRING ||
+      arguments[4]->type() != Value::Type::NUMBER) {
+    LOG(message_group::Warning, loc, arguments.documentRoot(),
+        "con_le_angle() expects four point names and a degree value");
+    return Value::undefined.clone();
+  }
+  ObjectType obj = make_kind_obj(session, "le_angle");
+  obj.set("a", arguments[0]->clone());
+  obj.set("b", arguments[1]->clone());
+  obj.set("c", arguments[2]->clone());
+  obj.set("d", arguments[3]->clone());
+  obj.set("deg", arguments[4]->clone());
+  return obj;
+}
+
 Value builtin_con_fixed(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
@@ -696,7 +718,17 @@ double inequality_violation(const InequalityDecl& ineq,
         !get(ineq.points[2], c_) || !get(ineq.points[3], d_)) return 0.0;
     return (norm(sub(b_, a_)) - norm(sub(d_, c_))) - ineq.valA;
   }
-  // [other kinds added in later tasks]
+  if (ineq.kind == "le_angle" && ineq.points.size() == 4) {
+    P a_, b_, c_, d_;
+    if (!get(ineq.points[0], a_) || !get(ineq.points[1], b_) ||
+        !get(ineq.points[2], c_) || !get(ineq.points[3], d_)) return 0.0;
+    P v1 = sub(b_, a_), v2 = sub(d_, c_);
+    double m1 = norm(v1), m2 = norm(v2);
+    if (m1 < 1e-12 || m2 < 1e-12) return 0.0;
+    double cosA = std::max(-1.0, std::min(1.0, (v1[0]*v2[0] + v1[1]*v2[1]) / (m1*m2)));
+    double angle_deg = std::acos(cosA) * 180.0 / M_PI;
+    return angle_deg - std::abs(ineq.valA);
+  }
   return 0.0;
 }
 
@@ -1079,8 +1111,21 @@ SolveOnceResult build_and_solve_once(
                                                  wrkpl, ineq.valA, 0, 0, l1, l2));
       constraint_name_by_h[ch] = ineq.name;
       out.active_ineq_handles[idx] = ch;
+    } else if (ineq.kind == "le_angle" && ineq.points.size() == 4) {
+      Slvs_hEntity a = pt_entity(ineq.kind, ineq.points[0]);
+      Slvs_hEntity b = pt_entity(ineq.kind, ineq.points[1]);
+      Slvs_hEntity c = pt_entity(ineq.kind, ineq.points[2]);
+      Slvs_hEntity d = pt_entity(ineq.kind, ineq.points[3]);
+      if (!a || !b || !c || !d) continue;
+      Slvs_hConstraint ch = next_constraint++;
+      Slvs_hEntity l1 = make_line(a, b);
+      Slvs_hEntity l2 = make_line(c, d);
+      sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
+                                                 SLVS_C_ANGLE,
+                                                 wrkpl, ineq.valA, 0, 0, l1, l2));
+      constraint_name_by_h[ch] = ineq.name;
+      out.active_ineq_handles[idx] = ch;
     }
-    // [other kinds added in later tasks]
   }
 
   // Solve
@@ -1147,7 +1192,7 @@ SolveOnceResult build_and_solve_once(
     if (inequalities[idx].kind == "le_distance") pseudo.kind = "distance";
     else if (inequalities[idx].kind == "le_pt_line_distance") pseudo.kind = "pt_line_distance";
     else if (inequalities[idx].kind == "le_length_difference") pseudo.kind = "length_difference";
-    // [more mappings in later tasks]
+    else if (inequalities[idx].kind == "le_angle") pseudo.kind = "angle";
     pseudo.points = inequalities[idx].points;
     pseudo.valA = inequalities[idx].valA;
     double r = constraint_residual(pseudo, out.points);
@@ -1400,6 +1445,23 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         ineq.points.push_back(d_);
         field_double(obj, "diff", ineq.valA);
         ineq.name = "con_le_length_difference(" + a + "," + b + "," + c_ + "," + d_ + "," +
+                    std::to_string(ineq.valA) + ")";
+        inequalities.push_back(std::move(ineq));
+        continue;
+      } else if (kind == "le_angle") {
+        InequalityDecl ineq;
+        ineq.kind = kind;
+        std::string a, b, c_, d_;
+        field_string(obj, "a", a);
+        field_string(obj, "b", b);
+        field_string(obj, "c", c_);
+        field_string(obj, "d", d_);
+        ineq.points.push_back(a);
+        ineq.points.push_back(b);
+        ineq.points.push_back(c_);
+        ineq.points.push_back(d_);
+        field_double(obj, "deg", ineq.valA);
+        ineq.name = "con_le_angle(" + a + "," + b + "," + c_ + "," + d_ + "," +
                     std::to_string(ineq.valA) + ")";
         inequalities.push_back(std::move(ineq));
         continue;
@@ -1674,6 +1736,9 @@ void register_builtin_solve()
                  {"con_parallel(p1, p2, p3, p4) -> sketch constraint"});
   Builtins::init("con_angle", new BuiltinFunction(&builtin_con_angle),
                  {"con_angle(p1, p2, p3, p4, deg) -> sketch constraint"});
+  Builtins::init("con_le_angle",
+                 new BuiltinFunction(&builtin_con_le_angle),
+                 {"con_le_angle(p1, p2, p3, p4, deg) -> sketch constraint (angle <= deg)"});
   Builtins::init("con_fixed", new BuiltinFunction(&builtin_con_fixed),
                  {"con_fixed(p) -> sketch constraint"});
 
