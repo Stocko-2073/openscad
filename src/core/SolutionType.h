@@ -20,9 +20,11 @@ public:
     int result_code = -1;
     double residual = 0.0;
     int dof = 0;
+    int iterations = 0;
     std::map<std::string, Point2d> points;
     std::vector<std::string> ordered_names;
     std::vector<std::string> failed_constraints;
+    std::vector<std::string> active_inequalities;
   };
 
   explicit SolutionType(std::shared_ptr<Data> data) : data_(std::move(data)) {}
@@ -42,6 +44,11 @@ public:
   [[nodiscard]] const std::vector<std::string>& failed_constraints() const
   {
     return data_->failed_constraints;
+  }
+  [[nodiscard]] int iterations() const { return data_->iterations; }
+  [[nodiscard]] const std::vector<std::string>& active_inequalities() const
+  {
+    return data_->active_inequalities;
   }
   [[nodiscard]] const std::map<std::string, Point2d>& points() const { return data_->points; }
   [[nodiscard]] const std::vector<std::string>& ordered_names() const { return data_->ordered_names; }
