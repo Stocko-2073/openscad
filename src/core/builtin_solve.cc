@@ -308,6 +308,20 @@ Value builtin_con_pt_line_distance(Arguments arguments, const Location& loc)
   return obj;
 }
 
+Value builtin_con_le_pt_line_distance(Arguments arguments, const Location& loc)
+{
+  EvaluationSession *session = arguments.session();
+  if (!require_strings_then_number("con_le_pt_line_distance", arguments, loc, 3)) {
+    return Value::undefined.clone();
+  }
+  ObjectType obj = make_kind_obj(session, "le_pt_line_distance");
+  obj.set("p", arguments[0]->clone());
+  obj.set("a", arguments[1]->clone());
+  obj.set("b", arguments[2]->clone());
+  obj.set("d", arguments[3]->clone());
+  return obj;
+}
+
 Value builtin_con_at_midpoint(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
@@ -649,6 +663,17 @@ double inequality_violation(const InequalityDecl& ineq,
   if (ineq.kind == "le_distance" && ineq.points.size() == 2) {
     if (!get(ineq.points[0], a) || !get(ineq.points[1], b)) return 0.0;
     return norm(sub(a, b)) - ineq.valA;
+  }
+  if (ineq.kind == "le_pt_line_distance" && ineq.points.size() == 3) {
+    P p_, a_, b_;
+    if (!get(ineq.points[0], p_) || !get(ineq.points[1], a_) ||
+        !get(ineq.points[2], b_)) return 0.0;
+    P v = sub(b_, a_);
+    double m = norm(v);
+    if (m < 1e-12) return 0.0;
+    // signed distance: cross_z(p-a, v) / |v|
+    double signed_dist = ((p_[0]-a_[0])*v[1] - (p_[1]-a_[1])*v[0]) / m;
+    return signed_dist - ineq.valA;
   }
   // [other kinds added in later tasks]
   return 0.0;
@@ -1007,6 +1032,18 @@ SolveOnceResult build_and_solve_once(
                                                  wrkpl, ineq.valA, a, b, 0, 0));
       constraint_name_by_h[ch] = ineq.name;
       out.active_ineq_handles[idx] = ch;
+    } else if (ineq.kind == "le_pt_line_distance" && ineq.points.size() == 3) {
+      Slvs_hEntity p = pt_entity(ineq.kind, ineq.points[0]);
+      Slvs_hEntity a = pt_entity(ineq.kind, ineq.points[1]);
+      Slvs_hEntity b = pt_entity(ineq.kind, ineq.points[2]);
+      if (!p || !a || !b) continue;
+      Slvs_hConstraint ch = next_constraint++;
+      Slvs_hEntity line = make_line(a, b);
+      sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
+                                                 SLVS_C_PT_LINE_DISTANCE,
+                                                 wrkpl, ineq.valA, p, 0, line, 0));
+      constraint_name_by_h[ch] = ineq.name;
+      out.active_ineq_handles[idx] = ch;
     }
     // [other kinds added in later tasks]
   }
@@ -1073,6 +1110,7 @@ SolveOnceResult build_and_solve_once(
   for (size_t idx : active_set) {
     ConstraintDecl pseudo;
     if (inequalities[idx].kind == "le_distance") pseudo.kind = "distance";
+    else if (inequalities[idx].kind == "le_pt_line_distance") pseudo.kind = "pt_line_distance";
     // [more mappings in later tasks]
     pseudo.points = inequalities[idx].points;
     pseudo.valA = inequalities[idx].valA;
@@ -1297,6 +1335,21 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
                     std::to_string(ineq.valA) + ")";
         inequalities.push_back(std::move(ineq));
         continue;  // skip the constraints.push_back below
+      } else if (kind == "le_pt_line_distance") {
+        InequalityDecl ineq;
+        ineq.kind = kind;
+        std::string p, a, b;
+        field_string(obj, "p", p);
+        field_string(obj, "a", a);
+        field_string(obj, "b", b);
+        ineq.points.push_back(p);
+        ineq.points.push_back(a);
+        ineq.points.push_back(b);
+        field_double(obj, "d", ineq.valA);
+        ineq.name = "con_le_pt_line_distance(" + p + "," + a + "," + b + "," +
+                    std::to_string(ineq.valA) + ")";
+        inequalities.push_back(std::move(ineq));
+        continue;
       } else {
         LOG(message_group::Warning, loc, doc_root,
             "solve2d: unknown item kind '%1$s'", kind);
@@ -1555,6 +1608,9 @@ void register_builtin_solve()
                  {"con_distance(p1, p2, d) -> sketch constraint"});
   Builtins::init("con_le_distance", new BuiltinFunction(&builtin_con_le_distance),
                  {"con_le_distance(p1, p2, d) -> sketch constraint (|p1p2| <= d)"});
+  Builtins::init("con_le_pt_line_distance",
+                 new BuiltinFunction(&builtin_con_le_pt_line_distance),
+                 {"con_le_pt_line_distance(p, la, lb, d) -> sketch constraint (signed dist <= d)"});
   Builtins::init("con_horizontal", new BuiltinFunction(&builtin_con_horizontal),
                  {"con_horizontal(p1, p2) -> sketch constraint"});
   Builtins::init("con_vertical", new BuiltinFunction(&builtin_con_vertical),
