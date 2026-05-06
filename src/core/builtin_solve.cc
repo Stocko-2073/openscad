@@ -375,6 +375,21 @@ Value builtin_con_length_difference(Arguments arguments, const Location& loc)
   return obj;
 }
 
+Value builtin_con_le_length_difference(Arguments arguments, const Location& loc)
+{
+  EvaluationSession *session = arguments.session();
+  if (!require_strings_then_number("con_le_length_difference", arguments, loc, 4)) {
+    return Value::undefined.clone();
+  }
+  ObjectType obj = make_kind_obj(session, "le_length_difference");
+  obj.set("a", arguments[0]->clone());
+  obj.set("b", arguments[1]->clone());
+  obj.set("c", arguments[2]->clone());
+  obj.set("d", arguments[3]->clone());
+  obj.set("diff", arguments[4]->clone());
+  return obj;
+}
+
 Value builtin_con_eq_len_pt_line_d(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
@@ -674,6 +689,12 @@ double inequality_violation(const InequalityDecl& ineq,
     // signed distance: cross_z(p-a, v) / |v|
     double signed_dist = ((p_[0]-a_[0])*v[1] - (p_[1]-a_[1])*v[0]) / m;
     return signed_dist - ineq.valA;
+  }
+  if (ineq.kind == "le_length_difference" && ineq.points.size() == 4) {
+    P a_, b_, c_, d_;
+    if (!get(ineq.points[0], a_) || !get(ineq.points[1], b_) ||
+        !get(ineq.points[2], c_) || !get(ineq.points[3], d_)) return 0.0;
+    return (norm(sub(b_, a_)) - norm(sub(d_, c_))) - ineq.valA;
   }
   // [other kinds added in later tasks]
   return 0.0;
@@ -1044,6 +1065,20 @@ SolveOnceResult build_and_solve_once(
                                                  wrkpl, ineq.valA, p, 0, line, 0));
       constraint_name_by_h[ch] = ineq.name;
       out.active_ineq_handles[idx] = ch;
+    } else if (ineq.kind == "le_length_difference" && ineq.points.size() == 4) {
+      Slvs_hEntity a = pt_entity(ineq.kind, ineq.points[0]);
+      Slvs_hEntity b = pt_entity(ineq.kind, ineq.points[1]);
+      Slvs_hEntity c = pt_entity(ineq.kind, ineq.points[2]);
+      Slvs_hEntity d = pt_entity(ineq.kind, ineq.points[3]);
+      if (!a || !b || !c || !d) continue;
+      Slvs_hConstraint ch = next_constraint++;
+      Slvs_hEntity l1 = make_line(a, b);
+      Slvs_hEntity l2 = make_line(c, d);
+      sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
+                                                 SLVS_C_LENGTH_DIFFERENCE,
+                                                 wrkpl, ineq.valA, 0, 0, l1, l2));
+      constraint_name_by_h[ch] = ineq.name;
+      out.active_ineq_handles[idx] = ch;
     }
     // [other kinds added in later tasks]
   }
@@ -1111,6 +1146,7 @@ SolveOnceResult build_and_solve_once(
     ConstraintDecl pseudo;
     if (inequalities[idx].kind == "le_distance") pseudo.kind = "distance";
     else if (inequalities[idx].kind == "le_pt_line_distance") pseudo.kind = "pt_line_distance";
+    else if (inequalities[idx].kind == "le_length_difference") pseudo.kind = "length_difference";
     // [more mappings in later tasks]
     pseudo.points = inequalities[idx].points;
     pseudo.valA = inequalities[idx].valA;
@@ -1347,6 +1383,23 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         ineq.points.push_back(b);
         field_double(obj, "d", ineq.valA);
         ineq.name = "con_le_pt_line_distance(" + p + "," + a + "," + b + "," +
+                    std::to_string(ineq.valA) + ")";
+        inequalities.push_back(std::move(ineq));
+        continue;
+      } else if (kind == "le_length_difference") {
+        InequalityDecl ineq;
+        ineq.kind = kind;
+        std::string a, b, c_, d_;
+        field_string(obj, "a", a);
+        field_string(obj, "b", b);
+        field_string(obj, "c", c_);
+        field_string(obj, "d", d_);
+        ineq.points.push_back(a);
+        ineq.points.push_back(b);
+        ineq.points.push_back(c_);
+        ineq.points.push_back(d_);
+        field_double(obj, "diff", ineq.valA);
+        ineq.name = "con_le_length_difference(" + a + "," + b + "," + c_ + "," + d_ + "," +
                     std::to_string(ineq.valA) + ")";
         inequalities.push_back(std::move(ineq));
         continue;
@@ -1636,6 +1689,9 @@ void register_builtin_solve()
                  {"con_length_ratio(a, b, c, d, r) -> sketch constraint (|ab|/|cd|=r)"});
   Builtins::init("con_length_difference", new BuiltinFunction(&builtin_con_length_difference),
                  {"con_length_difference(a, b, c, d, diff) -> sketch constraint (|ab|-|cd|=diff)"});
+  Builtins::init("con_le_length_difference",
+                 new BuiltinFunction(&builtin_con_le_length_difference),
+                 {"con_le_length_difference(a, b, c, d, diff) -> sketch constraint (|ab|-|cd| <= diff)"});
   Builtins::init("con_eq_len_pt_line_d", new BuiltinFunction(&builtin_con_eq_len_pt_line_d),
                  {"con_eq_len_pt_line_d(p, la, lb, da, db) -> sketch constraint"});
   Builtins::init("con_eq_pt_ln_distances", new BuiltinFunction(&builtin_con_eq_pt_ln_distances),
