@@ -98,14 +98,14 @@ Value builtin_point(Arguments arguments, const Location& loc)
 // Constraint factories
 // ---------------------------------------------------------------------------
 
-Value make_two_point_constraint(const char *kind, Arguments arguments, const Location& loc)
+Value make_two_point_constraint(const char *user_name, const char *kind, Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
   if (arguments.size() != 2 ||
       arguments[0]->type() != Value::Type::STRING ||
       arguments[1]->type() != Value::Type::STRING) {
     LOG(message_group::Warning, loc, arguments.documentRoot(),
-        "%1$s() expects two string point names", kind);
+        "%1$s() expects two string point names", user_name);
     return Value::undefined.clone();
   }
   ObjectType obj = make_kind_obj(session, kind);
@@ -114,22 +114,22 @@ Value make_two_point_constraint(const char *kind, Arguments arguments, const Loc
   return obj;
 }
 
-Value builtin_coincident(Arguments arguments, const Location& loc)
+Value builtin_con_coincident(Arguments arguments, const Location& loc)
 {
-  return make_two_point_constraint("coincident", std::move(arguments), loc);
+  return make_two_point_constraint("con_coincident", "coincident", std::move(arguments), loc);
 }
 
-Value builtin_horizontal(Arguments arguments, const Location& loc)
+Value builtin_con_horizontal(Arguments arguments, const Location& loc)
 {
-  return make_two_point_constraint("horizontal", std::move(arguments), loc);
+  return make_two_point_constraint("con_horizontal", "horizontal", std::move(arguments), loc);
 }
 
-Value builtin_vertical(Arguments arguments, const Location& loc)
+Value builtin_con_vertical(Arguments arguments, const Location& loc)
 {
-  return make_two_point_constraint("vertical", std::move(arguments), loc);
+  return make_two_point_constraint("con_vertical", "vertical", std::move(arguments), loc);
 }
 
-Value builtin_distance(Arguments arguments, const Location& loc)
+Value builtin_con_distance(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
   if (arguments.size() != 3 ||
@@ -137,7 +137,7 @@ Value builtin_distance(Arguments arguments, const Location& loc)
       arguments[1]->type() != Value::Type::STRING ||
       arguments[2]->type() != Value::Type::NUMBER) {
     LOG(message_group::Warning, loc, arguments.documentRoot(),
-        "distance() expects (point_name, point_name, number)");
+        "con_distance() expects (point_name, point_name, number)");
     return Value::undefined.clone();
   }
   ObjectType obj = make_kind_obj(session, "distance");
@@ -147,7 +147,7 @@ Value builtin_distance(Arguments arguments, const Location& loc)
   return obj;
 }
 
-Value builtin_perpendicular(Arguments arguments, const Location& loc)
+Value builtin_con_perpendicular(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
   if (arguments.size() != 3 ||
@@ -155,7 +155,7 @@ Value builtin_perpendicular(Arguments arguments, const Location& loc)
       arguments[1]->type() != Value::Type::STRING ||
       arguments[2]->type() != Value::Type::STRING) {
     LOG(message_group::Warning, loc, arguments.documentRoot(),
-        "perpendicular() expects three point names: (p1, vertex, p2)");
+        "con_perpendicular() expects three point names: (p1, vertex, p2)");
     return Value::undefined.clone();
   }
   ObjectType obj = make_kind_obj(session, "perpendicular");
@@ -165,7 +165,7 @@ Value builtin_perpendicular(Arguments arguments, const Location& loc)
   return obj;
 }
 
-Value builtin_parallel(Arguments arguments, const Location& loc)
+Value builtin_con_parallel(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
   if (arguments.size() != 4 ||
@@ -174,7 +174,7 @@ Value builtin_parallel(Arguments arguments, const Location& loc)
       arguments[2]->type() != Value::Type::STRING ||
       arguments[3]->type() != Value::Type::STRING) {
     LOG(message_group::Warning, loc, arguments.documentRoot(),
-        "parallel() expects four point names");
+        "con_parallel() expects four point names");
     return Value::undefined.clone();
   }
   ObjectType obj = make_kind_obj(session, "parallel");
@@ -185,7 +185,7 @@ Value builtin_parallel(Arguments arguments, const Location& loc)
   return obj;
 }
 
-Value builtin_angle(Arguments arguments, const Location& loc)
+Value builtin_con_angle(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
   if (arguments.size() != 5 ||
@@ -195,7 +195,7 @@ Value builtin_angle(Arguments arguments, const Location& loc)
       arguments[3]->type() != Value::Type::STRING ||
       arguments[4]->type() != Value::Type::NUMBER) {
     LOG(message_group::Warning, loc, arguments.documentRoot(),
-        "angle() expects four point names and a degree value");
+        "con_angle() expects four point names and a degree value");
     return Value::undefined.clone();
   }
   ObjectType obj = make_kind_obj(session, "angle");
@@ -207,12 +207,12 @@ Value builtin_angle(Arguments arguments, const Location& loc)
   return obj;
 }
 
-Value builtin_fixed(Arguments arguments, const Location& loc)
+Value builtin_con_fixed(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
   if (arguments.size() != 1 || arguments[0]->type() != Value::Type::STRING) {
     LOG(message_group::Warning, loc, arguments.documentRoot(),
-        "fixed() expects a single point name");
+        "con_fixed() expects a single point name");
     return Value::undefined.clone();
   }
   ObjectType obj = make_kind_obj(session, "fixed");
@@ -264,10 +264,10 @@ bool require_strings_then_number(const char *fn, const Arguments& arguments, con
 
 }  // namespace
 
-Value builtin_pt_on_line(Arguments arguments, const Location& loc)
+Value builtin_con_pt_on_line(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
-  if (!require_strings("pt_on_line", arguments, loc, 3)) return Value::undefined.clone();
+  if (!require_strings("con_pt_on_line", arguments, loc, 3)) return Value::undefined.clone();
   ObjectType obj = make_kind_obj(session, "pt_on_line");
   obj.set("p", arguments[0]->clone());
   obj.set("a", arguments[1]->clone());
@@ -275,10 +275,10 @@ Value builtin_pt_on_line(Arguments arguments, const Location& loc)
   return obj;
 }
 
-Value builtin_pt_line_distance(Arguments arguments, const Location& loc)
+Value builtin_con_pt_line_distance(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
-  if (!require_strings_then_number("pt_line_distance", arguments, loc, 3)) {
+  if (!require_strings_then_number("con_pt_line_distance", arguments, loc, 3)) {
     return Value::undefined.clone();
   }
   ObjectType obj = make_kind_obj(session, "pt_line_distance");
@@ -289,10 +289,10 @@ Value builtin_pt_line_distance(Arguments arguments, const Location& loc)
   return obj;
 }
 
-Value builtin_at_midpoint(Arguments arguments, const Location& loc)
+Value builtin_con_at_midpoint(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
-  if (!require_strings("at_midpoint", arguments, loc, 3)) return Value::undefined.clone();
+  if (!require_strings("con_at_midpoint", arguments, loc, 3)) return Value::undefined.clone();
   ObjectType obj = make_kind_obj(session, "at_midpoint");
   obj.set("p", arguments[0]->clone());
   obj.set("a", arguments[1]->clone());
@@ -300,10 +300,10 @@ Value builtin_at_midpoint(Arguments arguments, const Location& loc)
   return obj;
 }
 
-Value builtin_equal_length(Arguments arguments, const Location& loc)
+Value builtin_con_equal_length(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
-  if (!require_strings("equal_length", arguments, loc, 4)) return Value::undefined.clone();
+  if (!require_strings("con_equal_length", arguments, loc, 4)) return Value::undefined.clone();
   ObjectType obj = make_kind_obj(session, "equal_length");
   obj.set("a", arguments[0]->clone());
   obj.set("b", arguments[1]->clone());
@@ -312,10 +312,10 @@ Value builtin_equal_length(Arguments arguments, const Location& loc)
   return obj;
 }
 
-Value builtin_length_ratio(Arguments arguments, const Location& loc)
+Value builtin_con_length_ratio(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
-  if (!require_strings_then_number("length_ratio", arguments, loc, 4)) {
+  if (!require_strings_then_number("con_length_ratio", arguments, loc, 4)) {
     return Value::undefined.clone();
   }
   ObjectType obj = make_kind_obj(session, "length_ratio");
@@ -327,10 +327,10 @@ Value builtin_length_ratio(Arguments arguments, const Location& loc)
   return obj;
 }
 
-Value builtin_length_difference(Arguments arguments, const Location& loc)
+Value builtin_con_length_difference(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
-  if (!require_strings_then_number("length_difference", arguments, loc, 4)) {
+  if (!require_strings_then_number("con_length_difference", arguments, loc, 4)) {
     return Value::undefined.clone();
   }
   ObjectType obj = make_kind_obj(session, "length_difference");
@@ -342,10 +342,10 @@ Value builtin_length_difference(Arguments arguments, const Location& loc)
   return obj;
 }
 
-Value builtin_eq_len_pt_line_d(Arguments arguments, const Location& loc)
+Value builtin_con_eq_len_pt_line_d(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
-  if (!require_strings("eq_len_pt_line_d", arguments, loc, 5)) {
+  if (!require_strings("con_eq_len_pt_line_d", arguments, loc, 5)) {
     return Value::undefined.clone();
   }
   ObjectType obj = make_kind_obj(session, "eq_len_pt_line_d");
@@ -357,10 +357,10 @@ Value builtin_eq_len_pt_line_d(Arguments arguments, const Location& loc)
   return obj;
 }
 
-Value builtin_eq_pt_ln_distances(Arguments arguments, const Location& loc)
+Value builtin_con_eq_pt_ln_distances(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
-  if (!require_strings("eq_pt_ln_distances", arguments, loc, 6)) {
+  if (!require_strings("con_eq_pt_ln_distances", arguments, loc, 6)) {
     return Value::undefined.clone();
   }
   ObjectType obj = make_kind_obj(session, "eq_pt_ln_distances");
@@ -373,10 +373,10 @@ Value builtin_eq_pt_ln_distances(Arguments arguments, const Location& loc)
   return obj;
 }
 
-Value builtin_equal_angle(Arguments arguments, const Location& loc)
+Value builtin_con_equal_angle(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
-  if (!require_strings("equal_angle", arguments, loc, 8)) {
+  if (!require_strings("con_equal_angle", arguments, loc, 8)) {
     return Value::undefined.clone();
   }
   ObjectType obj = make_kind_obj(session, "equal_angle");
@@ -391,20 +391,20 @@ Value builtin_equal_angle(Arguments arguments, const Location& loc)
   return obj;
 }
 
-Value builtin_symmetric_horiz(Arguments arguments, const Location& loc)
+Value builtin_con_symmetric_horiz(Arguments arguments, const Location& loc)
 {
-  return make_two_point_constraint("symmetric_horiz", std::move(arguments), loc);
+  return make_two_point_constraint("con_symmetric_horiz", "symmetric_horiz", std::move(arguments), loc);
 }
 
-Value builtin_symmetric_vert(Arguments arguments, const Location& loc)
+Value builtin_con_symmetric_vert(Arguments arguments, const Location& loc)
 {
-  return make_two_point_constraint("symmetric_vert", std::move(arguments), loc);
+  return make_two_point_constraint("con_symmetric_vert", "symmetric_vert", std::move(arguments), loc);
 }
 
-Value builtin_symmetric_line(Arguments arguments, const Location& loc)
+Value builtin_con_symmetric_line(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
-  if (!require_strings("symmetric_line", arguments, loc, 4)) {
+  if (!require_strings("con_symmetric_line", arguments, loc, 4)) {
     return Value::undefined.clone();
   }
   ObjectType obj = make_kind_obj(session, "symmetric_line");
@@ -814,7 +814,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
     auto it = name_to_idx.find(name);
     if (it == name_to_idx.end()) {
       LOG(message_group::Warning, loc, doc_root,
-          "solve2d: %1$s constraint references unknown point '%2$s'", kind, name);
+          "solve2d: con_%1$s constraint references unknown point '%2$s'", kind, name);
       return 0;
     }
     return points[it->second].entity;
@@ -836,7 +836,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_POINTS_COINCIDENT,
                                                  wrkpl, 0.0, a, b, 0, 0));
-      register_name("coincident(" + c.points[0] + "," + c.points[1] + ")");
+      register_name("con_coincident(" + c.points[0] + "," + c.points[1] + ")");
     } else if (c.kind == "distance" && c.points.size() == 2) {
       Slvs_hEntity a = pt_entity(c.kind, c.points[0]);
       Slvs_hEntity b = pt_entity(c.kind, c.points[1]);
@@ -844,7 +844,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_PT_PT_DISTANCE,
                                                  wrkpl, c.valA, a, b, 0, 0));
-      register_name("distance(" + c.points[0] + "," + c.points[1] + ")");
+      register_name("con_distance(" + c.points[0] + "," + c.points[1] + ")");
     } else if (c.kind == "horizontal" && c.points.size() == 2) {
       Slvs_hEntity a = pt_entity(c.kind, c.points[0]);
       Slvs_hEntity b = pt_entity(c.kind, c.points[1]);
@@ -853,7 +853,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_HORIZONTAL,
                                                  wrkpl, 0.0, 0, 0, line, 0));
-      register_name("horizontal(" + c.points[0] + "," + c.points[1] + ")");
+      register_name("con_horizontal(" + c.points[0] + "," + c.points[1] + ")");
     } else if (c.kind == "vertical" && c.points.size() == 2) {
       Slvs_hEntity a = pt_entity(c.kind, c.points[0]);
       Slvs_hEntity b = pt_entity(c.kind, c.points[1]);
@@ -862,7 +862,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_VERTICAL,
                                                  wrkpl, 0.0, 0, 0, line, 0));
-      register_name("vertical(" + c.points[0] + "," + c.points[1] + ")");
+      register_name("con_vertical(" + c.points[0] + "," + c.points[1] + ")");
     } else if (c.kind == "perpendicular" && c.points.size() == 3) {
       Slvs_hEntity a = pt_entity(c.kind, c.points[0]);
       Slvs_hEntity v = pt_entity(c.kind, c.points[1]);
@@ -873,7 +873,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_PERPENDICULAR,
                                                  wrkpl, 0.0, 0, 0, l1, l2));
-      register_name("perpendicular(" + c.points[0] + "," + c.points[1] + "," + c.points[2] + ")");
+      register_name("con_perpendicular(" + c.points[0] + "," + c.points[1] + "," + c.points[2] + ")");
     } else if (c.kind == "parallel" && c.points.size() == 4) {
       Slvs_hEntity a = pt_entity(c.kind, c.points[0]);
       Slvs_hEntity b = pt_entity(c.kind, c.points[1]);
@@ -885,7 +885,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_PARALLEL,
                                                  wrkpl, 0.0, 0, 0, l1, l2));
-      register_name("parallel(" + c.points[0] + "," + c.points[1] + "," +
+      register_name("con_parallel(" + c.points[0] + "," + c.points[1] + "," +
                     c.points[2] + "," + c.points[3] + ")");
     } else if (c.kind == "angle" && c.points.size() == 4) {
       Slvs_hEntity a = pt_entity(c.kind, c.points[0]);
@@ -898,14 +898,14 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_ANGLE,
                                                  wrkpl, c.valA, 0, 0, l1, l2));
-      register_name("angle(...)");
+      register_name("con_angle(...)");
     } else if (c.kind == "fixed" && c.points.size() == 1) {
       Slvs_hEntity a = pt_entity(c.kind, c.points[0]);
       if (!a) continue;
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_WHERE_DRAGGED,
                                                  wrkpl, 0.0, a, 0, 0, 0));
-      register_name("fixed(" + c.points[0] + ")");
+      register_name("con_fixed(" + c.points[0] + ")");
     } else if (c.kind == "pt_on_line" && c.points.size() == 3) {
       Slvs_hEntity p = pt_entity(c.kind, c.points[0]);
       Slvs_hEntity a = pt_entity(c.kind, c.points[1]);
@@ -915,7 +915,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_PT_ON_LINE,
                                                  wrkpl, 0.0, p, 0, line, 0));
-      register_name("pt_on_line(" + c.points[0] + "," + c.points[1] + "," + c.points[2] + ")");
+      register_name("con_pt_on_line(" + c.points[0] + "," + c.points[1] + "," + c.points[2] + ")");
     } else if (c.kind == "pt_line_distance" && c.points.size() == 3) {
       Slvs_hEntity p = pt_entity(c.kind, c.points[0]);
       Slvs_hEntity a = pt_entity(c.kind, c.points[1]);
@@ -925,7 +925,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_PT_LINE_DISTANCE,
                                                  wrkpl, c.valA, p, 0, line, 0));
-      register_name("pt_line_distance(" + c.points[0] + "," + c.points[1] + "," + c.points[2] + ")");
+      register_name("con_pt_line_distance(" + c.points[0] + "," + c.points[1] + "," + c.points[2] + ")");
     } else if (c.kind == "at_midpoint" && c.points.size() == 3) {
       Slvs_hEntity p = pt_entity(c.kind, c.points[0]);
       Slvs_hEntity a = pt_entity(c.kind, c.points[1]);
@@ -935,7 +935,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_AT_MIDPOINT,
                                                  wrkpl, 0.0, p, 0, line, 0));
-      register_name("at_midpoint(" + c.points[0] + "," + c.points[1] + "," + c.points[2] + ")");
+      register_name("con_at_midpoint(" + c.points[0] + "," + c.points[1] + "," + c.points[2] + ")");
     } else if (c.kind == "equal_length" && c.points.size() == 4) {
       Slvs_hEntity a = pt_entity(c.kind, c.points[0]);
       Slvs_hEntity b = pt_entity(c.kind, c.points[1]);
@@ -947,7 +947,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_EQUAL_LENGTH_LINES,
                                                  wrkpl, 0.0, 0, 0, l1, l2));
-      register_name("equal_length(" + c.points[0] + "," + c.points[1] + "," +
+      register_name("con_equal_length(" + c.points[0] + "," + c.points[1] + "," +
                     c.points[2] + "," + c.points[3] + ")");
     } else if (c.kind == "length_ratio" && c.points.size() == 4) {
       Slvs_hEntity a = pt_entity(c.kind, c.points[0]);
@@ -960,7 +960,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_LENGTH_RATIO,
                                                  wrkpl, c.valA, 0, 0, l1, l2));
-      register_name("length_ratio(...)");
+      register_name("con_length_ratio(...)");
     } else if (c.kind == "length_difference" && c.points.size() == 4) {
       Slvs_hEntity a = pt_entity(c.kind, c.points[0]);
       Slvs_hEntity b = pt_entity(c.kind, c.points[1]);
@@ -972,7 +972,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_LENGTH_DIFFERENCE,
                                                  wrkpl, c.valA, 0, 0, l1, l2));
-      register_name("length_difference(...)");
+      register_name("con_length_difference(...)");
     } else if (c.kind == "eq_len_pt_line_d" && c.points.size() == 5) {
       Slvs_hEntity p = pt_entity(c.kind, c.points[0]);
       Slvs_hEntity a = pt_entity(c.kind, c.points[1]);
@@ -985,7 +985,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_EQ_LEN_PT_LINE_D,
                                                  wrkpl, 0.0, p, 0, lenLine, distLine));
-      register_name("eq_len_pt_line_d(...)");
+      register_name("con_eq_len_pt_line_d(...)");
     } else if (c.kind == "eq_pt_ln_distances" && c.points.size() == 6) {
       Slvs_hEntity p1 = pt_entity(c.kind, c.points[0]);
       Slvs_hEntity a1 = pt_entity(c.kind, c.points[1]);
@@ -999,7 +999,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_EQ_PT_LN_DISTANCES,
                                                  wrkpl, 0.0, p1, p2, l1, l2));
-      register_name("eq_pt_ln_distances(...)");
+      register_name("con_eq_pt_ln_distances(...)");
     } else if (c.kind == "equal_angle" && c.points.size() == 8) {
       Slvs_hEntity a = pt_entity(c.kind, c.points[0]);
       Slvs_hEntity b = pt_entity(c.kind, c.points[1]);
@@ -1019,7 +1019,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sc.entityC = l3;
       sc.entityD = l4;
       sconstraints.push_back(sc);
-      register_name("equal_angle(...)");
+      register_name("con_equal_angle(...)");
     } else if ((c.kind == "symmetric_horiz" || c.kind == "symmetric_vert") &&
                c.points.size() == 2) {
       Slvs_hEntity a = pt_entity(c.kind, c.points[0]);
@@ -1029,7 +1029,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
                                                : SLVS_C_SYMMETRIC_VERT;
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve, type,
                                                  wrkpl, 0.0, a, b, 0, 0));
-      register_name(c.kind + "(" + c.points[0] + "," + c.points[1] + ")");
+      register_name("con_" + c.kind + "(" + c.points[0] + "," + c.points[1] + ")");
     } else if (c.kind == "symmetric_line" && c.points.size() == 4) {
       Slvs_hEntity p1 = pt_entity(c.kind, c.points[0]);
       Slvs_hEntity p2 = pt_entity(c.kind, c.points[1]);
@@ -1040,10 +1040,10 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
       sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
                                                  SLVS_C_SYMMETRIC_LINE,
                                                  wrkpl, 0.0, p1, p2, line, 0));
-      register_name("symmetric_line(...)");
+      register_name("con_symmetric_line(...)");
     } else {
       LOG(message_group::Warning, loc, doc_root,
-          "solve2d: malformed %1$s constraint", c.kind);
+          "solve2d: malformed con_%1$s constraint", c.kind);
     }
   }
 
@@ -1236,47 +1236,47 @@ void register_builtin_solve()
                  {"point(name) -> sketch entity",
                   "point(name, at=[x,y]) -> sketch entity (anchored)"});
 
-  Builtins::init("coincident", new BuiltinFunction(&builtin_coincident),
-                 {"coincident(p1, p2) -> sketch constraint"});
-  Builtins::init("distance", new BuiltinFunction(&builtin_distance),
-                 {"distance(p1, p2, d) -> sketch constraint"});
-  Builtins::init("horizontal", new BuiltinFunction(&builtin_horizontal),
-                 {"horizontal(p1, p2) -> sketch constraint"});
-  Builtins::init("vertical", new BuiltinFunction(&builtin_vertical),
-                 {"vertical(p1, p2) -> sketch constraint"});
-  Builtins::init("perpendicular", new BuiltinFunction(&builtin_perpendicular),
-                 {"perpendicular(p1, vertex, p2) -> sketch constraint"});
-  Builtins::init("parallel", new BuiltinFunction(&builtin_parallel),
-                 {"parallel(p1, p2, p3, p4) -> sketch constraint"});
-  Builtins::init("angle", new BuiltinFunction(&builtin_angle),
-                 {"angle(p1, p2, p3, p4, deg) -> sketch constraint"});
-  Builtins::init("fixed", new BuiltinFunction(&builtin_fixed),
-                 {"fixed(p) -> sketch constraint"});
+  Builtins::init("con_coincident", new BuiltinFunction(&builtin_con_coincident),
+                 {"con_coincident(p1, p2) -> sketch constraint"});
+  Builtins::init("con_distance", new BuiltinFunction(&builtin_con_distance),
+                 {"con_distance(p1, p2, d) -> sketch constraint"});
+  Builtins::init("con_horizontal", new BuiltinFunction(&builtin_con_horizontal),
+                 {"con_horizontal(p1, p2) -> sketch constraint"});
+  Builtins::init("con_vertical", new BuiltinFunction(&builtin_con_vertical),
+                 {"con_vertical(p1, p2) -> sketch constraint"});
+  Builtins::init("con_perpendicular", new BuiltinFunction(&builtin_con_perpendicular),
+                 {"con_perpendicular(p1, vertex, p2) -> sketch constraint"});
+  Builtins::init("con_parallel", new BuiltinFunction(&builtin_con_parallel),
+                 {"con_parallel(p1, p2, p3, p4) -> sketch constraint"});
+  Builtins::init("con_angle", new BuiltinFunction(&builtin_con_angle),
+                 {"con_angle(p1, p2, p3, p4, deg) -> sketch constraint"});
+  Builtins::init("con_fixed", new BuiltinFunction(&builtin_con_fixed),
+                 {"con_fixed(p) -> sketch constraint"});
 
-  Builtins::init("pt_on_line", new BuiltinFunction(&builtin_pt_on_line),
-                 {"pt_on_line(p, la, lb) -> sketch constraint"});
-  Builtins::init("pt_line_distance", new BuiltinFunction(&builtin_pt_line_distance),
-                 {"pt_line_distance(p, la, lb, d) -> sketch constraint (signed)"});
-  Builtins::init("at_midpoint", new BuiltinFunction(&builtin_at_midpoint),
-                 {"at_midpoint(m, la, lb) -> sketch constraint"});
-  Builtins::init("equal_length", new BuiltinFunction(&builtin_equal_length),
-                 {"equal_length(a, b, c, d) -> sketch constraint"});
-  Builtins::init("length_ratio", new BuiltinFunction(&builtin_length_ratio),
-                 {"length_ratio(a, b, c, d, r) -> sketch constraint (|ab|/|cd|=r)"});
-  Builtins::init("length_difference", new BuiltinFunction(&builtin_length_difference),
-                 {"length_difference(a, b, c, d, diff) -> sketch constraint (|ab|-|cd|=diff)"});
-  Builtins::init("eq_len_pt_line_d", new BuiltinFunction(&builtin_eq_len_pt_line_d),
-                 {"eq_len_pt_line_d(p, la, lb, da, db) -> sketch constraint"});
-  Builtins::init("eq_pt_ln_distances", new BuiltinFunction(&builtin_eq_pt_ln_distances),
-                 {"eq_pt_ln_distances(p1, l1a, l1b, p2, l2a, l2b) -> sketch constraint"});
-  Builtins::init("equal_angle", new BuiltinFunction(&builtin_equal_angle),
-                 {"equal_angle(a, b, c, d, e, f, g, h) -> sketch constraint"});
-  Builtins::init("symmetric_horiz", new BuiltinFunction(&builtin_symmetric_horiz),
-                 {"symmetric_horiz(p1, p2) -> sketch constraint"});
-  Builtins::init("symmetric_vert", new BuiltinFunction(&builtin_symmetric_vert),
-                 {"symmetric_vert(p1, p2) -> sketch constraint"});
-  Builtins::init("symmetric_line", new BuiltinFunction(&builtin_symmetric_line),
-                 {"symmetric_line(p1, p2, la, lb) -> sketch constraint"});
+  Builtins::init("con_pt_on_line", new BuiltinFunction(&builtin_con_pt_on_line),
+                 {"con_pt_on_line(p, la, lb) -> sketch constraint"});
+  Builtins::init("con_pt_line_distance", new BuiltinFunction(&builtin_con_pt_line_distance),
+                 {"con_pt_line_distance(p, la, lb, d) -> sketch constraint (signed)"});
+  Builtins::init("con_at_midpoint", new BuiltinFunction(&builtin_con_at_midpoint),
+                 {"con_at_midpoint(m, la, lb) -> sketch constraint"});
+  Builtins::init("con_equal_length", new BuiltinFunction(&builtin_con_equal_length),
+                 {"con_equal_length(a, b, c, d) -> sketch constraint"});
+  Builtins::init("con_length_ratio", new BuiltinFunction(&builtin_con_length_ratio),
+                 {"con_length_ratio(a, b, c, d, r) -> sketch constraint (|ab|/|cd|=r)"});
+  Builtins::init("con_length_difference", new BuiltinFunction(&builtin_con_length_difference),
+                 {"con_length_difference(a, b, c, d, diff) -> sketch constraint (|ab|-|cd|=diff)"});
+  Builtins::init("con_eq_len_pt_line_d", new BuiltinFunction(&builtin_con_eq_len_pt_line_d),
+                 {"con_eq_len_pt_line_d(p, la, lb, da, db) -> sketch constraint"});
+  Builtins::init("con_eq_pt_ln_distances", new BuiltinFunction(&builtin_con_eq_pt_ln_distances),
+                 {"con_eq_pt_ln_distances(p1, l1a, l1b, p2, l2a, l2b) -> sketch constraint"});
+  Builtins::init("con_equal_angle", new BuiltinFunction(&builtin_con_equal_angle),
+                 {"con_equal_angle(a, b, c, d, e, f, g, h) -> sketch constraint"});
+  Builtins::init("con_symmetric_horiz", new BuiltinFunction(&builtin_con_symmetric_horiz),
+                 {"con_symmetric_horiz(p1, p2) -> sketch constraint"});
+  Builtins::init("con_symmetric_vert", new BuiltinFunction(&builtin_con_symmetric_vert),
+                 {"con_symmetric_vert(p1, p2) -> sketch constraint"});
+  Builtins::init("con_symmetric_line", new BuiltinFunction(&builtin_con_symmetric_line),
+                 {"con_symmetric_line(p1, p2, la, lb) -> sketch constraint"});
 
   Builtins::init("solved", new BuiltinFunction(&builtin_solved),
                  {"solved(sol) -> bool"});

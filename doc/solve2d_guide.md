@@ -32,7 +32,7 @@ The smallest useful sketch is two points and a distance:
 sol = solve2d([
   point("a", at = [0, 0]),
   point("b"),
-  distance("a", "b", 10),
+  con_distance("a", "b", 10),
 ]);
 
 echo(solved(sol));   // true
@@ -44,8 +44,8 @@ Three things happen here:
 1. **`point("a", at = [0, 0])`** declares an *anchored* point. Its position
    is fixed before the solver starts.
 2. **`point("b")`** declares a *free* point. The solver will place it.
-3. **`distance("a", "b", 10)`** says: the distance between `a` and `b` must
-   be 10.
+3. **`con_distance("a", "b", 10)`** says: the distance between `a` and `b`
+   must be 10.
 
 The solver places `b` somewhere 10 units from `a`. Since the only constraint
 is the distance, `b` could be anywhere on a circle of radius 10. The solver
@@ -60,10 +60,10 @@ sol = solve2d([
   point("a", at = [0, 0]),
   point("b"),
   point("c"),
-  distance("a", "b", 10),
-  horizontal("a", "b"),
-  distance("b", "c", 10),
-  perpendicular("a", "b", "c"),
+  con_distance("a", "b", 10),
+  con_horizontal("a", "b"),
+  con_distance("b", "c", 10),
+  con_perpendicular("a", "b", "c"),
 ]);
 
 linear_extrude(5) polygon(poly(sol, ["a", "b", "c"]));
@@ -97,28 +97,31 @@ into a glorified `polygon([...])`.
 
 For v1, the vocabulary is small but covers most polygon profiles:
 
+All constraint built-ins are prefixed with `con_` so they don't collide
+with user-defined names like `distance`, `angle`, or `parallel`.
+
 | Constraint | What it does |
 |---|---|
-| `coincident(p1, p2)` | The two points share a location. |
-| `distance(p1, p2, d)` | Distance is exactly `d`. |
-| `horizontal(p1, p2)` | Segment p1–p2 is horizontal. |
-| `vertical(p1, p2)` | Segment p1–p2 is vertical. |
-| `perpendicular(p1, v, p2)` | Segments v–p1 and v–p2 form a right angle. |
-| `parallel(p1, p2, p3, p4)` | Segment p1–p2 is parallel to p3–p4. |
-| `angle(p1, p2, p3, p4, deg)` | Signed angle between p1–p2 and p3–p4. |
-| `fixed(p)` | Pin the point to its current solved position. |
-| `pt_on_line(p, la, lb)` | `p` lies on the line through la–lb. |
-| `pt_line_distance(p, la, lb, d)` | Signed distance from `p` to line la–lb. |
-| `at_midpoint(m, la, lb)` | `m` is the midpoint of la–lb. |
-| `equal_length(a, b, c, d)` | `|a–b| = |c–d|`. |
-| `length_ratio(a, b, c, d, r)` | `|a–b| / |c–d| = r`. |
-| `length_difference(a, b, c, d, diff)` | `|a–b| - |c–d| = diff`. |
-| `eq_len_pt_line_d(p, la, lb, da, db)` | Length of la–lb equals distance from `p` to da–db. |
-| `eq_pt_ln_distances(p1, l1a, l1b, p2, l2a, l2b)` | Distance from `p1` to line l1 equals distance from `p2` to line l2. |
-| `equal_angle(a, b, c, d, e, f, g, h)` | Angle(ab,cd) = Angle(ef,gh). |
-| `symmetric_horiz(p1, p2)` | Mirror across V-axis (segment p1–p2 is horizontal). |
-| `symmetric_vert(p1, p2)` | Mirror across U-axis (segment p1–p2 is vertical). |
-| `symmetric_line(p1, p2, la, lb)` | `p1` and `p2` are mirror images across line la–lb. |
+| `con_coincident(p1, p2)` | The two points share a location. |
+| `con_distance(p1, p2, d)` | Distance is exactly `d`. |
+| `con_horizontal(p1, p2)` | Segment p1–p2 is horizontal. |
+| `con_vertical(p1, p2)` | Segment p1–p2 is vertical. |
+| `con_perpendicular(p1, v, p2)` | Segments v–p1 and v–p2 form a right angle. |
+| `con_parallel(p1, p2, p3, p4)` | Segment p1–p2 is parallel to p3–p4. |
+| `con_angle(p1, p2, p3, p4, deg)` | Signed angle between p1–p2 and p3–p4. |
+| `con_fixed(p)` | Pin the point to its current solved position. |
+| `con_pt_on_line(p, la, lb)` | `p` lies on the line through la–lb. |
+| `con_pt_line_distance(p, la, lb, d)` | Signed distance from `p` to line la–lb. |
+| `con_at_midpoint(m, la, lb)` | `m` is the midpoint of la–lb. |
+| `con_equal_length(a, b, c, d)` | `|a–b| = |c–d|`. |
+| `con_length_ratio(a, b, c, d, r)` | `|a–b| / |c–d| = r`. |
+| `con_length_difference(a, b, c, d, diff)` | `|a–b| - |c–d| = diff`. |
+| `con_eq_len_pt_line_d(p, la, lb, da, db)` | Length of la–lb equals distance from `p` to da–db. |
+| `con_eq_pt_ln_distances(p1, l1a, l1b, p2, l2a, l2b)` | Distance from `p1` to line l1 equals distance from `p2` to line l2. |
+| `con_equal_angle(a, b, c, d, e, f, g, h)` | Angle(ab,cd) = Angle(ef,gh). |
+| `con_symmetric_horiz(p1, p2)` | Mirror across V-axis (segment p1–p2 is horizontal). |
+| `con_symmetric_vert(p1, p2)` | Mirror across U-axis (segment p1–p2 is vertical). |
+| `con_symmetric_line(p1, p2, la, lb)` | `p1` and `p2` are mirror images across line la–lb. |
 
 Things *not* yet supported: arcs, circles, tangency, 3D, and `SLVS_C_SYMMETRIC`
 (which needs an explicit symmetry-plane entity). (See the "Out of Scope"
@@ -135,10 +138,10 @@ module right_tri(leg = 10, thickness = 5) {
     point("a", at = [0, 0]),
     point("b"),
     point("c"),
-    distance("a", "b", leg),
-    horizontal("a", "b"),
-    distance("b", "c", leg),
-    perpendicular("a", "b", "c"),
+    con_distance("a", "b", leg),
+    con_horizontal("a", "b"),
+    con_distance("b", "c", leg),
+    con_perpendicular("a", "b", "c"),
   ]);
   if (solved(sol)) {
     linear_extrude(thickness)
@@ -160,7 +163,7 @@ assertion or a diagnostic:
 sol = solve2d([
   point("a", at = [0, 0]),
   point("b", at = [5, 0]),     // anchored at distance 5 ...
-  distance("a", "b", 10),       // ... but constraint says 10. Conflict!
+  con_distance("a", "b", 10),   // ... but constraint says 10. Conflict!
 ]);
 
 assert(solved(sol), str("solver failed: ", failed_constraints(sol)));
@@ -195,11 +198,13 @@ You can also inspect `dof(sol)`:
   are different points. A typo in a constraint silently warns at solve
   time and the constraint is dropped. Watch the console.
 
-* **Built-ins shadow.** If you've already defined `function distance(a, b)`
-  in your project, you'll keep using yours, not the sketch helper. Use
-  different names if you want both. (You probably already have `distance`
-  defined; consider renaming sketch helpers locally if so:
-  `_d = distance; ... _d("a","b",10) ...`.)
+* **Constraint names are prefixed.** Every constraint built-in starts
+  with `con_` (`con_distance`, `con_angle`, ...) so they don't collide
+  with names you'd naturally define yourself. The non-prefixed accessors
+  and entity helpers (`point`, `solve2d`, `solved`, `pt`, `poly`,
+  `dof`, `residual`, `failed_constraints`) are still subject to OpenSCAD's
+  normal lookup rules — defining your own `function pt(...)` shadows the
+  accessor.
 
 ## Examples in the repo
 
@@ -213,8 +218,8 @@ Runnable examples ship with OpenSCAD; all are accessible from
   solve. Demonstrates the headline value of constraint solving: specify
   the dimensions you have, not the ones a `module` happens to ask for.
 * `examples/Solver/solve2d_symmetric_house.scad` — a house silhouette
-  using `pt_line_distance` and `at_midpoint` to size the walls and place
-  the ridge.
+  using `con_pt_line_distance` and `con_at_midpoint` to size the walls
+  and place the ridge.
 
 ## Where to go next
 

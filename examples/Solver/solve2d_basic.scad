@@ -16,10 +16,10 @@ sol = solve2d([
 
   // The shape: a horizontal leg of length 'leg', then a perpendicular
   // upward leg of the same length.
-  horizontal("a", "b"),
-  distance("a", "b", leg),
-  perpendicular("a", "b", "c"),
-  distance("b", "c", leg),
+  con_horizontal("a", "b"),
+  con_distance("a", "b", leg),
+  con_perpendicular("a", "b", "c"),
+  con_distance("b", "c", leg),
 ]);
 
 // Always check before using.

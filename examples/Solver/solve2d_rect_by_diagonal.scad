@@ -16,18 +16,18 @@ sol = solve2d([
   point("d"),
 
   // Two adjacent sides aligned to axes.
-  horizontal("a", "b"),
-  vertical("a", "d"),
+  con_horizontal("a", "b"),
+  con_vertical("a", "d"),
 
   // Width along the bottom.
-  distance("a", "b", width),
+  con_distance("a", "b", width),
 
   // The "given" measurement is the diagonal a-c.
-  distance("a", "c", diagonal),
+  con_distance("a", "c", diagonal),
 
   // Closure: c must be directly above b and directly right of d.
-  vertical("b", "c"),
-  horizontal("d", "c"),
+  con_vertical("b", "c"),
+  con_horizontal("d", "c"),
 ]);
 
 assert(solved(sol),

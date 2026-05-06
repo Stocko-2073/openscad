@@ -81,7 +81,7 @@ A user guide with worked examples lives at [`doc/solve2d_guide.md`](../solve2d_g
   `undef` with a warning.
 * `failed_constraints(sol)` shall return a vector of strings naming
   constraints SolveSpace identified as failing. The strings are descriptive
-  summaries (e.g. `"distance(a,b)"`) and shall not be parsed programmatically.
+  summaries (e.g. `"con_distance(a,b)"`) and shall not be parsed programmatically.
 * All accessors shall return `undef` and warn when given a non-`solution`
   first argument.
 
@@ -120,34 +120,37 @@ constraint factory to return `undef` with a warning.
 
 | Form | Arity | Meaning |
 |---|---|---|
-| `coincident(p1, p2)` | 2 strings | Points coincide. |
-| `distance(p1, p2, d)` | 2 strings + 1 number | Euclidean distance is `d`. |
-| `horizontal(p1, p2)` | 2 strings | Segment p1–p2 is horizontal. |
-| `vertical(p1, p2)` | 2 strings | Segment p1–p2 is vertical. |
-| `perpendicular(p1, vertex, p2)` | 3 strings | Segments vertex–p1 and vertex–p2 are perpendicular. |
-| `parallel(p1, p2, p3, p4)` | 4 strings | Segments p1–p2 and p3–p4 are parallel. |
-| `angle(p1, p2, p3, p4, deg)` | 4 strings + 1 number | Signed angle between p1–p2 and p3–p4 is `deg` degrees. |
-| `fixed(p)` | 1 string | The point shall remain at its current position. |
-| `pt_on_line(p, la, lb)` | 3 strings | Point `p` shall lie on the infinite line through la–lb. |
-| `pt_line_distance(p, la, lb, d)` | 3 strings + 1 number | Signed perpendicular distance from `p` to the line la–lb shall be `d`. The sign selects which side of the line; flipping the sign mirrors the solution. |
-| `at_midpoint(m, la, lb)` | 3 strings | Point `m` shall be at the midpoint of segment la–lb. |
-| `equal_length(a, b, c, d)` | 4 strings | `|a–b| == |c–d|`. |
-| `length_ratio(a, b, c, d, r)` | 4 strings + 1 number | `|a–b| / |c–d| == r`. |
-| `length_difference(a, b, c, d, diff)` | 4 strings + 1 number | `|a–b| - |c–d| == diff`. |
-| `eq_len_pt_line_d(p, la, lb, da, db)` | 5 strings | Length of segment la–lb shall equal the unsigned perpendicular distance from `p` to line da–db. (SolveSpace solves the squared form so the equality is on absolute distance.) |
-| `eq_pt_ln_distances(p1, l1a, l1b, p2, l2a, l2b)` | 6 strings | Unsigned distance from `p1` to line l1 shall equal unsigned distance from `p2` to line l2. |
-| `equal_angle(a, b, c, d, e, f, g, h)` | 8 strings | Angle between segments a–b and c–d shall equal angle between e–f and g–h. |
-| `symmetric_horiz(p1, p2)` | 2 strings | Points are mirror images across the workplane's V-axis (the segment p1–p2 is horizontal). |
-| `symmetric_vert(p1, p2)` | 2 strings | Points are mirror images across the workplane's U-axis (the segment p1–p2 is vertical). |
-| `symmetric_line(p1, p2, la, lb)` | 4 strings | Points `p1` and `p2` are mirror images across the line la–lb. |
+| `con_coincident(p1, p2)` | 2 strings | Points coincide. |
+| `con_distance(p1, p2, d)` | 2 strings + 1 number | Euclidean distance is `d`. |
+| `con_horizontal(p1, p2)` | 2 strings | Segment p1–p2 is horizontal. |
+| `con_vertical(p1, p2)` | 2 strings | Segment p1–p2 is vertical. |
+| `con_perpendicular(p1, vertex, p2)` | 3 strings | Segments vertex–p1 and vertex–p2 are perpendicular. |
+| `con_parallel(p1, p2, p3, p4)` | 4 strings | Segments p1–p2 and p3–p4 are parallel. |
+| `con_angle(p1, p2, p3, p4, deg)` | 4 strings + 1 number | Signed angle between p1–p2 and p3–p4 is `deg` degrees. |
+| `con_fixed(p)` | 1 string | The point shall remain at its current position. |
+| `con_pt_on_line(p, la, lb)` | 3 strings | Point `p` shall lie on the infinite line through la–lb. |
+| `con_pt_line_distance(p, la, lb, d)` | 3 strings + 1 number | Signed perpendicular distance from `p` to the line la–lb shall be `d`. The sign selects which side of the line; flipping the sign mirrors the solution. |
+| `con_at_midpoint(m, la, lb)` | 3 strings | Point `m` shall be at the midpoint of segment la–lb. |
+| `con_equal_length(a, b, c, d)` | 4 strings | `|a–b| == |c–d|`. |
+| `con_length_ratio(a, b, c, d, r)` | 4 strings + 1 number | `|a–b| / |c–d| == r`. |
+| `con_length_difference(a, b, c, d, diff)` | 4 strings + 1 number | `|a–b| - |c–d| == diff`. |
+| `con_eq_len_pt_line_d(p, la, lb, da, db)` | 5 strings | Length of segment la–lb shall equal the unsigned perpendicular distance from `p` to line da–db. (SolveSpace solves the squared form so the equality is on absolute distance.) |
+| `con_eq_pt_ln_distances(p1, l1a, l1b, p2, l2a, l2b)` | 6 strings | Unsigned distance from `p1` to line l1 shall equal unsigned distance from `p2` to line l2. |
+| `con_equal_angle(a, b, c, d, e, f, g, h)` | 8 strings | Angle between segments a–b and c–d shall equal angle between e–f and g–h. |
+| `con_symmetric_horiz(p1, p2)` | 2 strings | Points are mirror images across the workplane's V-axis (the segment p1–p2 is horizontal). |
+| `con_symmetric_vert(p1, p2)` | 2 strings | Points are mirror images across the workplane's U-axis (the segment p1–p2 is vertical). |
+| `con_symmetric_line(p1, p2, la, lb)` | 4 strings | Points `p1` and `p2` are mirror images across the line la–lb. |
 
 ### Built-in name shadowing
 
-* Each entity and constraint built-in is registered as an ordinary
-  function name and is subject to OpenSCAD's normal lookup rules. A
-  user-defined `function point(...) = ...;` or `module distance(...)` shall
-  shadow the built-in within its scope. This is by design and is not
-  considered an error.
+* Each entity, constraint, and accessor built-in is registered as an
+  ordinary function name and is subject to OpenSCAD's normal lookup rules.
+  Constraint built-ins are prefixed with `con_` (`con_distance`,
+  `con_angle`, ...) so that user-defined names like `function distance(...)`
+  do not shadow them in practice. The non-prefixed entity and accessor
+  names (`point`, `solve2d`, `solved`, `pt`, `poly`, `dof`, `residual`,
+  `failed_constraints`) remain shadowable by user definitions of the same
+  name. This is by design and is not considered an error.
 
 ## Out of Scope
 

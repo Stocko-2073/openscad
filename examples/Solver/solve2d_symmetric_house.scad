@@ -1,12 +1,13 @@
 // solve2d_symmetric_house.scad — house silhouette demonstrating several of
-// the constraints added after solve2d v1: pt_line_distance and at_midpoint.
+// the constraints added after solve2d v1: con_pt_line_distance and
+// con_at_midpoint.
 //
 // The walls are constrained to rise perpendicularly from the base; the
-// eaves are levelled by horizontal(); the ridge is placed on a vertical
-// centerline at a fixed perpendicular distance above the eaves. Using
-// pt_line_distance to set wall and ridge heights avoids combining
-// vertical() and distance() on the same point pair, which the underlying
-// solver does not handle robustly.
+// eaves are levelled by con_horizontal(); the ridge is placed on a
+// vertical centerline at a fixed perpendicular distance above the eaves.
+// Using con_pt_line_distance to set wall and ridge heights avoids
+// combining con_vertical() and con_distance() on the same point pair,
+// which the underlying solver does not handle robustly.
 
 base = 16;
 wall = 12;
@@ -20,23 +21,23 @@ sol = solve2d([
   // Wall tops: free; verticals only set orientation, not length.
   point("tl"),
   point("tr"),
-  vertical("bl", "tl"),
-  vertical("br", "tr"),
-  horizontal("tl", "tr"),
+  con_vertical("bl", "tl"),
+  con_vertical("br", "tr"),
+  con_horizontal("tl", "tr"),
 
   // Wall height: tl sits 'wall' units away from the base line.
   // (Negative sign places it above; the sign selects which side.)
-  pt_line_distance("tl", "bl", "br", -wall),
+  con_pt_line_distance("tl", "bl", "br", -wall),
 
   // Eaves midpoint: midpoint of tl/tr.
   point("eaves_mid"),
-  at_midpoint("eaves_mid", "tl", "tr"),
+  con_at_midpoint("eaves_mid", "tl", "tr"),
 
   // Ridge: free; sits on the vertical centerline above eaves_mid at a
   // known perpendicular distance from the eaves.
   point("ridge"),
-  vertical("eaves_mid", "ridge"),
-  pt_line_distance("ridge", "tl", "tr", -ridge_height),
+  con_vertical("eaves_mid", "ridge"),
+  con_pt_line_distance("ridge", "tl", "tr", -ridge_height),
 ]);
 
 assert(solved(sol),
