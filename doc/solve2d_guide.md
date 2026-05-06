@@ -107,9 +107,22 @@ For v1, the vocabulary is small but covers most polygon profiles:
 | `parallel(p1, p2, p3, p4)` | Segment p1–p2 is parallel to p3–p4. |
 | `angle(p1, p2, p3, p4, deg)` | Signed angle between p1–p2 and p3–p4. |
 | `fixed(p)` | Pin the point to its current solved position. |
+| `pt_on_line(p, la, lb)` | `p` lies on the line through la–lb. |
+| `pt_line_distance(p, la, lb, d)` | Signed distance from `p` to line la–lb. |
+| `at_midpoint(m, la, lb)` | `m` is the midpoint of la–lb. |
+| `equal_length(a, b, c, d)` | `|a–b| = |c–d|`. |
+| `length_ratio(a, b, c, d, r)` | `|a–b| / |c–d| = r`. |
+| `length_difference(a, b, c, d, diff)` | `|a–b| - |c–d| = diff`. |
+| `eq_len_pt_line_d(p, la, lb, da, db)` | Length of la–lb equals distance from `p` to da–db. |
+| `eq_pt_ln_distances(p1, l1a, l1b, p2, l2a, l2b)` | Distance from `p1` to line l1 equals distance from `p2` to line l2. |
+| `equal_angle(a, b, c, d, e, f, g, h)` | Angle(ab,cd) = Angle(ef,gh). |
+| `symmetric_horiz(p1, p2)` | Mirror across V-axis (segment p1–p2 is horizontal). |
+| `symmetric_vert(p1, p2)` | Mirror across U-axis (segment p1–p2 is vertical). |
+| `symmetric_line(p1, p2, la, lb)` | `p1` and `p2` are mirror images across line la–lb. |
 
-Things *not* yet supported: arcs, circles, tangency, mirror constraints,
-3D. (See the "Out of Scope" section of the spec.)
+Things *not* yet supported: arcs, circles, tangency, 3D, and `SLVS_C_SYMMETRIC`
+(which needs an explicit symmetry-plane entity). (See the "Out of Scope"
+section of the spec.)
 
 ## Parametric sketches
 
@@ -190,7 +203,7 @@ You can also inspect `dof(sol)`:
 
 ## Examples in the repo
 
-Two runnable examples ship with OpenSCAD; both are accessible from
+Runnable examples ship with OpenSCAD; all are accessible from
 **File → Examples → Functions** in the GUI:
 
 * `examples/Functions/solve2d_basic.scad` — minimal sketch with constraint
@@ -199,6 +212,9 @@ Two runnable examples ship with OpenSCAD; both are accessible from
   by its width and diagonal length, with the height emerging from the
   solve. Demonstrates the headline value of constraint solving: specify
   the dimensions you have, not the ones a `module` happens to ask for.
+* `examples/Functions/solve2d_symmetric_house.scad` — a house silhouette
+  using `pt_line_distance` and `at_midpoint` to size the walls and place
+  the ridge.
 
 ## Where to go next
 

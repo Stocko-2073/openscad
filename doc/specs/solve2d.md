@@ -120,6 +120,18 @@ constraint factory to return `undef` with a warning.
 | `parallel(p1, p2, p3, p4)` | 4 strings | Segments p1–p2 and p3–p4 are parallel. |
 | `angle(p1, p2, p3, p4, deg)` | 4 strings + 1 number | Signed angle between p1–p2 and p3–p4 is `deg` degrees. |
 | `fixed(p)` | 1 string | The point shall remain at its current position. |
+| `pt_on_line(p, la, lb)` | 3 strings | Point `p` shall lie on the infinite line through la–lb. |
+| `pt_line_distance(p, la, lb, d)` | 3 strings + 1 number | Signed perpendicular distance from `p` to the line la–lb shall be `d`. The sign selects which side of the line; flipping the sign mirrors the solution. |
+| `at_midpoint(m, la, lb)` | 3 strings | Point `m` shall be at the midpoint of segment la–lb. |
+| `equal_length(a, b, c, d)` | 4 strings | `|a–b| == |c–d|`. |
+| `length_ratio(a, b, c, d, r)` | 4 strings + 1 number | `|a–b| / |c–d| == r`. |
+| `length_difference(a, b, c, d, diff)` | 4 strings + 1 number | `|a–b| - |c–d| == diff`. |
+| `eq_len_pt_line_d(p, la, lb, da, db)` | 5 strings | Length of segment la–lb shall equal the unsigned perpendicular distance from `p` to line da–db. (SolveSpace solves the squared form so the equality is on absolute distance.) |
+| `eq_pt_ln_distances(p1, l1a, l1b, p2, l2a, l2b)` | 6 strings | Unsigned distance from `p1` to line l1 shall equal unsigned distance from `p2` to line l2. |
+| `equal_angle(a, b, c, d, e, f, g, h)` | 8 strings | Angle between segments a–b and c–d shall equal angle between e–f and g–h. |
+| `symmetric_horiz(p1, p2)` | 2 strings | Points are mirror images across the workplane's V-axis (the segment p1–p2 is horizontal). |
+| `symmetric_vert(p1, p2)` | 2 strings | Points are mirror images across the workplane's U-axis (the segment p1–p2 is vertical). |
+| `symmetric_line(p1, p2, la, lb)` | 4 strings | Points `p1` and `p2` are mirror images across the line la–lb. |
 
 ### Built-in name shadowing
 
