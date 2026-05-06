@@ -147,6 +147,24 @@ Value builtin_con_distance(Arguments arguments, const Location& loc)
   return obj;
 }
 
+Value builtin_con_le_distance(Arguments arguments, const Location& loc)
+{
+  EvaluationSession *session = arguments.session();
+  if (arguments.size() != 3 ||
+      arguments[0]->type() != Value::Type::STRING ||
+      arguments[1]->type() != Value::Type::STRING ||
+      arguments[2]->type() != Value::Type::NUMBER) {
+    LOG(message_group::Warning, loc, arguments.documentRoot(),
+        "con_le_distance() expects (point_name, point_name, number)");
+    return Value::undefined.clone();
+  }
+  ObjectType obj = make_kind_obj(session, "le_distance");
+  obj.set("a", arguments[0]->clone());
+  obj.set("b", arguments[1]->clone());
+  obj.set("d", arguments[2]->clone());
+  return obj;
+}
+
 Value builtin_con_perpendicular(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
@@ -437,6 +455,13 @@ struct ConstraintDecl {
   std::string name;  // for failed-constraint reporting; here we use the constraint index
   std::vector<std::string> points;
   double valA = 0.0;
+};
+
+struct InequalityDecl {
+  std::string kind;                  // "le_distance", "le_pt_line_distance", ...
+  std::string name;                  // user-visible summary for active_inequalities
+  std::vector<std::string> points;
+  double valA = 0.0;                 // d / diff / deg, depending on kind
 };
 
 bool collect_point_ref(const ConstraintDecl& c, size_t idx, const std::string& field,
@@ -1010,6 +1035,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
   std::vector<PointDecl> points;
   std::map<std::string, size_t> name_to_idx;
   std::vector<ConstraintDecl> constraints;
+  std::vector<InequalityDecl> inequalities;
 
   // Parse phase
   const VectorType& items = arguments[0]->toVector();
@@ -1126,6 +1152,19 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         str_field("p2");
         str_field("a");
         str_field("b");
+      } else if (kind == "le_distance") {
+        InequalityDecl ineq;
+        ineq.kind = kind;
+        std::string a, b;
+        field_string(obj, "a", a);
+        field_string(obj, "b", b);
+        ineq.points.push_back(a);
+        ineq.points.push_back(b);
+        field_double(obj, "d", ineq.valA);
+        ineq.name = "con_le_distance(" + a + "," + b + "," +
+                    std::to_string(ineq.valA) + ")";
+        inequalities.push_back(std::move(ineq));
+        continue;  // skip the constraints.push_back below
       } else {
         LOG(message_group::Warning, loc, doc_root,
             "solve2d: unknown item kind '%1$s'", kind);
@@ -1342,6 +1381,8 @@ void register_builtin_solve()
                  {"con_coincident(p1, p2) -> sketch constraint"});
   Builtins::init("con_distance", new BuiltinFunction(&builtin_con_distance),
                  {"con_distance(p1, p2, d) -> sketch constraint"});
+  Builtins::init("con_le_distance", new BuiltinFunction(&builtin_con_le_distance),
+                 {"con_le_distance(p1, p2, d) -> sketch constraint (|p1p2| <= d)"});
   Builtins::init("con_horizontal", new BuiltinFunction(&builtin_con_horizontal),
                  {"con_horizontal(p1, p2) -> sketch constraint"});
   Builtins::init("con_vertical", new BuiltinFunction(&builtin_con_vertical),
