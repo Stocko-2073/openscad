@@ -76,6 +76,10 @@ A user guide with worked examples lives at [`doc/solve2d_guide.md`](../solve2d_g
   beyond the `solved(sol)` flag.
 * `pt(sol, name)` shall return a 2-element vector `[x, y]` for the named
   point, or `undef` with a warning if no such point exists in the solution.
+* `pts(sol)` shall return a vector of 2-element vectors `[[x,y], ...]`
+  containing every point in the solution, in the order the points were
+  declared in the original `solve2d` input. If the solution contains no
+  points, the result shall be an empty vector.
 * `poly(sol, names)` shall return a list of 2-element vectors in the order
   given by `names`. If any name is missing, the function shall return
   `undef` with a warning.

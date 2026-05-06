@@ -21,6 +21,7 @@ public:
     double residual = 0.0;
     int dof = 0;
     std::map<std::string, Point2d> points;
+    std::vector<std::string> ordered_names;
     std::vector<std::string> failed_constraints;
   };
 
@@ -43,6 +44,7 @@ public:
     return data_->failed_constraints;
   }
   [[nodiscard]] const std::map<std::string, Point2d>& points() const { return data_->points; }
+  [[nodiscard]] const std::vector<std::string>& ordered_names() const { return data_->ordered_names; }
 
 private:
   std::shared_ptr<Data> data_;

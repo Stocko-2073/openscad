@@ -77,6 +77,9 @@ draw. `dof(sol)` is 0 — fully constrained.
 `poly(sol, [...])` packages up the resolved coordinates in the order you
 give it, ready to drop into `polygon()`.
 
+`pts(sol)` returns every solved point in declaration order — useful when you
+want the full point set without listing names, e.g. `polygon(pts(sol))`.
+
 ## Anchored vs. free points
 
 This is the most important distinction:

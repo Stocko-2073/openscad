@@ -1081,6 +1081,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
   for (const auto& p : points) {
     SolutionType::Point2d pt = {param_value[p.u_param], param_value[p.v_param]};
     data->points[p.name] = pt;
+    data->ordered_names.push_back(p.name);
   }
 
   for (int i = 0; i < sys.faileds; ++i) {
@@ -1175,6 +1176,24 @@ Value builtin_pt(Arguments arguments, const Location& loc)
   vec.emplace_back((*p)[0]);
   vec.emplace_back((*p)[1]);
   return Value(std::move(vec));
+}
+
+Value builtin_pts(Arguments arguments, const Location& loc)
+{
+  if (!require_solution("pts", arguments, loc, 1)) return Value::undefined.clone();
+  const SolutionType& sol = arguments[0]->toSolution();
+  VectorType result(arguments.session());
+  result.reserve(sol.ordered_names().size());
+  for (const auto& name : sol.ordered_names()) {
+    auto p = sol.point(name);
+    if (!p) continue;
+    VectorType pt(arguments.session());
+    pt.reserve(2);
+    pt.emplace_back((*p)[0]);
+    pt.emplace_back((*p)[1]);
+    result.emplace_back(std::move(pt));
+  }
+  return Value(std::move(result));
 }
 
 Value builtin_poly(Arguments arguments, const Location& loc)
@@ -1334,6 +1353,8 @@ void register_builtin_solve()
                  {"dof(sol) -> number"});
   Builtins::init("pt", new BuiltinFunction(&builtin_pt),
                  {"pt(sol, name) -> [x,y]"});
+  Builtins::init("pts", new BuiltinFunction(&builtin_pts),
+                 {"pts(sol) -> [[x,y], ...]"});
   Builtins::init("poly", new BuiltinFunction(&builtin_poly),
                  {"poly(sol, [names]) -> [[x,y], ...]"});
   Builtins::init("failed_constraints", new BuiltinFunction(&builtin_failed_constraints),
