@@ -51,6 +51,7 @@ void Builtins::init(const std::string& name, BuiltinFunction *function,
 }
 
 extern void register_builtin_functions();
+extern void register_builtin_solve();
 extern void register_builtin_group();
 extern void register_builtin_csgops();
 extern void register_builtin_transform();
@@ -80,6 +81,7 @@ void Builtins::initialize()
   Builtins::initKeywordList();
 
   register_builtin_functions();
+  register_builtin_solve();
   initialize_builtin_dxf_dim();
 
   register_builtin_group();

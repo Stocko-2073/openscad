@@ -59,6 +59,8 @@ private:
 
 using RangePtr = ValuePtr<RangeType>;
 using FunctionPtr = ValuePtr<FunctionType>;
+class SolutionType;
+using SolutionPtr = ValuePtr<SolutionType>;
 
 /**
  *  Value class encapsulates a std::variant value which can represent any of the
@@ -78,7 +80,7 @@ using FunctionPtr = ValuePtr<FunctionType>;
 class Value
 {
 public:
-  enum class Type { UNDEFINED, BOOL, NUMBER, STRING, VECTOR, EMBEDDED_VECTOR, RANGE, FUNCTION, OBJECT };
+  enum class Type { UNDEFINED, BOOL, NUMBER, STRING, VECTOR, EMBEDDED_VECTOR, RANGE, FUNCTION, OBJECT, SOLUTION };
   // FIXME: eventually remove this in favor of specific messages for each undef usage
   static const Value undefined;
 
@@ -362,6 +364,7 @@ public:
   [[nodiscard]] const RangeType& toRange() const;
   [[nodiscard]] const FunctionType& toFunction() const;
   [[nodiscard]] const ObjectType& toObject() const;
+  [[nodiscard]] const SolutionType& toSolution() const;
 
   // Other conversion utility functions
   bool getDouble(double& v) const;
@@ -411,7 +414,7 @@ public:
   }
 
   using Variant = std::variant<UndefType, bool, double, str_utf8_wrapper, VectorType, EmbeddedVectorType,
-                               RangePtr, FunctionPtr, ObjectType>;
+                               RangePtr, FunctionPtr, ObjectType, SolutionPtr>;
 
   static_assert(sizeof(Value::Variant) <= 24, "Memory size of Value too big");
   [[nodiscard]] const Variant& getVariant() const { return value; }

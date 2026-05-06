@@ -43,6 +43,7 @@ option(USE_MANIFOLD_TRIANGULATOR "Use Manifold's triangulator instead of CGAL's"
 option(USE_MANIFOLD_MINKOWSKI "Use Manifold's Minkowski instead of CGAL's" OFF)
 option(USE_BUILTIN_MANIFOLD "Use manifold from submodule" ON)
 option(USE_BUILTIN_CLIPPER2 "Use Clipper2 from submodule" ON)
+option(USE_BUILTIN_SOLVESPACE "Use SolveSpaceLib from submodule" ON)
 option(USE_POLYSET_FOR_CGAL "Force CGAL backend to use PolySetRenderer instead of CGALRenderer." OFF)
 option(SNAPSHOT "Create dev snapshot, uses nightly icons" OFF)
 option(HEADLESS "Build without GUI frontend" OFF)
@@ -1028,6 +1029,7 @@ set(CORE_SOURCES
   src/core/ScopeContext.cc
   src/core/Selection.cc
   src/core/Settings.cc
+  src/core/SolutionType.cc
   src/core/SourceFile.cc
   src/core/SourceFileCache.cc
   src/core/StatCache.cc
@@ -1039,6 +1041,7 @@ set(CORE_SOURCES
   src/core/UserModule.cc
   src/core/Value.cc
   src/core/builtin_functions.cc
+  src/core/builtin_solve.cc
   src/core/control.cc
   src/core/customizer/Annotation.cc
   src/core/customizer/CommentParser.cc
@@ -1175,6 +1178,19 @@ else()
 endif()
 target_link_libraries(OpenSCADLibInternal PUBLIC Clipper2::Clipper2)
 target_link_libraries(svg PUBLIC Clipper2::Clipper2)
+
+if(USE_BUILTIN_SOLVESPACE)
+  set(SLVS_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+  # SolveSpaceLib uses cmake_minimum_required(2.8.12), too old for modern CMake
+  set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+  add_subdirectory("submodules/SolveSpaceLib/libslvs" EXCLUDE_FROM_ALL)
+  unset(CMAKE_POLICY_VERSION_MINIMUM)
+  if(NOT TARGET SolveSpace::libslvs)
+    add_library(SolveSpace::libslvs ALIAS libslvs)
+  endif()
+  message(STATUS "SolveSpaceLib submodule")
+  target_link_libraries(OpenSCADLibInternal PUBLIC SolveSpace::libslvs)
+endif()
 
 if(ENABLE_MANIFOLD)
   if(NOT DEFINED MANIFOLD_PAR)

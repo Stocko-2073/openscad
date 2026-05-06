@@ -1,4 +1,17 @@
 
+# OpenSCAD (development)
+
+**Language Features**
+
+* New
+  * Add 2D geometric constraint solving via `solve2d()` and a new opaque
+    `Solution` value type, backed by SolveSpaceLib. Supports `point`
+    entities and `coincident`, `distance`, `horizontal`, `vertical`,
+    `perpendicular`, `parallel`, `angle`, and `fixed` constraints.
+    Inspect with `solved()`, `dof()`, `residual()`, `pt()`, `poly()`,
+    `failed_constraints()`. See `doc/solve2d_guide.md` and
+    `doc/specs/solve2d.md`.
+
 # OpenSCAD 2021.01
 
 **Language Features**

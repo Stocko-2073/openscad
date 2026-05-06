@@ -46,6 +46,7 @@
 #include <vector>
 
 #include "core/EvaluationSession.h"
+#include "core/SolutionType.h"
 #include "io/fileutils.h"
 #include "utils/StackCheck.h"
 #include "utils/boost-utils.h"
@@ -228,6 +229,7 @@ Value Value::clone() const
   case Type::VECTOR:    return std::get<VectorType>(this->value).clone();
   case Type::OBJECT:    return std::get<ObjectType>(this->value).clone();
   case Type::FUNCTION:  return std::get<FunctionPtr>(this->value).clone();
+  case Type::SOLUTION:  return std::get<SolutionPtr>(this->value).clone();
   default:              assert(false && "unknown Value variant type"); return {};
   }
 }
@@ -248,6 +250,7 @@ std::string Value::typeName(Type type)
   case Type::RANGE:     return "range";
   case Type::OBJECT:    return "object";
   case Type::FUNCTION:  return "function";
+  case Type::SOLUTION:  return "solution";
   default:              assert(false && "unknown Value variant type"); return "<unknown>";
   }
 }
@@ -290,6 +293,10 @@ std::string getTypeName(const FunctionPtr&)
 {
   return "function";
 }
+std::string getTypeName(const SolutionPtr&)
+{
+  return "solution";
+}
 
 bool Value::toBool() const
 {
@@ -303,6 +310,7 @@ bool Value::toBool() const
   case Type::RANGE:     return true;
   case Type::OBJECT:    return !std::get<ObjectType>(this->value).empty();
   case Type::FUNCTION:  return true;
+  case Type::SOLUTION:  return true;
   default:              assert(false && "unknown Value variant type"); return false;
   }
   // NOLINTEND(bugprone-branch-clone)
@@ -445,6 +453,8 @@ public:
   void operator()(const RangePtr& v) const { stream << *v; }
 
   void operator()(const FunctionPtr& v) const { stream << *v; }
+
+  void operator()(const SolutionPtr& v) const { stream << *v; }
 };
 
 class tostring_visitor
@@ -507,6 +517,8 @@ public:
   std::string operator()(const RangePtr& v) const { return STR(*v); }
 
   std::string operator()(const FunctionPtr& v) const { return STR(*v); }
+
+  std::string operator()(const SolutionPtr& v) const { return STR(*v); }
 };
 
 std::string Value::toString() const
@@ -766,6 +778,11 @@ const RangeType& Value::toRange() const
 const FunctionType& Value::toFunction() const
 {
   return *std::get<FunctionPtr>(this->value);
+}
+
+const SolutionType& Value::toSolution() const
+{
+  return *std::get<SolutionPtr>(this->value);
 }
 
 bool Value::isUncheckedUndef() const
