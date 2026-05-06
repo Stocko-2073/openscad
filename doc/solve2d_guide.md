@@ -204,15 +204,15 @@ You can also inspect `dof(sol)`:
 ## Examples in the repo
 
 Runnable examples ship with OpenSCAD; all are accessible from
-**File → Examples → Functions** in the GUI:
+**File → Examples → Solver** in the GUI:
 
-* `examples/Functions/solve2d_basic.scad` — minimal sketch with constraint
+* `examples/Solver/solve2d_basic.scad` — minimal sketch with constraint
   inspection.
-* `examples/Functions/solve2d_rect_by_diagonal.scad` — a rectangle defined
+* `examples/Solver/solve2d_rect_by_diagonal.scad` — a rectangle defined
   by its width and diagonal length, with the height emerging from the
   solve. Demonstrates the headline value of constraint solving: specify
   the dimensions you have, not the ones a `module` happens to ask for.
-* `examples/Functions/solve2d_symmetric_house.scad` — a house silhouette
+* `examples/Solver/solve2d_symmetric_house.scad` — a house silhouette
   using `pt_line_distance` and `at_midpoint` to size the walls and place
   the ridge.
 
