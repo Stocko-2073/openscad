@@ -602,146 +602,27 @@ double constraint_residual(const ConstraintDecl& c,
   return 0.0;
 }
 
-}  // namespace
+struct SolveOnceResult {
+  int slvs_result = -1;
+  bool solved = false;
+  int dof = 0;
+  double residual = 0.0;
+  std::map<std::string, SolutionType::Point2d> points;
+  std::vector<std::string> failed_constraint_names;
+};
 
-Value builtin_solve2d(Arguments arguments, const Location& loc)
+// One Slvs_Solve cycle: build the Slvs_System from `points` and `constraints`,
+// run the solver, apply REDUNDANT_OKAY residual recovery, return results.
+// `points` is non-const because each PointDecl receives assigned u_param /
+// v_param / entity handles (used here to read back coordinates).
+SolveOnceResult build_and_solve_once(
+    std::vector<PointDecl>& points,
+    const std::map<std::string, size_t>& name_to_idx,
+    const std::vector<ConstraintDecl>& constraints,
+    const Location& loc,
+    const std::string& doc_root)
 {
-  EvaluationSession *session = arguments.session();
-  const std::string doc_root = arguments.documentRoot();
-
-  if (arguments.size() != 1 || arguments[0]->type() != Value::Type::VECTOR) {
-    LOG(message_group::Warning, loc, doc_root,
-        "solve2d() expects a single vector of entities and constraints");
-    return Value::undefined.clone();
-  }
-
-  std::vector<PointDecl> points;
-  std::map<std::string, size_t> name_to_idx;
-  std::vector<ConstraintDecl> constraints;
-
-  // Parse phase
-  const VectorType& items = arguments[0]->toVector();
-  for (const auto& item : items) {
-    std::string kind;
-    if (!object_kind(item, kind)) {
-      LOG(message_group::Warning, loc, doc_root,
-          "solve2d: input contains a non-entity, non-constraint item");
-      continue;
-    }
-    const ObjectType& obj = item.toObject();
-    if (kind == "point") {
-      std::string name;
-      if (!field_string(obj, "name", name)) continue;
-      if (name_to_idx.count(name)) {
-        LOG(message_group::Warning, loc, doc_root,
-            "solve2d: duplicate point name '%1$s'", name);
-        continue;
-      }
-      PointDecl p;
-      p.name = name;
-      double x, y;
-      if (field_xy(obj, "at", x, y)) {
-        p.has_seed = true;
-        p.u = x;
-        p.v = y;
-      }
-      name_to_idx[name] = points.size();
-      points.push_back(std::move(p));
-    } else {
-      ConstraintDecl c;
-      c.kind = kind;
-      auto str_field = [&](const char *f) {
-        std::string s;
-        if (field_string(obj, f, s)) c.points.push_back(s);
-      };
-      if (kind == "coincident" || kind == "horizontal" || kind == "vertical") {
-        str_field("a");
-        str_field("b");
-      } else if (kind == "distance") {
-        str_field("a");
-        str_field("b");
-        field_double(obj, "d", c.valA);
-      } else if (kind == "perpendicular") {
-        str_field("a");
-        str_field("vertex");
-        str_field("c");
-      } else if (kind == "parallel") {
-        str_field("a");
-        str_field("b");
-        str_field("c");
-        str_field("d");
-      } else if (kind == "angle") {
-        str_field("a");
-        str_field("b");
-        str_field("c");
-        str_field("d");
-        field_double(obj, "deg", c.valA);
-      } else if (kind == "fixed") {
-        str_field("a");
-      } else if (kind == "pt_on_line" || kind == "at_midpoint") {
-        str_field("p");
-        str_field("a");
-        str_field("b");
-      } else if (kind == "pt_line_distance") {
-        str_field("p");
-        str_field("a");
-        str_field("b");
-        field_double(obj, "d", c.valA);
-      } else if (kind == "equal_length") {
-        str_field("a");
-        str_field("b");
-        str_field("c");
-        str_field("d");
-      } else if (kind == "length_ratio") {
-        str_field("a");
-        str_field("b");
-        str_field("c");
-        str_field("d");
-        field_double(obj, "r", c.valA);
-      } else if (kind == "length_difference") {
-        str_field("a");
-        str_field("b");
-        str_field("c");
-        str_field("d");
-        field_double(obj, "diff", c.valA);
-      } else if (kind == "eq_len_pt_line_d") {
-        str_field("p");
-        str_field("a");
-        str_field("b");
-        str_field("c");
-        str_field("d");
-      } else if (kind == "eq_pt_ln_distances") {
-        str_field("p1");
-        str_field("a1");
-        str_field("b1");
-        str_field("p2");
-        str_field("a2");
-        str_field("b2");
-      } else if (kind == "equal_angle") {
-        str_field("a");
-        str_field("b");
-        str_field("c");
-        str_field("d");
-        str_field("e");
-        str_field("f");
-        str_field("g");
-        str_field("h");
-      } else if (kind == "symmetric_horiz" || kind == "symmetric_vert") {
-        str_field("a");
-        str_field("b");
-      } else if (kind == "symmetric_line") {
-        str_field("p1");
-        str_field("p2");
-        str_field("a");
-        str_field("b");
-      } else {
-        LOG(message_group::Warning, loc, doc_root,
-            "solve2d: unknown item kind '%1$s'", kind);
-        continue;
-      }
-      constraints.push_back(std::move(c));
-    }
-  }
+  SolveOnceResult out;
 
   // Build phase: assemble Slvs_System
   // Group 1: workplane params (origin + normal). Always fixed.
@@ -1066,11 +947,9 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
 
   Slvs_Solve(&sys, g_solve);
 
-  // Result phase
-  auto data = std::make_shared<SolutionType::Data>();
-  data->result_code = sys.result;
-  data->solved = (sys.result == SLVS_RESULT_OKAY);
-  data->dof = sys.dof;
+  out.slvs_result = sys.result;
+  out.solved = (sys.result == SLVS_RESULT_OKAY);
+  out.dof = sys.dof;
 
   // Read back point coords by looking up each point's u_param and v_param.
   std::map<Slvs_hParam, double> param_value;
@@ -1082,17 +961,15 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
     param_value[sys.param[i].h] = sys.param[i].val;
   }
   for (const auto& p : points) {
-    SolutionType::Point2d pt = {param_value[p.u_param], param_value[p.v_param]};
-    data->points[p.name] = pt;
-    data->ordered_names.push_back(p.name);
+    out.points[p.name] = {param_value[p.u_param], param_value[p.v_param]};
   }
 
   for (int i = 0; i < sys.faileds; ++i) {
     auto it = constraint_name_by_h.find(sys.failed[i]);
     if (it != constraint_name_by_h.end()) {
-      data->failed_constraints.push_back(it->second);
+      out.failed_constraint_names.push_back(it->second);
     } else {
-      data->failed_constraints.push_back("constraint #" + std::to_string(sys.failed[i]));
+      out.failed_constraint_names.push_back("constraint #" + std::to_string(sys.failed[i]));
     }
   }
 
@@ -1104,15 +981,170 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
   constexpr double RESIDUAL_TOLERANCE = 1e-6;
   double max_residual = 0.0;
   for (const auto& c : constraints) {
-    double r = constraint_residual(c, data->points);
+    double r = constraint_residual(c, out.points);
     if (r > max_residual) max_residual = r;
   }
-  data->residual = max_residual;
+  out.residual = max_residual;
 
   if (sys.result == SLVS_RESULT_INCONSISTENT && max_residual < RESIDUAL_TOLERANCE) {
-    data->solved = true;
-    data->failed_constraints.clear();
+    out.solved = true;
+    out.failed_constraint_names.clear();
   }
+
+  return out;
+}
+
+}  // namespace
+
+Value builtin_solve2d(Arguments arguments, const Location& loc)
+{
+  EvaluationSession *session = arguments.session();
+  const std::string doc_root = arguments.documentRoot();
+
+  if (arguments.size() != 1 || arguments[0]->type() != Value::Type::VECTOR) {
+    LOG(message_group::Warning, loc, doc_root,
+        "solve2d() expects a single vector of entities and constraints");
+    return Value::undefined.clone();
+  }
+
+  std::vector<PointDecl> points;
+  std::map<std::string, size_t> name_to_idx;
+  std::vector<ConstraintDecl> constraints;
+
+  // Parse phase
+  const VectorType& items = arguments[0]->toVector();
+  for (const auto& item : items) {
+    std::string kind;
+    if (!object_kind(item, kind)) {
+      LOG(message_group::Warning, loc, doc_root,
+          "solve2d: input contains a non-entity, non-constraint item");
+      continue;
+    }
+    const ObjectType& obj = item.toObject();
+    if (kind == "point") {
+      std::string name;
+      if (!field_string(obj, "name", name)) continue;
+      if (name_to_idx.count(name)) {
+        LOG(message_group::Warning, loc, doc_root,
+            "solve2d: duplicate point name '%1$s'", name);
+        continue;
+      }
+      PointDecl p;
+      p.name = name;
+      double x, y;
+      if (field_xy(obj, "at", x, y)) {
+        p.has_seed = true;
+        p.u = x;
+        p.v = y;
+      }
+      name_to_idx[name] = points.size();
+      points.push_back(std::move(p));
+    } else {
+      ConstraintDecl c;
+      c.kind = kind;
+      auto str_field = [&](const char *f) {
+        std::string s;
+        if (field_string(obj, f, s)) c.points.push_back(s);
+      };
+      if (kind == "coincident" || kind == "horizontal" || kind == "vertical") {
+        str_field("a");
+        str_field("b");
+      } else if (kind == "distance") {
+        str_field("a");
+        str_field("b");
+        field_double(obj, "d", c.valA);
+      } else if (kind == "perpendicular") {
+        str_field("a");
+        str_field("vertex");
+        str_field("c");
+      } else if (kind == "parallel") {
+        str_field("a");
+        str_field("b");
+        str_field("c");
+        str_field("d");
+      } else if (kind == "angle") {
+        str_field("a");
+        str_field("b");
+        str_field("c");
+        str_field("d");
+        field_double(obj, "deg", c.valA);
+      } else if (kind == "fixed") {
+        str_field("a");
+      } else if (kind == "pt_on_line" || kind == "at_midpoint") {
+        str_field("p");
+        str_field("a");
+        str_field("b");
+      } else if (kind == "pt_line_distance") {
+        str_field("p");
+        str_field("a");
+        str_field("b");
+        field_double(obj, "d", c.valA);
+      } else if (kind == "equal_length") {
+        str_field("a");
+        str_field("b");
+        str_field("c");
+        str_field("d");
+      } else if (kind == "length_ratio") {
+        str_field("a");
+        str_field("b");
+        str_field("c");
+        str_field("d");
+        field_double(obj, "r", c.valA);
+      } else if (kind == "length_difference") {
+        str_field("a");
+        str_field("b");
+        str_field("c");
+        str_field("d");
+        field_double(obj, "diff", c.valA);
+      } else if (kind == "eq_len_pt_line_d") {
+        str_field("p");
+        str_field("a");
+        str_field("b");
+        str_field("c");
+        str_field("d");
+      } else if (kind == "eq_pt_ln_distances") {
+        str_field("p1");
+        str_field("a1");
+        str_field("b1");
+        str_field("p2");
+        str_field("a2");
+        str_field("b2");
+      } else if (kind == "equal_angle") {
+        str_field("a");
+        str_field("b");
+        str_field("c");
+        str_field("d");
+        str_field("e");
+        str_field("f");
+        str_field("g");
+        str_field("h");
+      } else if (kind == "symmetric_horiz" || kind == "symmetric_vert") {
+        str_field("a");
+        str_field("b");
+      } else if (kind == "symmetric_line") {
+        str_field("p1");
+        str_field("p2");
+        str_field("a");
+        str_field("b");
+      } else {
+        LOG(message_group::Warning, loc, doc_root,
+            "solve2d: unknown item kind '%1$s'", kind);
+        continue;
+      }
+      constraints.push_back(std::move(c));
+    }
+  }
+
+  SolveOnceResult once = build_and_solve_once(points, name_to_idx, constraints, loc, doc_root);
+
+  auto data = std::make_shared<SolutionType::Data>();
+  data->result_code = once.slvs_result;
+  data->solved = once.solved;
+  data->dof = once.dof;
+  data->residual = once.residual;
+  data->points = once.points;
+  for (const auto& p : points) data->ordered_names.push_back(p.name);
+  data->failed_constraints = once.failed_constraint_names;
 
   return Value(SolutionPtr(SolutionType(std::move(data))));
 }
