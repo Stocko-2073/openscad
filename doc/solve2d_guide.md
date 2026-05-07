@@ -131,6 +131,7 @@ with user-defined names like `distance`, `angle`, or `parallel`.
 | `con_angle(p1, p2, p3, p4, deg)` | Signed angle between p1–p2 and p3–p4. |
 | `con_fixed(p)` | Pin the point to its initial position (the `at=` seed if given, otherwise the default seeding offset). |
 | `con_pt_on_line(p, la, lb)` | `p` lies on the line through la–lb. |
+| `con_pt_on_segment(p, la, lb)` | `p` lies on the closed segment la–lb (endpoints included). |
 | `con_pt_line_distance(p, la, lb, d)` | Signed distance from `p` to line la–lb. |
 | `con_at_midpoint(m, la, lb)` | `m` is the midpoint of la–lb. |
 | `con_equal_length(a, b, c, d)` | `|a–b| = |c–d|`. |
