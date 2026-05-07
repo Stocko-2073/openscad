@@ -66,6 +66,31 @@ bool field_xy(const ObjectType& obj, const std::string& key, double& x, double& 
   return obj.get(key).getVec2(x, y);
 }
 
+// Deterministic initial coordinates for a point with no `at=`. The base
+// pattern (attempt 0) is a golden-angle spiral around the origin: non-
+// collinear, non-coincident, all distinct distances. Higher attempts perturb
+// the base by hash-derived offsets so multi-start retries escape bad basins
+// of attraction (a flat staircase like (1, 0.5), (2, 1.0), ... lands Newton
+// on symmetry axes for problems like a square anchored at a single corner).
+std::pair<double, double> default_unseeded_seed(size_t idx, int attempt)
+{
+  constexpr double GOLDEN_ANGLE = 2.39996322972865332;  // π(3 - √5)
+  double base_radius = 1.0 + static_cast<double>(idx) * 0.5;
+  double base_angle  = static_cast<double>(idx + 1) * GOLDEN_ANGLE;
+  if (attempt <= 0) {
+    return {base_radius * std::cos(base_angle), base_radius * std::sin(base_angle)};
+  }
+  auto h01 = [](uint32_t a, uint32_t b) {
+    double x = std::sin(a * 12.9898 + b * 78.233) * 43758.5453;
+    return x - std::floor(x);
+  };
+  uint32_t i = static_cast<uint32_t>(idx);
+  uint32_t k = static_cast<uint32_t>(attempt);
+  double angle  = base_angle + 2.0 * M_PI * h01(i, 2u * k);
+  double radius = base_radius * (0.25 + 3.75 * h01(i, 2u * k + 1u));
+  return {radius * std::cos(angle), radius * std::sin(angle)};
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -793,7 +818,8 @@ SolveOnceResult build_and_solve_once(
     const std::vector<InequalityDecl>& inequalities,
     const std::set<size_t>& active_set,
     const Location& loc,
-    const std::string& doc_root)
+    const std::string& doc_root,
+    int attempt = 0)
 {
   SolveOnceResult out;
 
@@ -839,16 +865,18 @@ SolveOnceResult build_and_solve_once(
   sentities.push_back(Slvs_MakeWorkplane(wrkpl, g_fixed, origin_h, normal_h));
 
   // Points. `at=` supplies a seed (initial guess); points without a seed get
-  // a small, unique offset to avoid degenerate starting geometry (e.g.,
-  // all-coincident points). All point params live in g_solve — pinning is
-  // the job of con_fixed.
+  // a deterministic non-collinear default from default_unseeded_seed. The
+  // `attempt` counter perturbs that default so multi-start retries can
+  // escape bad basins. All point params live in g_solve — pinning is the
+  // job of con_fixed.
   size_t unseeded_idx = 0;
   for (auto& p : points) {
     double init_u = p.u;
     double init_v = p.v;
     if (!p.has_seed) {
-      init_u = static_cast<double>(unseeded_idx) + 1.0;
-      init_v = static_cast<double>(unseeded_idx) * 0.5;
+      auto [u0, v0] = default_unseeded_seed(unseeded_idx, attempt);
+      init_u = u0;
+      init_v = v0;
       ++unseeded_idx;
     }
     p.u_param = next_param++;
@@ -1302,7 +1330,8 @@ SolveLoopResult solve_with_inequalities(
     const std::vector<ConstraintDecl>& constraints,
     const std::vector<InequalityDecl>& inequalities,
     const Location& loc,
-    const std::string& doc_root)
+    const std::string& doc_root,
+    int attempt = 0)
 {
   SolveLoopResult result;
   std::set<std::set<size_t>> visited;
@@ -1317,7 +1346,7 @@ SolveLoopResult solve_with_inequalities(
     result.iterations = iter + 1;
     result.last = build_and_solve_once(points, name_to_idx, constraints,
                                        inequalities, result.active_set,
-                                       loc, doc_root);
+                                       loc, doc_root, attempt);
 
     if (result.last.solved) {
       // Check inactive inequalities for violations.
@@ -1590,10 +1619,25 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
 
   auto data = std::make_shared<SolutionType::Data>();
 
+  // Multi-start: if any point is unseeded, attempt 0 uses the deterministic
+  // golden-angle default, and attempts 1..N-1 perturb that default with
+  // hash-derived offsets. This rescues cases where the default seed lands
+  // Newton on a symmetry axis or in a bad basin (e.g. an axis-aligned
+  // staircase makes a square anchored at one corner unsolvable).
+  // If every point is seeded, retrying is pointless.
+  bool any_unseeded = false;
+  for (const auto& p : points) if (!p.has_seed) { any_unseeded = true; break; }
+  constexpr int MAX_SEED_ATTEMPTS = 8;
+  const int max_attempts = any_unseeded ? MAX_SEED_ATTEMPTS : 1;
+
   if (inequalities.empty()) {
-    SolveOnceResult once = build_and_solve_once(points, name_to_idx, constraints,
-                                                inequalities, /*active_set=*/{},
-                                                loc, doc_root);
+    SolveOnceResult once;
+    for (int attempt = 0; attempt < max_attempts; ++attempt) {
+      once = build_and_solve_once(points, name_to_idx, constraints,
+                                  inequalities, /*active_set=*/{},
+                                  loc, doc_root, attempt);
+      if (once.solved) break;
+    }
     data->result_code = once.slvs_result;
     data->solved = once.solved;
     data->dof = once.dof;
@@ -1603,8 +1647,12 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
     data->failed_constraints = once.failed_constraint_names;
     data->iterations = 0;
   } else {
-    SolveLoopResult loop = solve_with_inequalities(points, name_to_idx, constraints,
-                                                   inequalities, loc, doc_root);
+    SolveLoopResult loop;
+    for (int attempt = 0; attempt < max_attempts; ++attempt) {
+      loop = solve_with_inequalities(points, name_to_idx, constraints,
+                                     inequalities, loc, doc_root, attempt);
+      if (loop.converged) break;
+    }
     data->result_code = loop.last.slvs_result;
     data->solved = loop.converged;
     data->dof = loop.last.dof;
