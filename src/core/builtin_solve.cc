@@ -518,6 +518,11 @@ struct ConstraintDecl {
   std::string name;  // for failed-constraint reporting; here we use the constraint index
   std::vector<std::string> points;
   double valA = 0.0;
+  // If non-empty, indices into inequalities[] whose presence in the active set
+  // suppresses this equality constraint. Used by composite expansions (e.g.
+  // con_pt_on_segment) where the equality becomes redundant once a bound is
+  // tight, and emitting both would make the system rank-deficient.
+  std::vector<size_t> suppress_when_active;
 };
 
 struct InequalityDecl {
@@ -876,9 +881,18 @@ SolveOnceResult build_and_solve_once(
   std::map<Slvs_hConstraint, std::string> constraint_name_by_h;
 
   for (const auto& c : constraints) {
+    // Skip constraints that are suppressed by an active inequality (used by
+    // composite expansions like con_pt_on_segment where the on-line equality
+    // becomes rank-redundant once a segment endpoint coincidence is enforced).
+    bool suppressed = false;
+    for (size_t idx : c.suppress_when_active) {
+      if (active_set.count(idx)) { suppressed = true; break; }
+    }
+    if (suppressed) continue;
+
     Slvs_hConstraint ch = next_constraint++;
     auto register_name = [&](const std::string& summary) {
-      constraint_name_by_h[ch] = summary;
+      constraint_name_by_h[ch] = c.name.empty() ? summary : c.name;
     };
 
     if (c.kind == "coincident" && c.points.size() == 2) {
@@ -1534,11 +1548,20 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         field_string(obj, "b", b);
         const std::string prefix = "con_pt_on_segment(" + p + "," + a + "," + b + ")";
 
+        // The lower/upper inequalities will be appended next, so their indices
+        // are known up front. They're recorded on the on_line equality so
+        // build_and_solve_once can suppress on_line whenever a bound is active
+        // (POINTS_COINCIDENT(p, endpoint) implies p on line — emitting both
+        // makes SolveSpace bail with rank-deficiency before Newton runs).
+        const size_t lower_idx = inequalities.size();
+        const size_t upper_idx = inequalities.size() + 1;
+
         // 1. Always-on equality: p lies on the infinite line through a, b.
         ConstraintDecl on_line;
         on_line.kind = "pt_on_line";
         on_line.points = {p, a, b};
         on_line.name = prefix + ":on_line";
+        on_line.suppress_when_active = {lower_idx, upper_idx};
         constraints.push_back(std::move(on_line));
 
         // 2. Lower bound: g_lower = -dot(p - a, b - a) <= 0  (i.e. t >= 0).
