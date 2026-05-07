@@ -210,19 +210,25 @@ constraint it primarily exercises:
   and `pt(sol, "p").y > 0`.
 
 * **`solve2d_opposite_side.scad`** (golden path for `con_opposite_side`,
-  also the canonical disambiguation example). The
-  earlier-degenerate-square case: anchor `a = [0, 0]`, leave `b`,
-  `c`, `d` unseeded. The five side/perpendicular constraints from
-  the user's failing case, plus
+  also the canonical disambiguation example). Anchor `a = [0, 0]` and
+  `b = [20, 0]`, leave `c` and `d` unseeded. The four
+  side-equality constraints plus a right angle at `b`, plus
   `con_opposite_side("a", "c", "d", "b")` — `d` on the opposite side
-  of line `ac` from `b`. This forces the real-square topology
-  without introducing an external reference point: `b` is already
-  part of the system, and the constraint says "the two diagonals of
-  a square cross, so `b` and `d` are on opposite sides of `ac`."
+  of line `ac` from `b`. The constraint says "the two diagonals of a
+  square cross, so `b` and `d` are on opposite sides of `ac`."
   Asserts `solved(sol)`, all four sides ≈ 20 within tolerance, and
   diagonal `|bd| ≈ 20·sqrt(2)` (i.e. real square, not the b=d
   degenerate). Asserts `active_inequalities(sol) == []` (constraint
   satisfied with slack, not bound).
+
+  *Implementation note:* the original brainstorming targeted a
+  one-anchor variant (only `a` fixed). In practice the `d == b`
+  degenerate basin is too dominant for the seed-perturbation
+  multi-start to escape — all eight retries land there. The
+  active-set form (pin `d` on line `ac`) is also infeasible with
+  `|cd| = 20` because `|ac| = 20·sqrt(2) ≠ 0` and `≠ 40`. Anchoring
+  `b` reduces the remaining ambiguity to a single half-plane choice,
+  which `con_opposite_side` resolves cleanly.
 
 Both examples document the constraint in their header comments.
 
