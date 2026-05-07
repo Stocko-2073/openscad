@@ -832,6 +832,7 @@ double inequality_violation(const InequalityDecl& ineq,
     P a_, b_, p_, q_;
     if (!get(ineq.points[0], a_) || !get(ineq.points[1], b_) ||
         !get(ineq.points[2], p_) || !get(ineq.points[3], q_)) return 0.0;
+    if (norm(sub(b_, a_)) < 1e-12) return 0.0;  // degenerate line a==b
     // Signed cross product (b-a) × (x-a). Positive = left of directed
     // line a→b, negative = right, zero = on the line.
     auto cross_z = [&](const P& x) {
@@ -1274,6 +1275,7 @@ SolveOnceResult build_and_solve_once(
       Slvs_hEntity a = pt_entity(ineq.kind, ineq.points[0]);
       Slvs_hEntity b = pt_entity(ineq.kind, ineq.points[1]);
       Slvs_hEntity p = pt_entity(ineq.kind, ineq.points[2]);
+      // q (ineq.points[3]) is intentionally not fetched: sign reference, not bound.
       if (!a || !b || !p) continue;
       Slvs_hConstraint ch = next_constraint++;
       Slvs_hEntity line = make_line(a, b);
