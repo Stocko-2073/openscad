@@ -12,13 +12,12 @@ by adding two new inequality kinds with a shared binding form.
 
 `solve2d` problems regularly have multiple solutions because constraint
 systems written in terms of distances and angles are sign-blind. A
-square anchored at one corner with three side-equality constraints and
-one right angle (the canonical Euclidean square) has both a "real
-square" solution and a degenerate one in which two non-adjacent
-vertices coincide. Newton's method picks whichever basin its starting
-seed falls into; perturbing seeds (multi-start retry, see commit
-`b0fa5a542`) reaches *some* feasible solution but cannot pick a
-particular one.
+square anchored at two adjacent corners with three side-equality
+constraints and one right angle has both a "real square" solution
+and a degenerate one in which two non-adjacent vertices coincide.
+Newton's method picks whichever basin its starting seed falls into;
+perturbing seeds (multi-start retry, see commit `b0fa5a542`) reaches
+*some* feasible solution but cannot pick a particular one.
 
 A half-plane constraint disambiguates by pinning a point to one side
 of an oriented line. It does not over-constrain — the inequality is

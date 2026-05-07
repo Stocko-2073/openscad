@@ -21,8 +21,12 @@ assert(solved(sol),
            ", active=", active_inequalities(sol), ")"));
 
 p = pt(sol, "p");
-assert(p[1] > 0,
-       str("expected p above x-axis (same side as q), got ", p));
+// con_same_side allows p on the line itself (constraint is c(p)·c(q) >= 0),
+// so the assertion is non-strict. In practice today's golden-angle seed
+// lands p strictly above; if the seed scheme ever puts p on the line,
+// active-set will pin it there and p[1] will be ~0. Both are valid.
+assert(p[1] >= -1e-6,
+       str("expected p on or above x-axis (same side as q), got ", p));
 assert(abs(norm(p) - 5) < 1e-4,
        str("expected |ap| == 5, got ", norm(p)));
 assert(len(active_inequalities(sol)) == 0,

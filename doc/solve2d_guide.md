@@ -206,10 +206,13 @@ A few caveats:
   geometry if this matters.
 * `con_same_side` and `con_opposite_side` are **half-plane** constraints
   used to break the discrete multiplicity that distance/angle systems
-  leave behind. A square anchored at one corner with three side-equality
-  constraints and one right angle has both a real-square solution and a
-  degenerate one with two coincident vertices; adding
+  leave behind. A square anchored at two adjacent corners with three
+  side-equality constraints and one right angle has both a real-square
+  solution and a degenerate one with two coincident vertices; adding
   `con_opposite_side("a","c","d","b")` selects the real-square basin.
+  (The one-anchor variant has the same algebraic structure but the
+  degenerate basin dominates the seed-perturbation multi-start in
+  practice, so a second anchor is needed.)
   These constraints bind asymmetrically: when active, only `p` (the
   third argument) is pinned to the line through `a` and `b`. `q` is a
   sign reference only. Swap the argument order (`con_same_side(a,b,q,p)`)
