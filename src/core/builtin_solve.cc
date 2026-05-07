@@ -827,6 +827,22 @@ double inequality_violation(const InequalityDecl& ineq,
       return pb[0]*v[0] + pb[1]*v[1];
     }
   }
+  if ((ineq.kind == "same_side" || ineq.kind == "opposite_side")
+      && ineq.points.size() == 4) {
+    P a_, b_, p_, q_;
+    if (!get(ineq.points[0], a_) || !get(ineq.points[1], b_) ||
+        !get(ineq.points[2], p_) || !get(ineq.points[3], q_)) return 0.0;
+    // Signed cross product (b-a) × (x-a). Positive = left of directed
+    // line a→b, negative = right, zero = on the line.
+    auto cross_z = [&](const P& x) {
+      return (b_[0]-a_[0])*(x[1]-a_[1]) - (b_[1]-a_[1])*(x[0]-a_[0]);
+    };
+    double cp = cross_z(p_);
+    double cq = cross_z(q_);
+    // same_side violated when signs differ: cp*cq < 0 ⇒ violation = -cp*cq > 0.
+    // opposite_side violated when signs agree: cp*cq > 0 ⇒ violation =  cp*cq > 0.
+    return (ineq.kind == "same_side") ? -(cp * cq) : (cp * cq);
+  }
   return 0.0;
 }
 
@@ -1250,6 +1266,22 @@ SolveOnceResult build_and_solve_once(
                                                  wrkpl, 0.0, p, endpoint, 0, 0));
       constraint_name_by_h[ch] = ineq.name;
       out.active_ineq_handles[idx] = ch;
+    } else if ((ineq.kind == "same_side" || ineq.kind == "opposite_side")
+               && ineq.points.size() == 4) {
+      // Active ⇒ pin p to the line through a and b. Both kinds share this
+      // binding form: the dividing line between the two half-planes is the
+      // same line ab. q is a sign reference only and never gets pinned.
+      Slvs_hEntity a = pt_entity(ineq.kind, ineq.points[0]);
+      Slvs_hEntity b = pt_entity(ineq.kind, ineq.points[1]);
+      Slvs_hEntity p = pt_entity(ineq.kind, ineq.points[2]);
+      if (!a || !b || !p) continue;
+      Slvs_hConstraint ch = next_constraint++;
+      Slvs_hEntity line = make_line(a, b);
+      sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
+                                                 SLVS_C_PT_ON_LINE,
+                                                 wrkpl, 0.0, p, 0, line, 0));
+      constraint_name_by_h[ch] = ineq.name;
+      out.active_ineq_handles[idx] = ch;
     }
   }
 
@@ -1336,6 +1368,11 @@ SolveOnceResult build_and_solve_once(
       // Active ⇒ p coincides with b. Pseudo: coincident{p, b}.
       pseudo.kind = "coincident";
       pseudo.points = {ineq.points[0], ineq.points[2]};
+    } else if ((ineq.kind == "same_side" || ineq.kind == "opposite_side")
+               && ineq.points.size() == 4) {
+      // Active ⇒ p lies on line ab. Pseudo: pt_on_line{p, a, b}.
+      pseudo.kind = "pt_on_line";
+      pseudo.points = {ineq.points[2], ineq.points[0], ineq.points[1]};
     } else {
       continue;
     }
