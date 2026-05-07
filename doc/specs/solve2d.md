@@ -181,6 +181,7 @@ constraint factory to return `undef` with a warning.
 | `con_angle(p1, p2, p3, p4, deg)` | 4 strings + 1 number | Signed angle between p1–p2 and p3–p4 is `deg` degrees. |
 | `con_fixed(p)` | 1 string | The point shall remain at its current position. |
 | `con_pt_on_line(p, la, lb)` | 3 strings | Point `p` shall lie on the infinite line through la–lb. |
+| `con_pt_on_segment(p, la, lb)` | 3 strings | Point `p` shall lie on the closed line segment from la to lb (endpoints included). Composite: see "Composite constraints" below. |
 | `con_pt_line_distance(p, la, lb, d)` | 3 strings + 1 number | Signed perpendicular distance from `p` to the line la–lb shall be `d`. The sign selects which side of the line; flipping the sign mirrors the solution. |
 | `con_at_midpoint(m, la, lb)` | 3 strings | Point `m` shall be at the midpoint of segment la–lb. |
 | `con_equal_length(a, b, c, d)` | 4 strings | `|a–b| == |c–d|`. |
@@ -212,6 +213,31 @@ inequality factory to return `undef` with a warning.
 | `con_le_pt_line_distance(p, la, lb, d)` | 3 strings + 1 number | Signed perpendicular distance from `p` to la–lb shall be `<= d`. The sign convention matches `con_pt_line_distance`. |
 | `con_le_length_difference(a, b, c, d, diff)` | 4 strings + 1 number | `|a–b| - |c–d| <= diff`. |
 | `con_le_angle(p1, p2, p3, p4, deg)` | 4 strings + 1 number | The undirected angle between p1–p2 and p3–p4 (in `[0, 180]`) shall be `<= deg`. The argument `deg` shall be non-negative; behavior on negative `deg` is implementation-defined. SolveSpace's `SLVS_C_ANGLE` admits a supplementary-angle solution; in rare configurations the solver may converge to `180 - deg` rather than `deg`. Use seeds to nudge the geometry if this matters. |
+
+### Composite constraints
+
+Some user-facing constraints expand into multiple internal items. The
+`solve2d` parser handles the expansion; the user calls a single factory
+function and sees consolidated reporting under a shared name prefix.
+
+* `con_pt_on_segment(p, la, lb)` expands into:
+  * one equality `pt_on_line` with points `(p, la, lb)`, named
+    `con_pt_on_segment(p,la,lb):on_line`;
+  * one inequality with bound `−dot(p − la, lb − la) ≤ 0` (i.e. the
+    segment parameter `t ≥ 0`), named
+    `con_pt_on_segment(p,la,lb):start`;
+  * one inequality with bound `dot(p − lb, lb − la) ≤ 0` (i.e. `t ≤ 1`),
+    named `con_pt_on_segment(p,la,lb):end`.
+  When the start/end bound is active, the solver enforces `p == la` /
+  `p == lb` respectively (geometrically equivalent under the on-line
+  equality) and *suppresses* emission of the on-line equality for the
+  duration of that solve, since `POINTS_COINCIDENT(p, endpoint)`
+  already implies it and emitting both makes the system rank-deficient.
+  The `:on_line` suffix never appears in `active_inequalities(sol)`;
+  the `:start` and `:end` suffixes never appear there unless the
+  corresponding bound is in the active set. Any of the three suffixed
+  names may appear in `failed_constraints(sol)` if SolveSpace flags
+  the underlying piece.
 
 ### Built-in name shadowing
 
