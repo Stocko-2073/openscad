@@ -12,10 +12,16 @@
     `con_at_midpoint`, `con_equal_length`, `con_length_ratio`,
     `con_length_difference`, `con_eq_len_pt_line_d`,
     `con_eq_pt_ln_distances`, `con_equal_angle`, `con_symmetric_horiz`,
-    `con_symmetric_vert`, and `con_symmetric_line` constraints. Inspect
-    with `solved()`, `dof()`, `residual()`, `pt()`, `poly()`,
-    `failed_constraints()`. See `doc/solve2d_guide.md` and
-    `doc/specs/solve2d.md`.
+    `con_symmetric_vert`, and `con_symmetric_line` constraints. Inequality
+    constraints `con_le_distance`/`con_ge_distance`,
+    `con_le_pt_line_distance`/`con_ge_pt_line_distance`,
+    `con_le_length_difference`/`con_ge_length_difference`,
+    `con_le_angle`/`con_ge_angle`, and the half-plane constraints
+    `con_pt_on_segment`, `con_same_side`, `con_opposite_side` are also
+    supported, with active-set inspection via `iterations()` and
+    `active_inequalities()`. Inspect with `solved()`, `dof()`,
+    `residual()`, `pt()`, `poly()`, `failed_constraints()`. See
+    `doc/solve2d_guide.md` and `doc/specs/solve2d.md`.
 
 # OpenSCAD 2021.01
 

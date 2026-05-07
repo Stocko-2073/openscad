@@ -153,14 +153,19 @@ section of the spec.)
 Equality constraints fix the geometry exactly. Sometimes you want to
 *bound* a value rather than nail it down — "this segment is at most 6
 units long", "this corner angle is no more than 30°". `solve2d` supports
-four such inequalities, all of the `con_le_*` family (`<=`):
+four scalar inequalities in both `<=` (`con_le_*`) and `>=` (`con_ge_*`)
+forms, plus the half-plane `same_side`/`opposite_side` pair:
 
 | Constraint | Bound |
 |---|---|
 | `con_le_distance(p1, p2, d)` | `\|p1–p2\| <= d` |
+| `con_ge_distance(p1, p2, d)` | `\|p1–p2\| >= d` |
 | `con_le_pt_line_distance(p, la, lb, d)` | signed distance from `p` to la–lb is `<= d` |
+| `con_ge_pt_line_distance(p, la, lb, d)` | signed distance from `p` to la–lb is `>= d` |
 | `con_le_length_difference(a, b, c, d, diff)` | `\|a–b\| - \|c–d\| <= diff` |
+| `con_ge_length_difference(a, b, c, d, diff)` | `\|a–b\| - \|c–d\| >= diff` |
 | `con_le_angle(p1, p2, p3, p4, deg)` | undirected angle (in `[0, 180]`) `<= deg` |
+| `con_ge_angle(p1, p2, p3, p4, deg)` | undirected angle (in `[0, 180]`) `>= deg` |
 | `con_same_side(a, b, p, q)` | `p` is on the same side of line ab as `q` |
 | `con_opposite_side(a, b, p, q)` | `p` is on the opposite side of line ab from `q` |
 
@@ -193,13 +198,12 @@ reason listed in `failed_constraints(sol)`.
 
 A few caveats:
 
-* `con_le_pt_line_distance` is **signed**, mirroring `con_pt_line_distance`.
-  `signed_dist(p, line) <= d` bounds `p` only on one side of the line. For
-  "within `d` on either side", combine two `con_le_pt_line_distance`
-  constraints with opposite line orientations.
-* Only `<=` is provided. There's no `con_ge_*` family in v1; encode `>=`
-  relations by rephrasing the geometry where possible.
-* `con_le_angle` measures the undirected angle in `[0, 180]`. Pass
+* `con_le_pt_line_distance` and `con_ge_pt_line_distance` are **signed**,
+  mirroring `con_pt_line_distance`. `signed_dist(p, line) <= d` bounds
+  `p` only on one side of the line; the `ge` form bounds it from the
+  other side. For "within `d` on either side", combine an `le` and a
+  `ge` form, or two `le_pt_line_distance` with opposite line orientations.
+* `con_le_angle` and `con_ge_angle` measure the undirected angle in `[0, 180]`. Pass
   non-negative `deg`. SolveSpace's underlying angle constraint has a
   line-direction ambiguity; on rare configurations the solver may converge
   to the supplementary angle (`180 - deg`). Seed your points to nudge the
@@ -330,6 +334,12 @@ Runnable examples ship with OpenSCAD; all are accessible from
   difference of two segment lengths.
 * `examples/Solver/solve2d_le_angle.scad` — bound on the angle between two
   segments.
+* `examples/Solver/solve2d_ge_distance_smoke.scad`,
+  `solve2d_ge_distance_binding.scad`,
+  `solve2d_ge_distance_infeasible.scad`,
+  `solve2d_ge_pt_line_distance.scad`,
+  `solve2d_ge_length_difference.scad`,
+  `solve2d_ge_angle.scad` — `>=` counterparts of the above.
 
 ## Where to go next
 

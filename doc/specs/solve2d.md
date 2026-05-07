@@ -16,9 +16,10 @@ A user guide with worked examples lives at [`doc/solve2d_guide.md`](../solve2d_g
   `ObjectType` describing a geometric primitive (currently only points).
 * "Sketch constraint" is a built-in function call that produces a tagged
   `ObjectType` describing an equality relation between sketch entities.
-* "Sketch inequality" is a built-in function call (the `con_le_*` family)
-  that produces a tagged `ObjectType` describing a one-sided relation of
-  the form `g(x) <= rhs` between sketch entities.
+* "Sketch inequality" is a built-in function call (the `con_le_*` and
+  `con_ge_*` families) that produces a tagged `ObjectType` describing a
+  one-sided relation of the form `g(x) <= rhs` (or `g(x) >= rhs`) between
+  sketch entities.
 * "Active inequality" is a sketch inequality whose bound is enforced as
   an equality (`g(x) == rhs`) in the final solver state. The set of
   active inequalities is determined by `solve2d` and exposed via
@@ -210,9 +211,17 @@ inequality factory to return `undef` with a warning.
 | Form | Arity | Meaning |
 |---|---|---|
 | `con_le_distance(p1, p2, d)` | 2 strings + 1 number | `|p1–p2| <= d`. |
+| `con_ge_distance(p1, p2, d)` | 2 strings + 1 number | `|p1–p2| >= d`. |
 | `con_le_pt_line_distance(p, la, lb, d)` | 3 strings + 1 number | Signed perpendicular distance from `p` to la–lb shall be `<= d`. The sign convention matches `con_pt_line_distance`. |
+| `con_ge_pt_line_distance(p, la, lb, d)` | 3 strings + 1 number | Signed perpendicular distance from `p` to la–lb shall be `>= d`. Sign convention as for the `<=` form. |
 | `con_le_length_difference(a, b, c, d, diff)` | 4 strings + 1 number | `|a–b| - |c–d| <= diff`. |
+| `con_ge_length_difference(a, b, c, d, diff)` | 4 strings + 1 number | `|a–b| - |c–d| >= diff`. |
 | `con_le_angle(p1, p2, p3, p4, deg)` | 4 strings + 1 number | The undirected angle between p1–p2 and p3–p4 (in `[0, 180]`) shall be `<= deg`. The argument `deg` shall be non-negative; behavior on negative `deg` is implementation-defined. SolveSpace's `SLVS_C_ANGLE` admits a supplementary-angle solution; in rare configurations the solver may converge to `180 - deg` rather than `deg`. Use seeds to nudge the geometry if this matters. |
+| `con_ge_angle(p1, p2, p3, p4, deg)` | 4 strings + 1 number | Same as `con_le_angle` but the bound is `>= deg`. The same supplementary-angle caveat applies. |
+
+For each `con_ge_*` form, when active the solver enforces the same equality
+`g(x) == rhs` as the corresponding `con_le_*` form; the two only differ in
+which side of the bound counts as a violation.
 
 ### Composite constraints
 

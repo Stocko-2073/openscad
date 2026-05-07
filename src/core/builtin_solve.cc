@@ -191,6 +191,24 @@ Value builtin_con_le_distance(Arguments arguments, const Location& loc)
   return obj;
 }
 
+Value builtin_con_ge_distance(Arguments arguments, const Location& loc)
+{
+  EvaluationSession *session = arguments.session();
+  if (arguments.size() != 3 ||
+      arguments[0]->type() != Value::Type::STRING ||
+      arguments[1]->type() != Value::Type::STRING ||
+      arguments[2]->type() != Value::Type::NUMBER) {
+    LOG(message_group::Warning, loc, arguments.documentRoot(),
+        "con_ge_distance() expects (point_name, point_name, number)");
+    return Value::undefined.clone();
+  }
+  ObjectType obj = make_kind_obj(session, "ge_distance");
+  obj.set("a", arguments[0]->clone());
+  obj.set("b", arguments[1]->clone());
+  obj.set("d", arguments[2]->clone());
+  return obj;
+}
+
 Value builtin_con_same_side(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
@@ -313,6 +331,28 @@ Value builtin_con_le_angle(Arguments arguments, const Location& loc)
   return obj;
 }
 
+Value builtin_con_ge_angle(Arguments arguments, const Location& loc)
+{
+  EvaluationSession *session = arguments.session();
+  if (arguments.size() != 5 ||
+      arguments[0]->type() != Value::Type::STRING ||
+      arguments[1]->type() != Value::Type::STRING ||
+      arguments[2]->type() != Value::Type::STRING ||
+      arguments[3]->type() != Value::Type::STRING ||
+      arguments[4]->type() != Value::Type::NUMBER) {
+    LOG(message_group::Warning, loc, arguments.documentRoot(),
+        "con_ge_angle() expects four point names and a degree value");
+    return Value::undefined.clone();
+  }
+  ObjectType obj = make_kind_obj(session, "ge_angle");
+  obj.set("a", arguments[0]->clone());
+  obj.set("b", arguments[1]->clone());
+  obj.set("c", arguments[2]->clone());
+  obj.set("d", arguments[3]->clone());
+  obj.set("deg", arguments[4]->clone());
+  return obj;
+}
+
 Value builtin_con_fixed(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
@@ -420,6 +460,20 @@ Value builtin_con_le_pt_line_distance(Arguments arguments, const Location& loc)
   return obj;
 }
 
+Value builtin_con_ge_pt_line_distance(Arguments arguments, const Location& loc)
+{
+  EvaluationSession *session = arguments.session();
+  if (!require_strings_then_number("con_ge_pt_line_distance", arguments, loc, 3)) {
+    return Value::undefined.clone();
+  }
+  ObjectType obj = make_kind_obj(session, "ge_pt_line_distance");
+  obj.set("p", arguments[0]->clone());
+  obj.set("a", arguments[1]->clone());
+  obj.set("b", arguments[2]->clone());
+  obj.set("d", arguments[3]->clone());
+  return obj;
+}
+
 Value builtin_con_at_midpoint(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
@@ -480,6 +534,21 @@ Value builtin_con_le_length_difference(Arguments arguments, const Location& loc)
     return Value::undefined.clone();
   }
   ObjectType obj = make_kind_obj(session, "le_length_difference");
+  obj.set("a", arguments[0]->clone());
+  obj.set("b", arguments[1]->clone());
+  obj.set("c", arguments[2]->clone());
+  obj.set("d", arguments[3]->clone());
+  obj.set("diff", arguments[4]->clone());
+  return obj;
+}
+
+Value builtin_con_ge_length_difference(Arguments arguments, const Location& loc)
+{
+  EvaluationSession *session = arguments.session();
+  if (!require_strings_then_number("con_ge_length_difference", arguments, loc, 4)) {
+    return Value::undefined.clone();
+  }
+  ObjectType obj = make_kind_obj(session, "ge_length_difference");
   obj.set("a", arguments[0]->clone());
   obj.set("b", arguments[1]->clone());
   obj.set("c", arguments[2]->clone());
@@ -777,12 +846,17 @@ double inequality_violation(const InequalityDecl& ineq,
   auto sub = [](const P& a, const P& b) -> P { return {a[0]-b[0], a[1]-b[1]}; };
   auto norm = [](const P& v) { return std::sqrt(v[0]*v[0] + v[1]*v[1]); };
 
+  // ge_* variants share the same g(x) - rhs computation but flip the sign:
+  // g(x) >= rhs is violated when g(x) < rhs ⇒ violation = rhs - g(x).
+  const double sense = (ineq.kind.rfind("ge_", 0) == 0) ? -1.0 : 1.0;
+
   P a, b;
-  if (ineq.kind == "le_distance" && ineq.points.size() == 2) {
+  if ((ineq.kind == "le_distance" || ineq.kind == "ge_distance") && ineq.points.size() == 2) {
     if (!get(ineq.points[0], a) || !get(ineq.points[1], b)) return 0.0;
-    return norm(sub(a, b)) - ineq.valA;
+    return sense * (norm(sub(a, b)) - ineq.valA);
   }
-  if (ineq.kind == "le_pt_line_distance" && ineq.points.size() == 3) {
+  if ((ineq.kind == "le_pt_line_distance" || ineq.kind == "ge_pt_line_distance") &&
+      ineq.points.size() == 3) {
     P p_, a_, b_;
     if (!get(ineq.points[0], p_) || !get(ineq.points[1], a_) ||
         !get(ineq.points[2], b_)) return 0.0;
@@ -791,15 +865,16 @@ double inequality_violation(const InequalityDecl& ineq,
     if (m < 1e-12) return 0.0;
     // signed distance: cross_z(p-a, v) / |v|
     double signed_dist = ((p_[0]-a_[0])*v[1] - (p_[1]-a_[1])*v[0]) / m;
-    return signed_dist - ineq.valA;
+    return sense * (signed_dist - ineq.valA);
   }
-  if (ineq.kind == "le_length_difference" && ineq.points.size() == 4) {
+  if ((ineq.kind == "le_length_difference" || ineq.kind == "ge_length_difference") &&
+      ineq.points.size() == 4) {
     P a_, b_, c_, d_;
     if (!get(ineq.points[0], a_) || !get(ineq.points[1], b_) ||
         !get(ineq.points[2], c_) || !get(ineq.points[3], d_)) return 0.0;
-    return (norm(sub(b_, a_)) - norm(sub(d_, c_))) - ineq.valA;
+    return sense * ((norm(sub(b_, a_)) - norm(sub(d_, c_))) - ineq.valA);
   }
-  if (ineq.kind == "le_angle" && ineq.points.size() == 4) {
+  if ((ineq.kind == "le_angle" || ineq.kind == "ge_angle") && ineq.points.size() == 4) {
     P a_, b_, c_, d_;
     if (!get(ineq.points[0], a_) || !get(ineq.points[1], b_) ||
         !get(ineq.points[2], c_) || !get(ineq.points[3], d_)) return 0.0;
@@ -808,7 +883,7 @@ double inequality_violation(const InequalityDecl& ineq,
     if (m1 < 1e-12 || m2 < 1e-12) return 0.0;
     double cosA = std::max(-1.0, std::min(1.0, (v1[0]*v2[0] + v1[1]*v2[1]) / (m1*m2)));
     double angle_deg = std::acos(cosA) * 180.0 / M_PI;
-    return angle_deg - std::abs(ineq.valA);
+    return sense * (angle_deg - std::abs(ineq.valA));
   }
   if ((ineq.kind == "pt_on_segment_lower" || ineq.kind == "pt_on_segment_upper")
       && ineq.points.size() == 3) {
@@ -1202,7 +1277,8 @@ SolveOnceResult build_and_solve_once(
   for (size_t idx : active_set) {
     const auto& ineq = inequalities[idx];
 
-    if (ineq.kind == "le_distance" && ineq.points.size() == 2) {
+    if ((ineq.kind == "le_distance" || ineq.kind == "ge_distance") &&
+        ineq.points.size() == 2) {
       Slvs_hEntity a = pt_entity(ineq.kind, ineq.points[0]);
       Slvs_hEntity b = pt_entity(ineq.kind, ineq.points[1]);
       if (!a || !b) continue;
@@ -1212,7 +1288,8 @@ SolveOnceResult build_and_solve_once(
                                                  wrkpl, ineq.valA, a, b, 0, 0));
       constraint_name_by_h[ch] = ineq.name;
       out.active_ineq_handles[idx] = ch;
-    } else if (ineq.kind == "le_pt_line_distance" && ineq.points.size() == 3) {
+    } else if ((ineq.kind == "le_pt_line_distance" ||
+                ineq.kind == "ge_pt_line_distance") && ineq.points.size() == 3) {
       Slvs_hEntity p = pt_entity(ineq.kind, ineq.points[0]);
       Slvs_hEntity a = pt_entity(ineq.kind, ineq.points[1]);
       Slvs_hEntity b = pt_entity(ineq.kind, ineq.points[2]);
@@ -1224,7 +1301,8 @@ SolveOnceResult build_and_solve_once(
                                                  wrkpl, ineq.valA, p, 0, line, 0));
       constraint_name_by_h[ch] = ineq.name;
       out.active_ineq_handles[idx] = ch;
-    } else if (ineq.kind == "le_length_difference" && ineq.points.size() == 4) {
+    } else if ((ineq.kind == "le_length_difference" ||
+                ineq.kind == "ge_length_difference") && ineq.points.size() == 4) {
       Slvs_hEntity a = pt_entity(ineq.kind, ineq.points[0]);
       Slvs_hEntity b = pt_entity(ineq.kind, ineq.points[1]);
       Slvs_hEntity c = pt_entity(ineq.kind, ineq.points[2]);
@@ -1238,7 +1316,8 @@ SolveOnceResult build_and_solve_once(
                                                  wrkpl, ineq.valA, 0, 0, l1, l2));
       constraint_name_by_h[ch] = ineq.name;
       out.active_ineq_handles[idx] = ch;
-    } else if (ineq.kind == "le_angle" && ineq.points.size() == 4) {
+    } else if ((ineq.kind == "le_angle" || ineq.kind == "ge_angle") &&
+               ineq.points.size() == 4) {
       Slvs_hEntity a = pt_entity(ineq.kind, ineq.points[0]);
       Slvs_hEntity b = pt_entity(ineq.kind, ineq.points[1]);
       Slvs_hEntity c = pt_entity(ineq.kind, ineq.points[2]);
@@ -1350,16 +1429,16 @@ SolveOnceResult build_and_solve_once(
     const auto& ineq = inequalities[idx];
     ConstraintDecl pseudo;
     pseudo.valA = ineq.valA;
-    if (ineq.kind == "le_distance") {
+    if (ineq.kind == "le_distance" || ineq.kind == "ge_distance") {
       pseudo.kind = "distance";
       pseudo.points = ineq.points;
-    } else if (ineq.kind == "le_pt_line_distance") {
+    } else if (ineq.kind == "le_pt_line_distance" || ineq.kind == "ge_pt_line_distance") {
       pseudo.kind = "pt_line_distance";
       pseudo.points = ineq.points;
-    } else if (ineq.kind == "le_length_difference") {
+    } else if (ineq.kind == "le_length_difference" || ineq.kind == "ge_length_difference") {
       pseudo.kind = "length_difference";
       pseudo.points = ineq.points;
-    } else if (ineq.kind == "le_angle") {
+    } else if (ineq.kind == "le_angle" || ineq.kind == "ge_angle") {
       pseudo.kind = "angle";
       pseudo.points = ineq.points;
     } else if (ineq.kind == "pt_on_segment_lower" && ineq.points.size() == 3) {
@@ -1587,7 +1666,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         str_field("p2");
         str_field("a");
         str_field("b");
-      } else if (kind == "le_distance") {
+      } else if (kind == "le_distance" || kind == "ge_distance") {
         InequalityDecl ineq;
         ineq.kind = kind;
         std::string a, b;
@@ -1596,11 +1675,12 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         ineq.points.push_back(a);
         ineq.points.push_back(b);
         field_double(obj, "d", ineq.valA);
-        ineq.name = "con_le_distance(" + a + "," + b + "," +
+        const char *fn = (kind == "le_distance") ? "con_le_distance" : "con_ge_distance";
+        ineq.name = std::string(fn) + "(" + a + "," + b + "," +
                     std::to_string(ineq.valA) + ")";
         inequalities.push_back(std::move(ineq));
         continue;  // skip the constraints.push_back below
-      } else if (kind == "le_pt_line_distance") {
+      } else if (kind == "le_pt_line_distance" || kind == "ge_pt_line_distance") {
         InequalityDecl ineq;
         ineq.kind = kind;
         std::string p, a, b;
@@ -1611,11 +1691,13 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         ineq.points.push_back(a);
         ineq.points.push_back(b);
         field_double(obj, "d", ineq.valA);
-        ineq.name = "con_le_pt_line_distance(" + p + "," + a + "," + b + "," +
+        const char *fn = (kind == "le_pt_line_distance") ? "con_le_pt_line_distance"
+                                                         : "con_ge_pt_line_distance";
+        ineq.name = std::string(fn) + "(" + p + "," + a + "," + b + "," +
                     std::to_string(ineq.valA) + ")";
         inequalities.push_back(std::move(ineq));
         continue;
-      } else if (kind == "le_length_difference") {
+      } else if (kind == "le_length_difference" || kind == "ge_length_difference") {
         InequalityDecl ineq;
         ineq.kind = kind;
         std::string a, b, c_, d_;
@@ -1628,11 +1710,13 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         ineq.points.push_back(c_);
         ineq.points.push_back(d_);
         field_double(obj, "diff", ineq.valA);
-        ineq.name = "con_le_length_difference(" + a + "," + b + "," + c_ + "," + d_ + "," +
+        const char *fn = (kind == "le_length_difference") ? "con_le_length_difference"
+                                                          : "con_ge_length_difference";
+        ineq.name = std::string(fn) + "(" + a + "," + b + "," + c_ + "," + d_ + "," +
                     std::to_string(ineq.valA) + ")";
         inequalities.push_back(std::move(ineq));
         continue;
-      } else if (kind == "le_angle") {
+      } else if (kind == "le_angle" || kind == "ge_angle") {
         InequalityDecl ineq;
         ineq.kind = kind;
         std::string a, b, c_, d_;
@@ -1645,7 +1729,8 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         ineq.points.push_back(c_);
         ineq.points.push_back(d_);
         field_double(obj, "deg", ineq.valA);
-        ineq.name = "con_le_angle(" + a + "," + b + "," + c_ + "," + d_ + "," +
+        const char *fn = (kind == "le_angle") ? "con_le_angle" : "con_ge_angle";
+        ineq.name = std::string(fn) + "(" + a + "," + b + "," + c_ + "," + d_ + "," +
                     std::to_string(ineq.valA) + ")";
         inequalities.push_back(std::move(ineq));
         continue;
@@ -1980,9 +2065,14 @@ void register_builtin_solve()
                  {"con_distance(p1, p2, d) -> sketch constraint"});
   Builtins::init("con_le_distance", new BuiltinFunction(&builtin_con_le_distance),
                  {"con_le_distance(p1, p2, d) -> sketch constraint (|p1p2| <= d)"});
+  Builtins::init("con_ge_distance", new BuiltinFunction(&builtin_con_ge_distance),
+                 {"con_ge_distance(p1, p2, d) -> sketch constraint (|p1p2| >= d)"});
   Builtins::init("con_le_pt_line_distance",
                  new BuiltinFunction(&builtin_con_le_pt_line_distance),
                  {"con_le_pt_line_distance(p, la, lb, d) -> sketch constraint (signed dist <= d)"});
+  Builtins::init("con_ge_pt_line_distance",
+                 new BuiltinFunction(&builtin_con_ge_pt_line_distance),
+                 {"con_ge_pt_line_distance(p, la, lb, d) -> sketch constraint (signed dist >= d)"});
   Builtins::init("con_horizontal", new BuiltinFunction(&builtin_con_horizontal),
                  {"con_horizontal(p1, p2) -> sketch constraint"});
   Builtins::init("con_vertical", new BuiltinFunction(&builtin_con_vertical),
@@ -1996,6 +2086,9 @@ void register_builtin_solve()
   Builtins::init("con_le_angle",
                  new BuiltinFunction(&builtin_con_le_angle),
                  {"con_le_angle(p1, p2, p3, p4, deg) -> sketch constraint (angle <= deg)"});
+  Builtins::init("con_ge_angle",
+                 new BuiltinFunction(&builtin_con_ge_angle),
+                 {"con_ge_angle(p1, p2, p3, p4, deg) -> sketch constraint (angle >= deg)"});
   Builtins::init("con_fixed", new BuiltinFunction(&builtin_con_fixed),
                  {"con_fixed(p) -> sketch constraint"});
 
@@ -2020,6 +2113,9 @@ void register_builtin_solve()
   Builtins::init("con_le_length_difference",
                  new BuiltinFunction(&builtin_con_le_length_difference),
                  {"con_le_length_difference(a, b, c, d, diff) -> sketch constraint (|ab|-|cd| <= diff)"});
+  Builtins::init("con_ge_length_difference",
+                 new BuiltinFunction(&builtin_con_ge_length_difference),
+                 {"con_ge_length_difference(a, b, c, d, diff) -> sketch constraint (|ab|-|cd| >= diff)"});
   Builtins::init("con_eq_len_pt_line_d", new BuiltinFunction(&builtin_con_eq_len_pt_line_d),
                  {"con_eq_len_pt_line_d(p, la, lb, da, db) -> sketch constraint"});
   Builtins::init("con_eq_pt_ln_distances", new BuiltinFunction(&builtin_con_eq_pt_ln_distances),
