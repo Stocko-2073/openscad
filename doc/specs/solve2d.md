@@ -15,7 +15,18 @@ A user guide with worked examples lives at [`doc/solve2d_guide.md`](../solve2d_g
 * "Sketch entity" is a built-in function call that produces a tagged
   `ObjectType` describing a geometric primitive (currently only points).
 * "Sketch constraint" is a built-in function call that produces a tagged
-  `ObjectType` describing a relation between sketch entities.
+  `ObjectType` describing an equality relation between sketch entities.
+* "Sketch inequality" is a built-in function call (the `con_le_*` family)
+  that produces a tagged `ObjectType` describing a one-sided relation of
+  the form `g(x) <= rhs` between sketch entities.
+* "Active inequality" is a sketch inequality whose bound is enforced as
+  an equality (`g(x) == rhs`) in the final solver state. The set of
+  active inequalities is determined by `solve2d` and exposed via
+  `active_inequalities(sol)`.
+* "Outer iteration" is one cycle of the active-set loop `solve2d` uses
+  when the input contains inequalities. When no inequalities are present,
+  `solve2d` performs a single SolveSpace solve and the iteration count is
+  `0`.
 * "Seeded point" is a point whose `at` keyword argument is supplied: its
   coordinates are used as the solver's initial guess for that point. The
   point remains free to move during the solve unless additionally
@@ -62,6 +73,25 @@ A user guide with worked examples lives at [`doc/solve2d_guide.md`](../solve2d_g
 * `solve2d` shall not be re-entrant on a single thread; it owns the
   underlying SolveSpace state for the duration of one call. Independent
   calls in sequence are safe.
+* When the input contains zero inequalities, `solve2d` shall perform a
+  single SolveSpace solve and `iterations(sol)` shall be `0`. Behavior
+  in this path shall be identical to revisions of this specification that
+  predate inequality support.
+* When the input contains one or more inequalities, `solve2d` shall use
+  an outer active-set loop: it determines an active set of inequalities,
+  treats each active inequality as the equality `g(x) == rhs` for the
+  underlying SolveSpace call, checks inactive inequalities for violations,
+  and iterates. The strategy for choosing and updating the active set is
+  implementation-defined. `iterations(sol)` shall report the number of
+  outer iterations performed (at least `1`); `active_inequalities(sol)`
+  shall report the inequalities in the active set when `solve2d` returned.
+* The outer loop shall always terminate. If it cannot find a feasible
+  active set — because the equality-only base system is itself infeasible,
+  because the active-set search cycles, or because an implementation-defined
+  iteration cap is reached — `solve2d` shall return a solution with
+  `solved(sol) == false`. `failed_constraints(sol)` shall describe the
+  failure: either a SolveSpace-reported list, or a string of the form
+  `"solve2d: <reason>"`.
 
 ### Solution accessors
 
@@ -91,6 +121,17 @@ A user guide with worked examples lives at [`doc/solve2d_guide.md`](../solve2d_g
 * `failed_constraints(sol)` shall return a vector of strings naming
   constraints SolveSpace identified as failing. The strings are descriptive
   summaries (e.g. `"con_distance(a,b)"`) and shall not be parsed programmatically.
+  When `solved(sol)` is `false` because the inequality outer loop bailed,
+  this vector shall instead (or additionally) contain a string of the form
+  `"solve2d: <reason>"`.
+* `iterations(sol)` shall return a `number` equal to the number of outer
+  active-set iterations performed by `solve2d`. It shall be `0` when no
+  inequalities were present in the input, and at least `1` otherwise.
+* `active_inequalities(sol)` shall return a vector of strings naming the
+  inequalities in the active set when `solve2d` returned. The strings are
+  descriptive summaries (e.g. `"con_le_distance(a,b,4.000000)"`) and shall
+  not be parsed programmatically. When the input contained no
+  inequalities, this vector shall be empty.
 * All accessors shall return `undef` and warn when given a non-`solution`
   first argument.
 
@@ -152,6 +193,26 @@ constraint factory to return `undef` with a warning.
 | `con_symmetric_vert(p1, p2)` | 2 strings | Points are mirror images across the workplane's U-axis (the segment p1–p2 is vertical). |
 | `con_symmetric_line(p1, p2, la, lb)` | 4 strings | Points `p1` and `p2` are mirror images across the line la–lb. |
 
+### Inequalities
+
+Inequalities express one-sided relations of the form `g(x) <= rhs`. The
+solver enforces an inequality only when needed: if the equality-only solve
+already satisfies `g(x) <= rhs`, the inequality is left slack and adds
+no DOF cost. If the unconstrained solve would violate the bound, the
+inequality is added to the active set and `solve2d` re-solves with
+`g(x) == rhs` enforced.
+
+In every inequality, point-name arguments shall be `string`s and numeric
+arguments shall be `number`s. Mismatched arity or types shall cause the
+inequality factory to return `undef` with a warning.
+
+| Form | Arity | Meaning |
+|---|---|---|
+| `con_le_distance(p1, p2, d)` | 2 strings + 1 number | `|p1–p2| <= d`. |
+| `con_le_pt_line_distance(p, la, lb, d)` | 3 strings + 1 number | Signed perpendicular distance from `p` to la–lb shall be `<= d`. The sign convention matches `con_pt_line_distance`. |
+| `con_le_length_difference(a, b, c, d, diff)` | 4 strings + 1 number | `|a–b| - |c–d| <= diff`. |
+| `con_le_angle(p1, p2, p3, p4, deg)` | 4 strings + 1 number | The undirected angle between p1–p2 and p3–p4 (in `[0, 180]`) shall be `<= deg`. The argument `deg` shall be non-negative; behavior on negative `deg` is implementation-defined. SolveSpace's `SLVS_C_ANGLE` admits a supplementary-angle solution; in rare configurations the solver may converge to `180 - deg` rather than `deg`. Use seeds to nudge the geometry if this matters. |
+
 ### Built-in name shadowing
 
 * Each entity, constraint, and accessor built-in is registered as an
@@ -174,3 +235,6 @@ future revisions:
 * Caching of solver results across `solve2d` calls.
 * Importing native SolveSpace `.slvs` files.
 * The numeric value of `residual(sol)` beyond zero on success.
+* Inequality constraints of the form `g(x) >= rhs` (a `con_ge_*` family).
+* Two-sided distance constraints (e.g. `|signed_dist(p, line)| <= d` as a
+  single built-in).

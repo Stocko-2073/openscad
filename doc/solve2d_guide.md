@@ -147,6 +147,61 @@ Things *not* yet supported: arcs, circles, tangency, 3D, and `SLVS_C_SYMMETRIC`
 (which needs an explicit symmetry-plane entity). (See the "Out of Scope"
 section of the spec.)
 
+## Bounded sketches with inequalities
+
+Equality constraints fix the geometry exactly. Sometimes you want to
+*bound* a value rather than nail it down — "this segment is at most 6
+units long", "this corner angle is no more than 30°". `solve2d` supports
+four such inequalities, all of the `con_le_*` family (`<=`):
+
+| Constraint | Bound |
+|---|---|
+| `con_le_distance(p1, p2, d)` | `\|p1–p2\| <= d` |
+| `con_le_pt_line_distance(p, la, lb, d)` | signed distance from `p` to la–lb is `<= d` |
+| `con_le_length_difference(a, b, c, d, diff)` | `\|a–b\| - \|c–d\| <= diff` |
+| `con_le_angle(p1, p2, p3, p4, deg)` | undirected angle (in `[0, 180]`) `<= deg` |
+
+The solver decides per-call which inequalities matter. If your sketch
+already satisfies an inequality without it being enforced, the solver
+leaves it slack — the constraint adds no DOF cost. If the unconstrained
+solve would violate the inequality, the solver activates it (treats it as
+`g(x) == bound`) and re-solves. You can inspect what happened:
+
+```scad
+sol = solve2d([
+  point("a", at = [0, 0]), con_fixed("a"),
+  point("b", at = [10, 0]), con_horizontal("a", "b"),
+  con_le_distance("a", "b", 4),     // |ab| <= 4
+]);
+
+echo(iterations(sol));            // 2 — one solve, found violation, re-solved
+echo(active_inequalities(sol));   // ["con_le_distance(a,b,4.000000)"]
+echo(pt(sol, "b"));               // [4, 0] — the bound is binding
+```
+
+`iterations(sol)` returns the outer-loop count (`0` if no inequalities,
+otherwise at least `1`). `active_inequalities(sol)` lists the inequalities
+that ended up being binding at the solution.
+
+If two inequalities contradict each other, or an inequality contradicts
+your equality constraints, the solver bails the same way it does for
+infeasible equality-only systems: `solved(sol) == false`, with the
+reason listed in `failed_constraints(sol)`.
+
+A few caveats:
+
+* `con_le_pt_line_distance` is **signed**, mirroring `con_pt_line_distance`.
+  `signed_dist(p, line) <= d` bounds `p` only on one side of the line. For
+  "within `d` on either side", combine two `con_le_pt_line_distance`
+  constraints with opposite line orientations.
+* Only `<=` is provided. There's no `con_ge_*` family in v1; encode `>=`
+  relations by rephrasing the geometry where possible.
+* `con_le_angle` measures the undirected angle in `[0, 180]`. Pass
+  non-negative `deg`. SolveSpace's underlying angle constraint has a
+  line-direction ambiguity; on rare configurations the solver may converge
+  to the supplementary angle (`180 - deg`). Seed your points to nudge the
+  geometry if this matters.
+
 ## Parametric sketches
 
 `solve2d` is a function: it can be called with computed inputs. This makes
@@ -216,18 +271,20 @@ You can also inspect `dof(sol)`:
 
 * **The opaque `Solution` is opaque.** You can't index `sol[0]`, you can't
   iterate it, you can't compare it to an object. Only the accessor
-  functions (`pt`, `poly`, `solved`, `dof`, `residual`,
-  `failed_constraints`) read values out. This is by design — see the spec.
+  functions (`pt`, `pts`, `poly`, `solved`, `dof`, `residual`,
+  `failed_constraints`, `iterations`, `active_inequalities`) read values
+  out. This is by design — see the spec.
 
 * **Names are case-sensitive strings.** `pt(sol, "A")` and `pt(sol, "a")`
   are different points. A typo in a constraint silently warns at solve
   time and the constraint is dropped. Watch the console.
 
 * **Constraint names are prefixed.** Every constraint built-in starts
-  with `con_` (`con_distance`, `con_angle`, ...) so they don't collide
-  with names you'd naturally define yourself. The non-prefixed accessors
-  and entity helpers (`point`, `solve2d`, `solved`, `pt`, `poly`,
-  `dof`, `residual`, `failed_constraints`) are still subject to OpenSCAD's
+  with `con_` (`con_distance`, `con_angle`, `con_le_distance`, ...) so
+  they don't collide with names you'd naturally define yourself. The
+  non-prefixed accessors and entity helpers (`point`, `solve2d`, `solved`,
+  `pt`, `pts`, `poly`, `dof`, `residual`, `failed_constraints`,
+  `iterations`, `active_inequalities`) are still subject to OpenSCAD's
   normal lookup rules — defining your own `function pt(...)` shadows the
   accessor.
 
@@ -245,6 +302,18 @@ Runnable examples ship with OpenSCAD; all are accessible from
 * `examples/Solver/solve2d_symmetric_house.scad` — a house silhouette
   using `con_pt_line_distance` and `con_at_midpoint` to size the walls
   and place the ridge.
+* `examples/Solver/solve2d_le_distance_smoke.scad` — slack `con_le_distance`
+  (loop converges in one iteration with empty active set).
+* `examples/Solver/solve2d_le_distance_binding.scad` — binding
+  `con_le_distance` (loop activates the constraint to push the bound).
+* `examples/Solver/solve2d_le_distance_infeasible.scad` — contradictory
+  equality + inequality (loop bails cleanly, `solved == false`).
+* `examples/Solver/solve2d_le_pt_line_distance.scad` — signed-distance
+  inequality.
+* `examples/Solver/solve2d_le_length_difference.scad` — bound on the
+  difference of two segment lengths.
+* `examples/Solver/solve2d_le_angle.scad` — bound on the angle between two
+  segments.
 
 ## Where to go next
 
