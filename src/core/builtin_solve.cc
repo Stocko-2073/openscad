@@ -316,6 +316,17 @@ Value builtin_con_pt_on_line(Arguments arguments, const Location& loc)
   return obj;
 }
 
+Value builtin_con_pt_on_segment(Arguments arguments, const Location& loc)
+{
+  EvaluationSession *session = arguments.session();
+  if (!require_strings("con_pt_on_segment", arguments, loc, 3)) return Value::undefined.clone();
+  ObjectType obj = make_kind_obj(session, "pt_on_segment");
+  obj.set("p", arguments[0]->clone());
+  obj.set("a", arguments[1]->clone());
+  obj.set("b", arguments[2]->clone());
+  return obj;
+}
+
 Value builtin_con_pt_line_distance(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
@@ -729,6 +740,23 @@ double inequality_violation(const InequalityDecl& ineq,
     double angle_deg = std::acos(cosA) * 180.0 / M_PI;
     return angle_deg - std::abs(ineq.valA);
   }
+  if ((ineq.kind == "pt_on_segment_lower" || ineq.kind == "pt_on_segment_upper")
+      && ineq.points.size() == 3) {
+    P p_, a_, b_;
+    if (!get(ineq.points[0], p_) || !get(ineq.points[1], a_) ||
+        !get(ineq.points[2], b_)) return 0.0;
+    P v = sub(b_, a_);
+    if (norm(v) < 1e-12) return 0.0;  // degenerate segment
+    if (ineq.kind == "pt_on_segment_lower") {
+      // g_lower = -dot(p - a, b - a). Positive ⇒ t < 0.
+      P pa = sub(p_, a_);
+      return -(pa[0]*v[0] + pa[1]*v[1]);
+    } else {
+      // g_upper = dot(p - b, b - a). Positive ⇒ t > 1.
+      P pb = sub(p_, b_);
+      return pb[0]*v[0] + pb[1]*v[1];
+    }
+  }
   return 0.0;
 }
 
@@ -1125,6 +1153,21 @@ SolveOnceResult build_and_solve_once(
                                                  wrkpl, ineq.valA, 0, 0, l1, l2));
       constraint_name_by_h[ch] = ineq.name;
       out.active_ineq_handles[idx] = ch;
+    } else if ((ineq.kind == "pt_on_segment_lower" ||
+                ineq.kind == "pt_on_segment_upper") && ineq.points.size() == 3) {
+      // When this bound is active, p coincides with the corresponding endpoint.
+      // Lower bound active ⇒ p == a; upper bound active ⇒ p == b.
+      Slvs_hEntity p = pt_entity(ineq.kind, ineq.points[0]);
+      Slvs_hEntity endpoint = pt_entity(
+          ineq.kind,
+          ineq.kind == "pt_on_segment_lower" ? ineq.points[1] : ineq.points[2]);
+      if (!p || !endpoint) continue;
+      Slvs_hConstraint ch = next_constraint++;
+      sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
+                                                 SLVS_C_POINTS_COINCIDENT,
+                                                 wrkpl, 0.0, p, endpoint, 0, 0));
+      constraint_name_by_h[ch] = ineq.name;
+      out.active_ineq_handles[idx] = ch;
     }
   }
 
@@ -1188,13 +1231,32 @@ SolveOnceResult build_and_solve_once(
   }
   // Also include active inequalities in residual (they are treated as equalities).
   for (size_t idx : active_set) {
+    const auto& ineq = inequalities[idx];
     ConstraintDecl pseudo;
-    if (inequalities[idx].kind == "le_distance") pseudo.kind = "distance";
-    else if (inequalities[idx].kind == "le_pt_line_distance") pseudo.kind = "pt_line_distance";
-    else if (inequalities[idx].kind == "le_length_difference") pseudo.kind = "length_difference";
-    else if (inequalities[idx].kind == "le_angle") pseudo.kind = "angle";
-    pseudo.points = inequalities[idx].points;
-    pseudo.valA = inequalities[idx].valA;
+    pseudo.valA = ineq.valA;
+    if (ineq.kind == "le_distance") {
+      pseudo.kind = "distance";
+      pseudo.points = ineq.points;
+    } else if (ineq.kind == "le_pt_line_distance") {
+      pseudo.kind = "pt_line_distance";
+      pseudo.points = ineq.points;
+    } else if (ineq.kind == "le_length_difference") {
+      pseudo.kind = "length_difference";
+      pseudo.points = ineq.points;
+    } else if (ineq.kind == "le_angle") {
+      pseudo.kind = "angle";
+      pseudo.points = ineq.points;
+    } else if (ineq.kind == "pt_on_segment_lower" && ineq.points.size() == 3) {
+      // Active ⇒ p coincides with a. Pseudo: coincident{p, a}.
+      pseudo.kind = "coincident";
+      pseudo.points = {ineq.points[0], ineq.points[1]};
+    } else if (ineq.kind == "pt_on_segment_upper" && ineq.points.size() == 3) {
+      // Active ⇒ p coincides with b. Pseudo: coincident{p, b}.
+      pseudo.kind = "coincident";
+      pseudo.points = {ineq.points[0], ineq.points[2]};
+    } else {
+      continue;
+    }
     double r = constraint_residual(pseudo, out.points);
     if (r > max_residual) max_residual = r;
   }
@@ -1464,6 +1526,35 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         ineq.name = "con_le_angle(" + a + "," + b + "," + c_ + "," + d_ + "," +
                     std::to_string(ineq.valA) + ")";
         inequalities.push_back(std::move(ineq));
+        continue;
+      } else if (kind == "pt_on_segment") {
+        std::string p, a, b;
+        field_string(obj, "p", p);
+        field_string(obj, "a", a);
+        field_string(obj, "b", b);
+        const std::string prefix = "con_pt_on_segment(" + p + "," + a + "," + b + ")";
+
+        // 1. Always-on equality: p lies on the infinite line through a, b.
+        ConstraintDecl on_line;
+        on_line.kind = "pt_on_line";
+        on_line.points = {p, a, b};
+        on_line.name = prefix + ":on_line";
+        constraints.push_back(std::move(on_line));
+
+        // 2. Lower bound: g_lower = -dot(p - a, b - a) <= 0  (i.e. t >= 0).
+        InequalityDecl lower;
+        lower.kind = "pt_on_segment_lower";
+        lower.points = {p, a, b};
+        lower.name = prefix + ":start";
+        inequalities.push_back(std::move(lower));
+
+        // 3. Upper bound: g_upper = dot(p - b, b - a) <= 0  (i.e. t <= 1).
+        InequalityDecl upper;
+        upper.kind = "pt_on_segment_upper";
+        upper.points = {p, a, b};
+        upper.name = prefix + ":end";
+        inequalities.push_back(std::move(upper));
+
         continue;
       } else {
         LOG(message_group::Warning, loc, doc_root,
@@ -1744,6 +1835,8 @@ void register_builtin_solve()
 
   Builtins::init("con_pt_on_line", new BuiltinFunction(&builtin_con_pt_on_line),
                  {"con_pt_on_line(p, la, lb) -> sketch constraint"});
+  Builtins::init("con_pt_on_segment", new BuiltinFunction(&builtin_con_pt_on_segment),
+                 {"con_pt_on_segment(p, la, lb) -> sketch constraint (p on closed segment la-lb)"});
   Builtins::init("con_pt_line_distance", new BuiltinFunction(&builtin_con_pt_line_distance),
                  {"con_pt_line_distance(p, la, lb, d) -> sketch constraint (signed)"});
   Builtins::init("con_at_midpoint", new BuiltinFunction(&builtin_con_at_midpoint),
