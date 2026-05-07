@@ -1610,6 +1610,22 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
                     std::to_string(ineq.valA) + ")";
         inequalities.push_back(std::move(ineq));
         continue;
+      } else if (kind == "same_side" || kind == "opposite_side") {
+        InequalityDecl ineq;
+        ineq.kind = kind;
+        std::string a, b, p, q;
+        field_string(obj, "a", a);
+        field_string(obj, "b", b);
+        field_string(obj, "p", p);
+        field_string(obj, "q", q);
+        ineq.points.push_back(a);
+        ineq.points.push_back(b);
+        ineq.points.push_back(p);
+        ineq.points.push_back(q);
+        ineq.name = (kind == "same_side" ? "con_same_side(" : "con_opposite_side(") +
+                    a + "," + b + "," + p + "," + q + ")";
+        inequalities.push_back(std::move(ineq));
+        continue;
       } else if (kind == "pt_on_segment") {
         std::string p, a, b;
         field_string(obj, "p", p);
