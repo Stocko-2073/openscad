@@ -191,6 +191,46 @@ Value builtin_con_le_distance(Arguments arguments, const Location& loc)
   return obj;
 }
 
+Value builtin_con_same_side(Arguments arguments, const Location& loc)
+{
+  EvaluationSession *session = arguments.session();
+  if (arguments.size() != 4 ||
+      arguments[0]->type() != Value::Type::STRING ||
+      arguments[1]->type() != Value::Type::STRING ||
+      arguments[2]->type() != Value::Type::STRING ||
+      arguments[3]->type() != Value::Type::STRING) {
+    LOG(message_group::Warning, loc, arguments.documentRoot(),
+        "con_same_side() expects four point names: (a, b, p, q)");
+    return Value::undefined.clone();
+  }
+  ObjectType obj = make_kind_obj(session, "same_side");
+  obj.set("a", arguments[0]->clone());
+  obj.set("b", arguments[1]->clone());
+  obj.set("p", arguments[2]->clone());
+  obj.set("q", arguments[3]->clone());
+  return obj;
+}
+
+Value builtin_con_opposite_side(Arguments arguments, const Location& loc)
+{
+  EvaluationSession *session = arguments.session();
+  if (arguments.size() != 4 ||
+      arguments[0]->type() != Value::Type::STRING ||
+      arguments[1]->type() != Value::Type::STRING ||
+      arguments[2]->type() != Value::Type::STRING ||
+      arguments[3]->type() != Value::Type::STRING) {
+    LOG(message_group::Warning, loc, arguments.documentRoot(),
+        "con_opposite_side() expects four point names: (a, b, p, q)");
+    return Value::undefined.clone();
+  }
+  ObjectType obj = make_kind_obj(session, "opposite_side");
+  obj.set("a", arguments[0]->clone());
+  obj.set("b", arguments[1]->clone());
+  obj.set("p", arguments[2]->clone());
+  obj.set("q", arguments[3]->clone());
+  return obj;
+}
+
 Value builtin_con_perpendicular(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
@@ -1908,6 +1948,10 @@ void register_builtin_solve()
                  {"con_pt_on_line(p, la, lb) -> sketch constraint"});
   Builtins::init("con_pt_on_segment", new BuiltinFunction(&builtin_con_pt_on_segment),
                  {"con_pt_on_segment(p, la, lb) -> sketch constraint (p on closed segment la-lb)"});
+  Builtins::init("con_same_side", new BuiltinFunction(&builtin_con_same_side),
+                 {"con_same_side(a, b, p, q) -> sketch constraint (p on same side of line ab as q)"});
+  Builtins::init("con_opposite_side", new BuiltinFunction(&builtin_con_opposite_side),
+                 {"con_opposite_side(a, b, p, q) -> sketch constraint (p on opposite side of line ab from q)"});
   Builtins::init("con_pt_line_distance", new BuiltinFunction(&builtin_con_pt_line_distance),
                  {"con_pt_line_distance(p, la, lb, d) -> sketch constraint (signed)"});
   Builtins::init("con_at_midpoint", new BuiltinFunction(&builtin_con_at_midpoint),
