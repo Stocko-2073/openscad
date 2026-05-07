@@ -161,6 +161,8 @@ four such inequalities, all of the `con_le_*` family (`<=`):
 | `con_le_pt_line_distance(p, la, lb, d)` | signed distance from `p` to la–lb is `<= d` |
 | `con_le_length_difference(a, b, c, d, diff)` | `\|a–b\| - \|c–d\| <= diff` |
 | `con_le_angle(p1, p2, p3, p4, deg)` | undirected angle (in `[0, 180]`) `<= deg` |
+| `con_same_side(a, b, p, q)` | `p` is on the same side of line ab as `q` |
+| `con_opposite_side(a, b, p, q)` | `p` is on the opposite side of line ab from `q` |
 
 The solver decides per-call which inequalities matter. If your sketch
 already satisfies an inequality without it being enforced, the solver
@@ -202,6 +204,16 @@ A few caveats:
   line-direction ambiguity; on rare configurations the solver may converge
   to the supplementary angle (`180 - deg`). Seed your points to nudge the
   geometry if this matters.
+* `con_same_side` and `con_opposite_side` are **half-plane** constraints
+  used to break the discrete multiplicity that distance/angle systems
+  leave behind. A square anchored at one corner with three side-equality
+  constraints and one right angle has both a real-square solution and a
+  degenerate one with two coincident vertices; adding
+  `con_opposite_side("a","c","d","b")` selects the real-square basin.
+  These constraints bind asymmetrically: when active, only `p` (the
+  third argument) is pinned to the line through `a` and `b`. `q` is a
+  sign reference only. Swap the argument order (`con_same_side(a,b,q,p)`)
+  if you want `q` to be the pinned one instead.
 
 ## Parametric sketches
 
