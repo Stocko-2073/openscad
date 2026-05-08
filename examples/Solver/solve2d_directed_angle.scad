@@ -1,16 +1,14 @@
 // solve2d_directed_angle.scad — reflex (> 180°) angle at a vertex.
 //
-// con_directed_angle(p1, p2, p3, p4, deg, ref) lets you specify a CCW
-// angle in [0, 360) between two lines. It expands internally into a
-// con_angle (with magnitude min(deg, 360-deg) in [0, 180]) plus a
-// con_same_side half-plane that binds p4 to the same side of line p1p2
-// as the reference point ref.
+// con_directed_angle(p1, p2, p3, p4, deg) pins the CCW (counter-
+// clockwise) angle from line p1->p2 to line p3->p4 to deg, where deg
+// is in [0, 360).
 //
-// Pick ref on the side where p4 should land. For deg in (0, 180) that's
-// the left of the directed line p1->p2; for deg in (180, 360) it's the
-// right. At deg == 0 or deg == 180 the rays are parallel and the
-// half-plane is undefined — only the magnitude is emitted; ref is
-// ignored.
+// Internally it expands into a regular con_angle (with magnitude
+// min(deg, 360 - deg) in [0, 180]) plus an oriented half-plane that
+// puts p4 on the LEFT of directed line p1->p2 for deg in (0, 180), or
+// on the RIGHT for deg in (180, 360). At deg == 0 or deg == 180 the
+// rays are colinear and only the magnitude is enforced.
 //
 // This sketch is a chevron (an arrowhead): the tip vertex has a 270°
 // reflex angle on the inside, which can't be written as con_angle alone.
@@ -22,11 +20,10 @@ sol = solve2d([
   point("a", at = [5, 0]), con_distance("v", "a", 5), con_horizontal("v", "a"),
   // Left wing — to be solved.
   point("b"),
-  // Reference point on the right side of v->a (i.e., -y), since for a
-  // 270° CCW angle b ends up at (-y).
-  point("ref", at = [0, -1]), con_fixed("ref"),
   con_distance("v", "b", 4),
-  con_directed_angle("v", "a", "v", "b", 270, "ref"),
+  // 270° CCW from v->a (which points along +x) lands b on the right
+  // of v->a — i.e., -y. The solver picks that branch automatically.
+  con_directed_angle("v", "a", "v", "b", 270),
 ]);
 
 assert(solved(sol), str("solver failed: ", failed_constraints(sol)));

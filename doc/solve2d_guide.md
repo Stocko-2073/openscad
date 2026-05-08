@@ -236,15 +236,7 @@ A few caveats:
   other side. For "within `d` on either side", combine an `le` and a
   `ge` form, or two `le_pt_line_distance` with opposite line orientations.
 * For **directed angles in `[0, 360)`** (including reflex angles > 180°),
-  use `con_directed_angle(p1, p2, p3, p4, deg, ref)`. The composite
-  expands to `con_angle` with magnitude `min(deg, 360 − deg)` plus a
-  `con_same_side` that binds p4 to the same side of line p1p2 as `ref`.
-  Pick `ref` on the side where p4 should land — left of `p1 → p2` for
-  `deg ∈ (0, 180)`, right for `deg ∈ (180, 360)`. At `deg == 0` or
-  `deg == 180` the rays are parallel; only the magnitude is emitted and
-  `ref` is unused. The composite needs at least one unseeded point so
-  multi-start can perturb seeds onto the correct branch when Newton
-  initially picks the wrong side.
+  use `con_directed_angle`. See the next section.
 * `con_le_angle` and `con_ge_angle` measure the undirected angle in `[0, 180]`. Pass
   non-negative `deg`. SolveSpace's underlying angle constraint has a
   line-direction ambiguity; on rare configurations the solver may converge
@@ -263,6 +255,89 @@ A few caveats:
   third argument) is pinned to the line through `a` and `b`. `q` is a
   sign reference only. Swap the argument order (`con_same_side(a,b,q,p)`)
   if you want `q` to be the pinned one instead.
+
+## Directed angles (including reflex angles)
+
+`con_angle` measures the *undirected* angle between two segments — a
+value in `[0, 180]`. That's fine for "this corner is 90°" or "these
+segments meet at 30°", but it can't express the 270° reflex angle on the
+inside of a chevron's tip, or distinguish a 60° turn from a 300° turn at
+the same vertex. For those, use `con_directed_angle`:
+
+```
+con_directed_angle(p1, p2, p3, p4, deg)
+```
+
+This pins the **CCW (counter-clockwise) angle** from line `p1→p2` to
+line `p3→p4` to `deg`, where `deg` can be anywhere in `[0, 360)`. There's
+no extra reference argument — the rotation direction is implicit in the
+value of `deg`:
+
+| `deg` | `p4` lands on |
+|---|---|
+| in `(0, 180)` | left of directed line `p1→p2` |
+| in `(180, 360)` | right of directed line `p1→p2` |
+| `0` or `180` | colinear with `p1→p2` (degenerate; only the magnitude is enforced) |
+
+"Left" and "right" are taken in the standard CCW orientation: from the
+perspective of someone walking along `p1→p2`, left is the half-plane
+where the cross product `(p2−p1) × (q−p1)` is positive.
+
+### A worked example: the chevron tip
+
+A chevron (arrowhead) has a tip vertex with a 270° reflex angle on the
+inside. Pin the tip at the origin with one wing pointing along `+x`, and
+ask the solver to place the other wing 270° CCW from there:
+
+```scad
+sol = solve2d([
+  // Tip vertex pinned at origin.
+  point("v", at = [0, 0]), con_fixed("v"),
+  // Right wing along +x.
+  point("a", at = [5, 0]),
+  con_distance("v", "a", 5),
+  con_horizontal("v", "a"),
+  // Left wing — solver places it.
+  point("b"),
+  con_distance("v", "b", 4),
+  con_directed_angle("v", "a", "v", "b", 270),
+]);
+
+echo(pt(sol, "b"));   // [0, -4]
+```
+
+`v→a` points along `+x`. 270° CCW from `+x` is straight down (`-y`),
+which is the **right** half-plane of `v→a`, so the solver places `b` at
+`(0, -4)`. If you change `270` to `90`, the solver instead places `b` at
+`(0, +4)` — same magnitude, opposite half-plane.
+
+### Why this exists (and how it works)
+
+Internally, `con_directed_angle` expands into two pieces:
+
+1. A regular `con_angle` with magnitude `min(deg, 360 − deg)` —
+   always in `[0, 180]`. This pins the *undirected* angle.
+2. An oriented half-plane that binds `p4` to the appropriate side of
+   line `p1→p2`. This picks one of the two algebraic solutions the
+   undirected angle leaves behind.
+
+So a 270° directed angle is really a 90° undirected angle plus a "must
+be on the right of `p1→p2`" hint.
+
+### Caveats
+
+* **Leave at least one point unseeded.** If Newton's first guess lands
+  on the wrong branch (the `360 − deg` mirror image), the half-plane
+  conflicts with the angle equality and the solve bails. Multi-start
+  then perturbs the *unseeded* points to retry from a different
+  starting layout. If every point is seeded, there's nothing to
+  perturb. In the chevron above, `b` is unseeded for exactly this
+  reason.
+* **`deg` near 0 or 180 is degenerate.** The two rays are colinear, so
+  "left" and "right" of `p1→p2` are undefined and only the magnitude is
+  enforced.
+* **`deg` is in `[0, 360)`, not `(-180, 180]`.** `con_directed_angle(...,
+  -90)` is rejected — use `270` instead.
 
 ## Parametric sketches
 

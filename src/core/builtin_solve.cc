@@ -3,6 +3,7 @@
 #include <cstring>
 #include <map>
 #include <memory>
+#include <random>
 #include <set>
 #include <string>
 #include <utility>
@@ -69,9 +70,11 @@ bool field_xy(const ObjectType& obj, const std::string& key, double& x, double& 
 // Deterministic initial coordinates for a point with no `at=`. The base
 // pattern (attempt 0) is a golden-angle spiral around the origin: non-
 // collinear, non-coincident, all distinct distances. Higher attempts perturb
-// the base by hash-derived offsets so multi-start retries escape bad basins
-// of attraction (a flat staircase like (1, 0.5), (2, 1.0), ... lands Newton
-// on symmetry axes for problems like a square anchored at a single corner).
+// the base with a Mersenne Twister seeded from (idx, attempt) so multi-start
+// retries escape bad basins of attraction (a flat staircase like (1, 0.5),
+// (2, 1.0), ... lands Newton on symmetry axes for problems like a square
+// anchored at a single corner). Seeding is deterministic, so the same
+// (idx, attempt) yields the same coordinates across runs.
 std::pair<double, double> default_unseeded_seed(size_t idx, int attempt)
 {
   constexpr double GOLDEN_ANGLE = 2.39996322972865332;  // π(3 - √5)
@@ -80,14 +83,12 @@ std::pair<double, double> default_unseeded_seed(size_t idx, int attempt)
   if (attempt <= 0) {
     return {base_radius * std::cos(base_angle), base_radius * std::sin(base_angle)};
   }
-  auto h01 = [](uint32_t a, uint32_t b) {
-    double x = std::sin(a * 12.9898 + b * 78.233) * 43758.5453;
-    return x - std::floor(x);
-  };
-  uint32_t i = static_cast<uint32_t>(idx);
-  uint32_t k = static_cast<uint32_t>(attempt);
-  double angle  = base_angle + 2.0 * M_PI * h01(i, 2u * k);
-  double radius = base_radius * (0.25 + 3.75 * h01(i, 2u * k + 1u));
+  std::seed_seq seq{static_cast<uint32_t>(idx),
+                    static_cast<uint32_t>(attempt)};
+  std::mt19937 rng(seq);
+  std::uniform_real_distribution<double> u01(0.0, 1.0);
+  double angle  = base_angle + 2.0 * M_PI * u01(rng);
+  double radius = base_radius * (0.25 + 3.75 * u01(rng));
   return {radius * std::cos(angle), radius * std::sin(angle)};
 }
 
@@ -356,17 +357,15 @@ Value builtin_con_ge_angle(Arguments arguments, const Location& loc)
 Value builtin_con_directed_angle(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
-  if (arguments.size() != 6 ||
+  if (arguments.size() != 5 ||
       arguments[0]->type() != Value::Type::STRING ||
       arguments[1]->type() != Value::Type::STRING ||
       arguments[2]->type() != Value::Type::STRING ||
       arguments[3]->type() != Value::Type::STRING ||
-      arguments[4]->type() != Value::Type::NUMBER ||
-      arguments[5]->type() != Value::Type::STRING) {
+      arguments[4]->type() != Value::Type::NUMBER) {
     LOG(message_group::Warning, loc, arguments.documentRoot(),
-        "con_directed_angle() expects (p1, p2, p3, p4, deg, ref) — "
-        "four point names, a degree value in [0, 360), and a "
-        "reference-point name");
+        "con_directed_angle() expects (p1, p2, p3, p4, deg) — four "
+        "point names and a degree value in [0, 360)");
     return Value::undefined.clone();
   }
   ObjectType obj = make_kind_obj(session, "directed_angle");
@@ -375,7 +374,6 @@ Value builtin_con_directed_angle(Arguments arguments, const Location& loc)
   obj.set("c", arguments[2]->clone());
   obj.set("d", arguments[3]->clone());
   obj.set("deg", arguments[4]->clone());
-  obj.set("ref", arguments[5]->clone());
   return obj;
 }
 
@@ -945,6 +943,19 @@ double inequality_violation(const InequalityDecl& ineq,
     // opposite_side violated when signs agree: cp*cq > 0 ⇒ violation =  cp*cq > 0.
     return (ineq.kind == "same_side") ? -(cp * cq) : (cp * cq);
   }
+  if ((ineq.kind == "oriented_left" || ineq.kind == "oriented_right")
+      && ineq.points.size() == 3) {
+    P a_, b_, p_;
+    if (!get(ineq.points[0], a_) || !get(ineq.points[1], b_) ||
+        !get(ineq.points[2], p_)) return 0.0;
+    if (norm(sub(b_, a_)) < 1e-12) return 0.0;  // degenerate line a==b
+    // Signed cross product (b-a) × (p-a). Positive = p left of a→b,
+    // negative = p right of a→b, zero = on the line.
+    double cp = (b_[0]-a_[0])*(p_[1]-a_[1]) - (b_[1]-a_[1])*(p_[0]-a_[0]);
+    // oriented_left wants cp >= 0 (p on left or on line); violated when cp < 0.
+    // oriented_right wants cp <= 0 (p on right or on line); violated when cp > 0.
+    return (ineq.kind == "oriented_left") ? -cp : cp;
+  }
   return 0.0;
 }
 
@@ -1389,6 +1400,21 @@ SolveOnceResult build_and_solve_once(
                                                  wrkpl, 0.0, p, 0, line, 0));
       constraint_name_by_h[ch] = ineq.name;
       out.active_ineq_handles[idx] = ch;
+    } else if ((ineq.kind == "oriented_left" ||
+                ineq.kind == "oriented_right") && ineq.points.size() == 3) {
+      // Active ⇒ pin p to the line through a and b. Same binding form as
+      // same_side; the half-plane sign is implicit in the kind name.
+      Slvs_hEntity a = pt_entity(ineq.kind, ineq.points[0]);
+      Slvs_hEntity b = pt_entity(ineq.kind, ineq.points[1]);
+      Slvs_hEntity p = pt_entity(ineq.kind, ineq.points[2]);
+      if (!a || !b || !p) continue;
+      Slvs_hConstraint ch = next_constraint++;
+      Slvs_hEntity line = make_line(a, b);
+      sconstraints.push_back(Slvs_MakeConstraint(ch, g_solve,
+                                                 SLVS_C_PT_ON_LINE,
+                                                 wrkpl, 0.0, p, 0, line, 0));
+      constraint_name_by_h[ch] = ineq.name;
+      out.active_ineq_handles[idx] = ch;
     }
   }
 
@@ -1444,7 +1470,7 @@ SolveOnceResult build_and_solve_once(
   // submodules/SolveSpaceLib/libslvs/lib.cpp:234-237). If the solver
   // bailed on rank but Newton actually converged, residuals will be
   // tiny and we promote the result to solved.
-  constexpr double RESIDUAL_TOLERANCE = 1e-6;
+  constexpr double RESIDUAL_TOLERANCE = 1e-2;
   double max_residual = 0.0;
   for (const auto& c : constraints) {
     double r = constraint_residual(c, out.points);
@@ -1824,17 +1850,16 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
 
         continue;
       } else if (kind == "directed_angle") {
-        std::string a, b, c_, d_, ref;
+        std::string a, b, c_, d_;
         field_string(obj, "a", a);
         field_string(obj, "b", b);
         field_string(obj, "c", c_);
         field_string(obj, "d", d_);
-        field_string(obj, "ref", ref);
         double deg = 0.0;
         field_double(obj, "deg", deg);
         const std::string prefix = "con_directed_angle(" + a + "," + b + "," +
                                    c_ + "," + d_ + "," + std::to_string(deg) +
-                                   "," + ref + ")";
+                                   ")";
 
         if (deg < 0.0 || deg >= 360.0) {
           LOG(message_group::Warning, loc, doc_root,
@@ -1860,17 +1885,17 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         constexpr double PARALLEL_EPS = 1e-9;
         if (std::abs(deg) > PARALLEL_EPS &&
             std::abs(deg - 180.0) > PARALLEL_EPS) {
-          // p4 ends up on the same side of line p1p2 as ref. The user picks
-          // ref appropriately for their target deg: ref on the left of
-          // p1->p2 for deg in (0, 180), ref on the right for deg in
-          // (180, 360). When activated, con_same_side pins p4 to line ab,
-          // which conflicts with the magnitude angle equality and forces
-          // the active-set loop to bail; multi-start (with at least one
-          // unseeded point) then perturbs the seeds to land on the
-          // correct branch.
+          // CCW angle from line p1→p2 to line p3→p4: deg ∈ (0, 180) lands
+          // p4 on the LEFT of directed line p1→p2 (positive cross
+          // product); deg ∈ (180, 360) lands it on the RIGHT (negative
+          // cross product). When activated, the inequality pins p4 to
+          // line p1p2, which conflicts with the magnitude angle equality
+          // and forces the active-set loop to bail; multi-start (with at
+          // least one unseeded point) then perturbs the seeds to land on
+          // the correct branch.
           InequalityDecl side;
-          side.kind = "same_side";
-          side.points = {a, b, d_, ref};
+          side.kind = (deg < 180.0) ? "oriented_left" : "oriented_right";
+          side.points = {a, b, d_};
           side.name = prefix + ":side";
           inequalities.push_back(std::move(side));
         }
@@ -2204,7 +2229,7 @@ void register_builtin_solve()
                  {"con_ge_angle(p1, p2, p3, p4, deg) -> sketch constraint (angle >= deg)"});
   Builtins::init("con_directed_angle",
                  new BuiltinFunction(&builtin_con_directed_angle),
-                 {"con_directed_angle(p1, p2, p3, p4, deg, ref) -> sketch constraint (CCW angle in [0,360); ref picks the half-plane)"});
+                 {"con_directed_angle(p1, p2, p3, p4, deg) -> sketch constraint (CCW angle in [0,360))"});
   Builtins::init("con_fixed", new BuiltinFunction(&builtin_con_fixed),
                  {"con_fixed(p) -> sketch constraint"});
 

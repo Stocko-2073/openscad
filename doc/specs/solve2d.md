@@ -255,15 +255,18 @@ function and sees consolidated reporting under a shared name prefix.
   names may appear in `failed_constraints(sol)` if SolveSpace flags
   the underlying piece.
 
-* `con_directed_angle(p1, p2, p3, p4, deg, ref)` expands into:
+* `con_directed_angle(p1, p2, p3, p4, deg)` expands into:
   * one equality `angle` with points `(p1, p2, p3, p4)` and value
     `min(deg, 360 − deg) ∈ [0, 180]`, named
-    `con_directed_angle(p1,p2,p3,p4,deg,ref):angle`;
-  * when `deg ∉ {0, 180}`, one inequality `same_side` with points
-    `(p1, p2, p4, ref)`, named
-    `con_directed_angle(p1,p2,p3,p4,deg,ref):side`. At `deg == 0` and
-    `deg == 180` the lines are parallel and no half-plane is emitted;
-    `ref` is accepted but unused.
+    `con_directed_angle(p1,p2,p3,p4,deg):angle`;
+  * when `deg ∉ {0, 180}`, one inequality named
+    `con_directed_angle(p1,p2,p3,p4,deg):side` with points
+    `(p1, p2, p4)`. The kind is `oriented_left` for
+    `deg ∈ (0, 180)` and `oriented_right` for `deg ∈ (180, 360)`,
+    enforcing that the signed cross product
+    `(p2 − p1) × (p4 − p1)` is non-negative or non-positive
+    respectively. At `deg == 0` and `deg == 180` the rays are colinear
+    and no half-plane is emitted.
   `deg` shall be in `[0, 360)`; values outside this range cause the
   composite to be skipped with a warning. Because the half-plane pins
   `p4` to line `p1 → p2` when active (which conflicts with the
