@@ -105,9 +105,10 @@ A user guide with worked examples lives at [`doc/solve2d_guide.md`](../solve2d_g
 
 * `solved(sol)` shall return a `bool`. It shall be `true` when SolveSpace
   returned `SLVS_RESULT_OKAY`, and shall additionally be `true` when
-  SolveSpace returned `SLVS_RESULT_INCONSISTENT` but the maximum
-  per-constraint residual computed against the solved point coordinates is
-  below an implementation-defined tolerance — this recovers from
+  SolveSpace returned `SLVS_RESULT_INCONSISTENT` but every per-constraint
+  residual computed against the solved point coordinates is below a
+  unit-appropriate, scale-aware tolerance (length-unit residuals scale with
+  the sketch; angle and dimensionless residuals do not) — this recovers from
   SolveSpace's rank-deficient-Jacobian false positives without masking
   genuine failures.
 * `dof(sol)` shall return a `number` equal to the SolveSpace-reported degree
@@ -142,6 +143,21 @@ A user guide with worked examples lives at [`doc/solve2d_guide.md`](../solve2d_g
   inequalities, this vector shall be empty.
 * All accessors shall return `undef` and warn when given a non-`solution`
   first argument.
+
+### Numeric scale and tolerances
+
+`solve2d` derives an internal length scale from the median magnitude of
+user-supplied seeds (`at=` values) and length-bearing constraint values
+(`con_distance` / `con_pt_line_distance` / `con_length_difference` and their
+`con_le_*` / `con_ge_*` counterparts). Tolerances for length-unit residuals
+and length-unit inequality violations are expressed as fractions of this
+scale; angle (degree) and dimensionless residuals use scale-independent
+tolerances. As a consequence, the same sketch geometry produces equivalent
+solver behaviour at millimetre, metre, or micrometre scales — the active-set
+loop, the REDUNDANT_OKAY recovery, and the unseeded-point spiral all
+participate in the same scaling. Implementations may pick any reasonable
+scale-derivation strategy as long as it is monotone in the magnitudes of
+seeds and length-bearing constraint values.
 
 ### The `solution` value type
 
@@ -267,13 +283,16 @@ function and sees consolidated reporting under a shared name prefix.
     `(p2 − p1) × (p4 − p1)` is non-negative or non-positive
     respectively. At `deg == 0` and `deg == 180` the rays are colinear
     and no half-plane is emitted.
-  `deg` shall be in `[0, 360)`; values outside this range cause the
-  composite to be skipped with a warning. Because the half-plane pins
-  `p4` to line `p1 → p2` when active (which conflicts with the
-  magnitude angle), this composite relies on multi-start to escape a
-  wrong-side initial Newton landing. At least one point in the sketch
-  should be unseeded; if every point is seeded, `con_directed_angle`
-  may converge to the supplementary directed angle `360 − deg`.
+  `deg` is interpreted modulo 360°; values outside `[0, 360)` (including
+  `360`, negative numbers, and the result of arithmetic that lands at
+  `360 − ε`) shall be wrapped into `[0, 360)` before decomposition. Because
+  the half-plane pins `p4` to line `p1 → p2` when active (which conflicts
+  with the magnitude angle), this composite relies on multi-start to escape
+  a wrong-side initial Newton landing. Multi-start operates on every sketch
+  containing inequalities, including fully-seeded sketches: on attempts
+  after the first, user seeds receive a small jitter (a fraction of the
+  sketch's length scale) so the solver can hop branches without the user
+  having to leave a point unseeded.
 
 ### Built-in name shadowing
 

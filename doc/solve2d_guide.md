@@ -401,10 +401,24 @@ You can also inspect `dof(sol)`:
 * **Unseeded points start near the origin.** Points without an `at=`
   seed get small staggered initial positions to avoid degenerate starts
   (every point at `(0,0)` makes constraints like "horizontal" undefined).
-  For simple sketches this is invisible. For complex ones, the solver may
-  pick a layout you didn't expect — supply `at=` on a few points to nudge
-  it toward the solution branch you want, and `con_fixed` to pin the rest
-  of the geometry to a reference frame.
+  The default-seed spiral is scaled by the sketch's overall size (derived
+  from your other seeds and length-bearing constraint values), so a
+  100mm-wide sketch starts unseeded points around 100mm out, not at unit
+  distance. For simple sketches this is invisible. For complex ones, the
+  solver may pick a layout you didn't expect — supply `at=` on a few
+  points to nudge it toward the solution branch you want, and `con_fixed`
+  to pin the rest of the geometry to a reference frame.
+
+* **Seeds get jittered on retry.** When `solve2d` has to retry from a
+  different starting point — typically because a `con_directed_angle` or
+  `con_same_side` decomposition landed on the wrong half-plane — every
+  point's seed gets a small random perturbation (a fraction of the
+  sketch's length scale). The first attempt always honours your `at=`
+  values exactly; only attempts 2..8 jitter them. This is what lets a
+  fully-seeded sketch with inequalities recover from a wrong-branch
+  initial guess; without it, you'd have to delete a seed to give the
+  multi-start something to perturb. The retry sequence is deterministic,
+  so a sketch that converges does so identically across runs.
 
 * **The opaque `Solution` is opaque.** You can't index `sol[0]`, you can't
   iterate it, you can't compare it to an object. Only the accessor
