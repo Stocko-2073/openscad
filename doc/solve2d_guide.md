@@ -235,6 +235,16 @@ A few caveats:
   `p` only on one side of the line; the `ge` form bounds it from the
   other side. For "within `d` on either side", combine an `le` and a
   `ge` form, or two `le_pt_line_distance` with opposite line orientations.
+* For **directed angles in `[0, 360)`** (including reflex angles > 180°),
+  use `con_directed_angle(p1, p2, p3, p4, deg, ref)`. The composite
+  expands to `con_angle` with magnitude `min(deg, 360 − deg)` plus a
+  `con_same_side` that binds p4 to the same side of line p1p2 as `ref`.
+  Pick `ref` on the side where p4 should land — left of `p1 → p2` for
+  `deg ∈ (0, 180)`, right for `deg ∈ (180, 360)`. At `deg == 0` or
+  `deg == 180` the rays are parallel; only the magnitude is emitted and
+  `ref` is unused. The composite needs at least one unseeded point so
+  multi-start can perturb seeds onto the correct branch when Newton
+  initially picks the wrong side.
 * `con_le_angle` and `con_ge_angle` measure the undirected angle in `[0, 180]`. Pass
   non-negative `deg`. SolveSpace's underlying angle constraint has a
   line-direction ambiguity; on rare configurations the solver may converge
@@ -374,6 +384,8 @@ Runnable examples ship with OpenSCAD; all are accessible from
   `solve2d_ge_angle.scad` — `>=` counterparts of the above.
 * `examples/Solver/solve2d_seed_preview.scad` — `solve = false` returns a
   Solution at the seed coords for ghosting alongside the solved sketch.
+* `examples/Solver/solve2d_directed_angle.scad` — reflex (270°) angle at
+  a chevron tip via `con_directed_angle`.
 
 ## Where to go next
 

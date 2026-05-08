@@ -255,6 +255,23 @@ function and sees consolidated reporting under a shared name prefix.
   names may appear in `failed_constraints(sol)` if SolveSpace flags
   the underlying piece.
 
+* `con_directed_angle(p1, p2, p3, p4, deg, ref)` expands into:
+  * one equality `angle` with points `(p1, p2, p3, p4)` and value
+    `min(deg, 360 − deg) ∈ [0, 180]`, named
+    `con_directed_angle(p1,p2,p3,p4,deg,ref):angle`;
+  * when `deg ∉ {0, 180}`, one inequality `same_side` with points
+    `(p1, p2, p4, ref)`, named
+    `con_directed_angle(p1,p2,p3,p4,deg,ref):side`. At `deg == 0` and
+    `deg == 180` the lines are parallel and no half-plane is emitted;
+    `ref` is accepted but unused.
+  `deg` shall be in `[0, 360)`; values outside this range cause the
+  composite to be skipped with a warning. Because the half-plane pins
+  `p4` to line `p1 → p2` when active (which conflicts with the
+  magnitude angle), this composite relies on multi-start to escape a
+  wrong-side initial Newton landing. At least one point in the sketch
+  should be unseeded; if every point is seeded, `con_directed_angle`
+  may converge to the supplementary directed angle `360 − deg`.
+
 ### Built-in name shadowing
 
 * Each entity, constraint, and accessor built-in is registered as an

@@ -19,9 +19,14 @@
     `con_le_angle`/`con_ge_angle`, and the half-plane constraints
     `con_pt_on_segment`, `con_same_side`, `con_opposite_side` are also
     supported, with active-set inspection via `iterations()` and
-    `active_inequalities()`. Inspect with `solved()`, `dof()`,
-    `residual()`, `pt()`, `poly()`, `failed_constraints()`. See
-    `doc/solve2d_guide.md` and `doc/specs/solve2d.md`.
+    `active_inequalities()`. `con_directed_angle` provides a directed
+    angle in `[0, 360)` (including reflex angles > 180°) via a
+    composite of `con_angle` and `con_same_side`. `solve2d(items,
+    solve=false)` returns a Solution at the seed positions without
+    running the solver, useful for previewing a sketch before it
+    converges. Inspect with `solved()`, `dof()`, `residual()`, `pt()`,
+    `poly()`, `failed_constraints()`. See `doc/solve2d_guide.md` and
+    `doc/specs/solve2d.md`.
 
 # OpenSCAD 2021.01
 

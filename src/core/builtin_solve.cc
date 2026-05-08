@@ -353,6 +353,32 @@ Value builtin_con_ge_angle(Arguments arguments, const Location& loc)
   return obj;
 }
 
+Value builtin_con_directed_angle(Arguments arguments, const Location& loc)
+{
+  EvaluationSession *session = arguments.session();
+  if (arguments.size() != 6 ||
+      arguments[0]->type() != Value::Type::STRING ||
+      arguments[1]->type() != Value::Type::STRING ||
+      arguments[2]->type() != Value::Type::STRING ||
+      arguments[3]->type() != Value::Type::STRING ||
+      arguments[4]->type() != Value::Type::NUMBER ||
+      arguments[5]->type() != Value::Type::STRING) {
+    LOG(message_group::Warning, loc, arguments.documentRoot(),
+        "con_directed_angle() expects (p1, p2, p3, p4, deg, ref) — "
+        "four point names, a degree value in [0, 360), and a "
+        "reference-point name");
+    return Value::undefined.clone();
+  }
+  ObjectType obj = make_kind_obj(session, "directed_angle");
+  obj.set("a", arguments[0]->clone());
+  obj.set("b", arguments[1]->clone());
+  obj.set("c", arguments[2]->clone());
+  obj.set("d", arguments[3]->clone());
+  obj.set("deg", arguments[4]->clone());
+  obj.set("ref", arguments[5]->clone());
+  return obj;
+}
+
 Value builtin_con_fixed(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
@@ -1471,7 +1497,7 @@ SolveOnceResult build_and_solve_once(
   return out;
 }
 
-constexpr int MAX_OUTER_ITERATIONS = 500;
+constexpr int MAX_OUTER_ITERATIONS = 50;
 constexpr double VIOLATION_TOLERANCE = 1e-6;
 
 struct SolveLoopResult {
@@ -1795,6 +1821,59 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         upper.points = {p, a, b};
         upper.name = prefix + ":end";
         inequalities.push_back(std::move(upper));
+
+        continue;
+      } else if (kind == "directed_angle") {
+        std::string a, b, c_, d_, ref;
+        field_string(obj, "a", a);
+        field_string(obj, "b", b);
+        field_string(obj, "c", c_);
+        field_string(obj, "d", d_);
+        field_string(obj, "ref", ref);
+        double deg = 0.0;
+        field_double(obj, "deg", deg);
+        const std::string prefix = "con_directed_angle(" + a + "," + b + "," +
+                                   c_ + "," + d_ + "," + std::to_string(deg) +
+                                   "," + ref + ")";
+
+        if (deg < 0.0 || deg >= 360.0) {
+          LOG(message_group::Warning, loc, doc_root,
+              "solve2d: %1$s deg must be in [0, 360); skipping", prefix);
+          continue;
+        }
+
+        // Magnitude in [0, 180] for the line-line equality. The half-plane
+        // disambiguates which of the two solutions Newton converges to.
+        const double magnitude = (deg <= 180.0) ? deg : 360.0 - deg;
+
+        ConstraintDecl angle_c;
+        angle_c.kind = "angle";
+        angle_c.points = {a, b, c_, d_};
+        angle_c.valA = magnitude;
+        angle_c.name = prefix + ":angle";
+        constraints.push_back(std::move(angle_c));
+
+        // At deg == 0 (parallel same direction) and deg == 180 (parallel
+        // opposite direction) the half-plane is undefined — the two rays
+        // are colinear and there's no left/right. con_angle alone with
+        // magnitude 0 or 180 already enforces both orientations correctly.
+        constexpr double PARALLEL_EPS = 1e-9;
+        if (std::abs(deg) > PARALLEL_EPS &&
+            std::abs(deg - 180.0) > PARALLEL_EPS) {
+          // p4 ends up on the same side of line p1p2 as ref. The user picks
+          // ref appropriately for their target deg: ref on the left of
+          // p1->p2 for deg in (0, 180), ref on the right for deg in
+          // (180, 360). When activated, con_same_side pins p4 to line ab,
+          // which conflicts with the magnitude angle equality and forces
+          // the active-set loop to bail; multi-start (with at least one
+          // unseeded point) then perturbs the seeds to land on the
+          // correct branch.
+          InequalityDecl side;
+          side.kind = "same_side";
+          side.points = {a, b, d_, ref};
+          side.name = prefix + ":side";
+          inequalities.push_back(std::move(side));
+        }
 
         continue;
       } else {
@@ -2123,6 +2202,9 @@ void register_builtin_solve()
   Builtins::init("con_ge_angle",
                  new BuiltinFunction(&builtin_con_ge_angle),
                  {"con_ge_angle(p1, p2, p3, p4, deg) -> sketch constraint (angle >= deg)"});
+  Builtins::init("con_directed_angle",
+                 new BuiltinFunction(&builtin_con_directed_angle),
+                 {"con_directed_angle(p1, p2, p3, p4, deg, ref) -> sketch constraint (CCW angle in [0,360); ref picks the half-plane)"});
   Builtins::init("con_fixed", new BuiltinFunction(&builtin_con_fixed),
                  {"con_fixed(p) -> sketch constraint"});
 
