@@ -113,6 +113,38 @@ let everything else be solved relative to it. If you anchor *too much*, you
 either over-constrain the system (solver fails) or you've turned the sketch
 into a glorified `polygon([...])`.
 
+### Previewing seeds before the solve
+
+To see exactly where the solver will *start* — before any constraint
+pulls a point — pass `solve = false`:
+
+```scad
+items = [
+  point("a", at = [0, 0]), con_fixed("a"),
+  point("b", at = [10, 5]),
+  con_distance("a", "b", 7),
+];
+
+sol_seed = solve2d(items, solve = false);   // no Newton run
+sol      = solve2d(items);
+
+%polygon(poly(sol_seed, ["a", "b"]));  // ghost: where the points start
+ polygon(poly(sol,      ["a", "b"]));  // solid: where the solver landed
+```
+
+`solve = false` short-circuits the solver entirely:
+
+* Each seeded point reports its `at=` value verbatim.
+* Unseeded points report the deterministic golden-angle default (the
+  same start position attempt 0 of the multi-start uses).
+* `solved(sol_seed)` is `false` (no solve has happened).
+* `pt`, `pts`, and `poly` return the seed coords; `dof`, `residual`,
+  `iterations`, `failed_constraints`, and `active_inequalities` are all
+  zero/empty.
+
+This is purely for visualization and debugging; it never modifies how
+the actual solve runs.
+
 ## What constraints exist
 
 For v1, the vocabulary is small but covers most polygon profiles:
@@ -340,6 +372,8 @@ Runnable examples ship with OpenSCAD; all are accessible from
   `solve2d_ge_pt_line_distance.scad`,
   `solve2d_ge_length_difference.scad`,
   `solve2d_ge_angle.scad` — `>=` counterparts of the above.
+* `examples/Solver/solve2d_seed_preview.scad` — `solve = false` returns a
+  Solution at the seed coords for ghosting alongside the solved sketch.
 
 ## Where to go next
 

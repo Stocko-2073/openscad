@@ -1471,7 +1471,7 @@ SolveOnceResult build_and_solve_once(
   return out;
 }
 
-constexpr int MAX_OUTER_ITERATIONS = 50;
+constexpr int MAX_OUTER_ITERATIONS = 500;
 constexpr double VIOLATION_TOLERANCE = 1e-6;
 
 struct SolveLoopResult {
@@ -1540,10 +1540,19 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
   EvaluationSession *session = arguments.session();
   const std::string doc_root = arguments.documentRoot();
 
-  if (arguments.size() != 1 || arguments[0]->type() != Value::Type::VECTOR) {
-    LOG(message_group::Warning, loc, doc_root,
+  Parameters params = Parameters::parse(std::move(arguments), loc, {"items"}, {"solve"});
+  if (params["items"].type() != Value::Type::VECTOR) {
+    LOG(message_group::Warning, loc, params.documentRoot(),
         "solve2d() expects a single vector of entities and constraints");
     return Value::undefined.clone();
+  }
+
+  bool do_solve = true;
+  if (params["solve"].type() == Value::Type::BOOL) {
+    do_solve = params["solve"].toBool();
+  } else if (params["solve"].type() != Value::Type::UNDEFINED) {
+    LOG(message_group::Warning, loc, params.documentRoot(),
+        "solve2d() solve= must be a bool");
   }
 
   std::vector<PointDecl> points;
@@ -1552,7 +1561,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
   std::vector<InequalityDecl> inequalities;
 
   // Parse phase
-  const VectorType& items = arguments[0]->toVector();
+  const VectorType& items = params["items"].toVector();
   for (const auto& item : items) {
     std::string kind;
     if (!object_kind(item, kind)) {
@@ -1798,6 +1807,30 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
   }
 
   auto data = std::make_shared<SolutionType::Data>();
+
+  // solve=false short-circuit: report each point at its seed (the `at=`
+  // value, or the deterministic golden-angle default for unseeded points)
+  // without invoking the solver. Useful for previewing a sketch's initial
+  // layout before constraints take effect. solved(sol) is false because no
+  // solve has happened.
+  if (!do_solve) {
+    size_t unseeded_idx = 0;
+    for (const auto& p : points) {
+      double u = p.u, v = p.v;
+      if (!p.has_seed) {
+        auto [u0, v0] = default_unseeded_seed(unseeded_idx++, /*attempt=*/0);
+        u = u0; v = v0;
+      }
+      data->points[p.name] = {u, v};
+      data->ordered_names.push_back(p.name);
+    }
+    data->result_code = -1;
+    data->solved = false;
+    data->dof = 0;
+    data->residual = 0.0;
+    data->iterations = 0;
+    return Value(SolutionPtr(SolutionType(std::move(data))));
+  }
 
   // Multi-start: if any point is unseeded, attempt 0 uses the deterministic
   // golden-angle default, and attempts 1..N-1 perturb that default with
@@ -2053,7 +2086,8 @@ Value builtin_angle(Arguments arguments, const Location& loc)
 void register_builtin_solve()
 {
   Builtins::init("solve2d", new BuiltinFunction(&builtin_solve2d),
-                 {"solve2d(items) -> Solution"});
+                 {"solve2d(items) -> Solution",
+                  "solve2d(items, solve=false) -> Solution at seed positions (no solver run)"});
 
   Builtins::init("point", new BuiltinFunction(&builtin_point),
                  {"point(name) -> sketch entity",

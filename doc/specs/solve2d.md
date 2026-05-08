@@ -47,13 +47,20 @@ A user guide with worked examples lives at [`doc/solve2d_guide.md`](../solve2d_g
 
 ### `solve2d`
 
-* `solve2d(items)` shall accept exactly one positional argument: a vector of
-  sketch entities and sketch constraints.
-* `solve2d` shall return a value of type `solution` in all cases where the
-  argument is a vector, regardless of whether the constraint system is
+* `solve2d(items)` shall accept one positional argument `items`: a vector
+  of sketch entities and sketch constraints. It shall additionally accept
+  one optional named argument `solve` of type `bool`, defaulting to `true`.
+* `solve2d` shall return a value of type `solution` in all cases where
+  `items` is a vector, regardless of whether the constraint system is
   satisfiable.
-* `solve2d` shall return `undef` when the argument is not a vector or when
-  the argument count is not exactly one.
+* `solve2d` shall return `undef` when `items` is not a vector.
+* When `solve = false`, `solve2d` shall parse the input and return a
+  solution whose point coordinates are the seed positions: each declared
+  point reports its `at=` value if present, or the implementation-defined
+  default seed otherwise. No SolveSpace solve shall be performed; the
+  returned solution shall have `solved(sol) == false`,
+  `dof(sol) == 0`, `residual(sol) == 0`, `iterations(sol) == 0`, and
+  empty `failed_constraints(sol)` and `active_inequalities(sol)`.
 * When the constraint system is satisfiable, the returned solution shall
   have `solved(sol) == true`.
 * When the constraint system is unsatisfiable, over-constrained, or fails
