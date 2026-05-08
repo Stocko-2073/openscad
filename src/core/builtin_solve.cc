@@ -726,6 +726,23 @@ struct InequalityDecl {
   double valA = 0.0;                 // d / diff / deg, depending on kind
 };
 
+// Per-directed_angle metadata used by retry seeding. con_directed_angle
+// expands into a magnitude angle + (sometimes) a half-plane inequality, but
+// neither carries the directed (CCW) target, so the seed retry logic also
+// stores the original deg here. On attempts > 0 the seed for p4 is rotated
+// onto the angle ray from p3 (using p1->p2 as the reference direction);
+// see build_and_solve_once. Without this, libslvs's Newton settles into a
+// wrong-angle local minimum (REDUNDANT_OKAY → reported as INCONSISTENT)
+// when the user's seed for p4 happens to be at a far-off angle from the
+// target, and Cartesian-only jitter rarely escapes that basin.
+struct DirectedAngleSeed {
+  size_t p1_idx = 0;
+  size_t p2_idx = 0;
+  size_t p3_idx = 0;
+  size_t p4_idx = 0;
+  double deg = 0.0;                  // wrapped into [0, 360)
+};
+
 // Tolerances that scale with the sketch. All length-unit residuals and
 // violations are compared against (TOL * length_scale) so the same geometry
 // behaves identically at mm, m, or μm scales. Dimensionless and degree
@@ -1118,6 +1135,7 @@ SolveOnceResult build_and_solve_once(
     const std::map<std::string, size_t>& name_to_idx,
     const std::vector<ConstraintDecl>& constraints,
     const std::vector<InequalityDecl>& inequalities,
+    const std::vector<DirectedAngleSeed>& directed_angle_seeds,
     const std::set<size_t>& active_set,
     const Location& loc,
     const std::string& doc_root,
@@ -1186,25 +1204,73 @@ SolveOnceResult build_and_solve_once(
       if (it != name_to_idx.end()) is_fixed[it->second] = true;
     }
   }
+
+  // Pass 1: pick a base initial position for each point — verbatim seed at
+  // attempt 0, jittered_seed at later attempts (unseeded points get the
+  // golden-angle spiral). Store in init_xy so Pass 2 can override the seed
+  // for directed_angle target points using the now-known positions of their
+  // pivots.
+  std::vector<std::pair<double, double>> init_xy(points.size());
   size_t unseeded_idx = 0;
   for (size_t i = 0; i < points.size(); ++i) {
-    auto& p = points[i];
-    double init_u = p.u;
-    double init_v = p.v;
+    const auto& p = points[i];
     if (!p.has_seed) {
-      auto [u0, v0] = default_unseeded_seed(unseeded_idx, attempt, length_scale);
-      init_u = u0;
-      init_v = v0;
+      init_xy[i] = default_unseeded_seed(unseeded_idx, attempt, length_scale);
       ++unseeded_idx;
     } else if (attempt > 0 && !is_fixed[i]) {
-      auto [u0, v0] = jittered_seed(p.u, p.v, i, attempt, length_scale);
-      init_u = u0;
-      init_v = v0;
+      init_xy[i] = jittered_seed(p.u, p.v, i, attempt, length_scale);
+    } else {
+      init_xy[i] = {p.u, p.v};
     }
+  }
+
+  // Pass 2: rotate each con_directed_angle target onto the angle ray, but
+  // only when the current seed is far enough from the target angle that
+  // libslvs's Newton can't be expected to traverse the gap. Near 0° or 180°
+  // the SLVS_C_ANGLE residual cos(actual)-cos(target) is locally flat in
+  // the actual angle, so a 100°+ swing through that ridge regularly traps
+  // Newton in a wrong-angle local minimum (REDUNDANT_OKAY → reported as
+  // INCONSISTENT) that pure Cartesian jitter doesn't escape. When the seed
+  // is already within a 90° wedge of the target the user's seed usually
+  // encodes near-correct distances to other anchors — projecting then
+  // would preserve the angle but smash those approximations and land
+  // Newton in a worse basin. Only run on retry attempts; attempt 0 honours
+  // the user's verbatim seed. The radius |p4 - p3| is preserved so any
+  // sibling con_distance(p3, p4) converges in one step. Skips: fixed p4
+  // (would un-anchor the user's frame), zero-length reference line p1->p2
+  // (degenerate).
+  if (attempt > 0) {
+    constexpr double PROJECT_THRESHOLD_RAD = M_PI / 2.0;  // 90°
+    for (const auto& das : directed_angle_seeds) {
+      if (das.p4_idx >= points.size() || is_fixed[das.p4_idx]) continue;
+      const auto& [p1u, p1v] = init_xy[das.p1_idx];
+      const auto& [p2u, p2v] = init_xy[das.p2_idx];
+      const auto& [p3u, p3v] = init_xy[das.p3_idx];
+      const auto& [p4u, p4v] = init_xy[das.p4_idx];
+      const double rx = p2u - p1u, ry = p2v - p1v;
+      const double ref_len = std::hypot(rx, ry);
+      if (ref_len < 1e-12) continue;
+      const double ref_angle = std::atan2(ry, rx);
+      const double tgt_angle = ref_angle + das.deg * M_PI / 180.0;
+      double radius = std::hypot(p4u - p3u, p4v - p3v);
+      if (radius < 1e-12) radius = length_scale;
+      const double cur_angle = std::atan2(p4v - p3v, p4u - p3u);
+      double diff = std::fmod(tgt_angle - cur_angle, 2.0 * M_PI);
+      if (diff < -M_PI) diff += 2.0 * M_PI;
+      if (diff > M_PI) diff -= 2.0 * M_PI;
+      if (std::abs(diff) < PROJECT_THRESHOLD_RAD) continue;
+      init_xy[das.p4_idx] = {p3u + radius * std::cos(tgt_angle),
+                             p3v + radius * std::sin(tgt_angle)};
+    }
+  }
+
+  // Pass 3: emit Slvs_MakeParam / Slvs_MakePoint2d using the chosen seeds.
+  for (size_t i = 0; i < points.size(); ++i) {
+    auto& p = points[i];
     p.u_param = next_param++;
     p.v_param = next_param++;
-    sparams.push_back(Slvs_MakeParam(p.u_param, g_solve, init_u));
-    sparams.push_back(Slvs_MakeParam(p.v_param, g_solve, init_v));
+    sparams.push_back(Slvs_MakeParam(p.u_param, g_solve, init_xy[i].first));
+    sparams.push_back(Slvs_MakeParam(p.v_param, g_solve, init_xy[i].second));
     p.entity = next_entity++;
     sentities.push_back(Slvs_MakePoint2d(p.entity, g_solve, wrkpl, p.u_param, p.v_param));
   }
@@ -1700,6 +1766,7 @@ SolveLoopResult solve_with_inequalities(
     const std::map<std::string, size_t>& name_to_idx,
     const std::vector<ConstraintDecl>& constraints,
     const std::vector<InequalityDecl>& inequalities,
+    const std::vector<DirectedAngleSeed>& directed_angle_seeds,
     const Location& loc,
     const std::string& doc_root,
     int attempt = 0,
@@ -1722,7 +1789,8 @@ SolveLoopResult solve_with_inequalities(
 
     result.iterations = iter + 1;
     result.last = build_and_solve_once(points, name_to_idx, constraints,
-                                       inequalities, result.active_set,
+                                       inequalities, directed_angle_seeds,
+                                       result.active_set,
                                        loc, doc_root, attempt, length_scale);
 
     if (result.last.solved) {
@@ -1778,6 +1846,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
   std::map<std::string, size_t> name_to_idx;
   std::vector<ConstraintDecl> constraints;
   std::vector<InequalityDecl> inequalities;
+  std::vector<DirectedAngleSeed> directed_angle_seeds;
 
   // Parse phase
   const VectorType& items = params["items"].toVector();
@@ -2070,6 +2139,25 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
           inequalities.push_back(std::move(side));
         }
 
+        // Record the directed angle so retry attempts can rotate p4's seed
+        // onto the angle ray. Resolved point names → indices are needed at
+        // seed time; skip silently if any name is unknown (the angle/side
+        // expansion above will already have queued a useful warning).
+        auto p1_it = name_to_idx.find(a);
+        auto p2_it = name_to_idx.find(b);
+        auto p3_it = name_to_idx.find(c_);
+        auto p4_it = name_to_idx.find(d_);
+        if (p1_it != name_to_idx.end() && p2_it != name_to_idx.end() &&
+            p3_it != name_to_idx.end() && p4_it != name_to_idx.end()) {
+          DirectedAngleSeed das;
+          das.p1_idx = p1_it->second;
+          das.p2_idx = p2_it->second;
+          das.p3_idx = p3_it->second;
+          das.p4_idx = p4_it->second;
+          das.deg = deg;
+          directed_angle_seeds.push_back(das);
+        }
+
         continue;
       } else {
         LOG(message_group::Warning, loc, doc_root,
@@ -2118,7 +2206,10 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
   // behaviour is what rescues fully-seeded sketches with inequalities (e.g.
   // a directed-angle decomposition that needs to flip half-planes); without
   // it, a fully-seeded sketch would have no degree of freedom to escape a
-  // wrong-branch first attempt.
+  // wrong-branch first attempt. Retry attempts also rotate the target point
+  // of each con_directed_angle onto its angle ray (see build_and_solve_once
+  // Pass 2), so the libslvs Newton doesn't have to rediscover a 100°+ swing
+  // through a cosine residual that is locally flat near 0° and 180°.
   bool any_unseeded = false;
   for (const auto& p : points) if (!p.has_seed) { any_unseeded = true; break; }
   constexpr int MAX_SEED_ATTEMPTS = 8;
@@ -2129,7 +2220,8 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
     SolveOnceResult once;
     for (int attempt = 0; attempt < max_attempts; ++attempt) {
       once = build_and_solve_once(points, name_to_idx, constraints,
-                                  inequalities, /*active_set=*/{},
+                                  inequalities, directed_angle_seeds,
+                                  /*active_set=*/{},
                                   loc, doc_root, attempt, length_scale);
       if (once.solved) break;
     }
@@ -2145,8 +2237,8 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
     SolveLoopResult loop;
     for (int attempt = 0; attempt < max_attempts; ++attempt) {
       loop = solve_with_inequalities(points, name_to_idx, constraints,
-                                     inequalities, loc, doc_root, attempt,
-                                     length_scale);
+                                     inequalities, directed_angle_seeds,
+                                     loc, doc_root, attempt, length_scale);
       if (loop.converged) break;
     }
     data->result_code = loop.last.slvs_result;
