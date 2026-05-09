@@ -22,7 +22,13 @@ public:
   static const std::string& at(int idx) { return stack[idx]; }
 
 private:
-  static std::vector<std::string> stack;
+  // thread_local: the new parallel animate prefetch (Animate.cc / AnimateFrameTask)
+  // evaluates frames concurrently on worker threads. A single shared stack
+  // races on push_back/pop_back and corrupts the heap (libmalloc reports
+  // "pointer being freed was not allocated" on UserModule::instantiate exit).
+  // Per-thread is also semantically correct: $parent_modules is the depth of
+  // *this evaluation's* module call stack.
+  static thread_local std::vector<std::string> stack;
 };
 
 class UserModule : public AbstractModule, public ASTNode

@@ -46,7 +46,7 @@
 #include "utils/exceptions.h"
 #include "utils/printutils.h"
 
-std::vector<std::string> StaticModuleNameStack::stack;
+thread_local std::vector<std::string> StaticModuleNameStack::stack;
 
 static void NOINLINE print_err(std::string name, const Location& loc,
                                const std::shared_ptr<const Context>& context)
