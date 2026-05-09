@@ -3,6 +3,7 @@
 #include <cstring>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <random>
 #include <set>
 #include <string>
@@ -1824,6 +1825,15 @@ SolveLoopResult solve_with_inequalities(
 
 Value builtin_solve2d(Arguments arguments, const Location& loc)
 {
+  // libslvs (SolveSpace) keeps internal global state across Slvs_Solve calls
+  // (e.g. SolveSpace::Param IdList allocator, Expr children pool). Concurrent
+  // calls — possible now that animation pre-fetch workers re-evaluate the
+  // script in parallel — corrupt that state and abort. Serialise the whole
+  // builtin behind a single mutex; this is safe and the cost is negligible
+  // because solve2d is already the heavy operation in any frame that uses it.
+  static std::mutex slvs_mutex;
+  const std::lock_guard<std::mutex> slvs_lock(slvs_mutex);
+
   EvaluationSession *session = arguments.session();
   const std::string doc_root = arguments.documentRoot();
 

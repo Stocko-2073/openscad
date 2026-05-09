@@ -9,6 +9,7 @@
 #include <QString>
 #include <QTimer>
 #include <QWidget>
+#include <memory>
 #include <string>
 
 #include "gui/input/InputDriverEvent.h"
@@ -16,6 +17,7 @@
 #include "ui_Animate.h"
 
 class MainWindow;
+namespace OpenScad::Animate { class FrameCache; }
 
 class Animate : public QWidget, public Ui::AnimateWidget
 {
@@ -61,11 +63,29 @@ private:
   void updatePauseButtonIcon();
   void connectAction(QAction *, QPushButton *);
 
+  void rebuildFrameCacheSource();
+  bool tryShowCachedFrame(int step);
+
   double animTVal;
   bool animDumping;
   int animDumpStartStep;
   int animStep;
   int animNumSteps;
+  // True while incrementTVal is updating e_tval — suppresses the synchronous
+  // actionRenderPreview path so the prefetch cache can handle the frame.
+  bool inTimerTick_ = false;
+
+  // Highest step we have actually painted in the current cycle. Out-of-order
+  // completions from the parallel worker pool can deliver an older frame after
+  // a newer one has already been drawn; we drop those rather than flick back.
+  // Reset on rebuildFrameCacheSource and when animStep wraps backwards.
+  int lastShownStep_ = -1;
+
+  std::unique_ptr<OpenScad::Animate::FrameCache> frameCache_;
+  // Last SourceFile we handed to the cache. We watch this to notice when the
+  // script gets re-parsed (auto-reload, post-edit recompile) so the cache can
+  // be re-seeded with the new AST.
+  std::weak_ptr<class SourceFile> cachedSource_;
 
   bool fpsOK;
   bool tOK;
@@ -90,4 +110,5 @@ private slots:
   void incrementTVal();
   void updateTVal();
   void on_pauseButton_pressed();
+  void onFrameReady(int step);
 };

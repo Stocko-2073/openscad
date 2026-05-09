@@ -52,6 +52,7 @@ class LibraryInfoDialog;
 class Preferences;
 class ProgressWidget;
 class ThrownTogetherRenderer;
+namespace OpenScad::Animate { struct FrameResult; }
 
 #include "RenderStatistic.h"
 #include "core/Tree.h"
@@ -258,6 +259,11 @@ public slots:
   void updateRecentFiles(const QString& FileSavedOrOpened);
   void updateRecentFileActions();
   void handleFileDrop(const QUrl& url);
+
+  // Apply a pre-computed animation frame (geometry + CSG products) directly
+  // to the GL view, bypassing the parse → instantiate → compileCSG hop. Called
+  // by the Animate prefetch cache during playback.
+  void showAnimationFrame(std::shared_ptr<OpenScad::Animate::FrameResult> frame);
 
 private slots:
   void on_fileActionOpen_triggered();

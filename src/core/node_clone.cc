@@ -90,7 +90,7 @@ NodeCloneFunc(CubeNode) NodeCloneFunc(SphereNode) NodeCloneFunc(CylinderNode)
 #endif
                   if (clone != nullptr)
   {
-    clone->idx = idx_counter++;
+    clone->idx = static_cast<int>(idx_counter.fetch_add(1, std::memory_order_relaxed));
     clone->children.clear();
     for (const auto& child : this->children) {
       clone->children.push_back(child->clone());

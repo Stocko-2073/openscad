@@ -20,6 +20,8 @@ std::set<std::string> printedDeprecations;
 std::list<std::string> print_messages_stack;
 OutputHandlerFunc *outputhandler = nullptr;
 void *outputhandler_data = nullptr;
+
+thread_local bool g_suppress_print = false;
 std::string OpenSCAD::debug("");
 bool OpenSCAD::quiet = false;
 bool OpenSCAD::hardwarnings = false;
@@ -80,6 +82,7 @@ void print_messages_pop()
 
 void PRINT(const Message& msgObj)
 {
+  if (g_suppress_print) return;
   if (msgObj.msg.empty() && msgObj.group != message_group::Echo) return;
 
   if (print_messages_stack.size() > 0) {
@@ -101,6 +104,7 @@ void PRINT(const Message& msgObj)
 
 void PRINT_NOCACHE(const Message& msgObj)
 {
+  if (g_suppress_print) return;
   if (msgObj.msg.empty() && msgObj.group != message_group::Echo) return;
 
   const auto msg = msgObj.str();

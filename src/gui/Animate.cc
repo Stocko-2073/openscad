@@ -8,12 +8,15 @@
 #include <QPalette>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QSignalBlocker>
 #include <QTimer>
 #include <QWidget>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <string>
 
+#include "gui/AnimateFrameCache.h"
 #include "gui/MainWindow.h"
 #include "gui/UIUtils.h"
 #include "openscad_gui.h"
@@ -46,6 +49,10 @@ void Animate::initGUI()
 
   animateTimer = new QTimer(this);
   connect(animateTimer, &QTimer::timeout, this, &Animate::incrementTVal);
+
+  frameCache_ = std::make_unique<OpenScad::Animate::FrameCache>(this);
+  connect(frameCache_.get(), &OpenScad::Animate::FrameCache::frameReady,
+          this, &Animate::onFrameReady);
 }
 
 void Animate::setMainWindow(MainWindow *mainWindow)
@@ -77,7 +84,13 @@ void Animate::on_e_tval_textChanged(const QString&)
   }
 
   this->animTVal = t;
-  emit mainWindow->actionRenderPreview();
+  // During timer-driven playback, the prefetch cache delivers the frame via
+  // onFrameReady. Skip the synchronous render to avoid double work and the
+  // GuiLocker contention that drops frames. The text-change still fires from
+  // user scrubbing — fall through to the sync path then.
+  if (!this->inTimerTick_) {
+    emit mainWindow->actionRenderPreview();
+  }
 
   updatePauseButtonIcon();
 }
@@ -111,6 +124,9 @@ void Animate::updatedAnimFpsAndAnimSteps()
     animateTimer->setSingleShot(false);
     animateTimer->setInterval(int(1000 / fps));
     animateTimer->start();
+    rebuildFrameCacheSource();
+  } else if (frameCache_) {
+    frameCache_->invalidateAll();
   }
 
   QPalette defaultPalette;
@@ -148,6 +164,7 @@ void Animate::incrementTVal()
     if (mainWindow->activeEditor->parameterWidget->childHasFocus()) return;
   }
 
+  const int prevStep = this->animStep;
   if (this->animNumSteps > 1) {
     this->animStep = (this->animStep + 1) % this->animNumSteps;
     this->animTVal = 1.0 * this->animStep / this->animNumSteps;
@@ -155,11 +172,105 @@ void Animate::incrementTVal()
     this->animStep = 0;
     this->animTVal = 0.0;
   }
+  // Cycle wrap (or any backwards jump): old "highest shown" no longer applies.
+  if (this->animStep < prevStep) lastShownStep_ = -1;
 
+  // Update the time field, but suppress the synchronous render hop — we want
+  // the prefetch cache to drive the draw when possible.
+  this->inTimerTick_ = true;
   const QString txt = QString::number(this->animTVal, 'f', 5);
   this->e_tval->setText(txt);
+  this->inTimerTick_ = false;
+
+  // Dump-pictures mode runs single-threaded for deterministic frame output.
+  if (this->dumpPictures()) {
+    emit mainWindow->actionRenderPreview();
+    updatePauseButtonIcon();
+    return;
+  }
+
+  if (frameCache_) {
+    // If the source has been re-parsed (auto-reload, post-edit recompile),
+    // seed the cache with the new AST before trying to draw.
+    auto cached = cachedSource_.lock();
+    if (mainWindow->rootFile && cached != mainWindow->rootFile) {
+      rebuildFrameCacheSource();
+    }
+    // Try the exact requested step first. If it's not ready, fall back to the
+    // freshest Ready frame in the cache — for scenes whose compute time
+    // exceeds 1/fps this keeps something visible (slowed playback) instead of
+    // a blank GLView until workers catch up. We can't sync-fallback to
+    // actionRenderPreview here because that takes GuiLocker, calls
+    // instantiateRoot which sets the renderer to nullptr, and stomps on the
+    // in-flight prefetch chain.
+    if (!tryShowCachedFrame(this->animStep)) {
+      auto fallback = frameCache_->latestReady();
+      if (fallback && fallback->step != lastShownStep_) {
+        mainWindow->showAnimationFrame(fallback->result);
+        lastShownStep_ = fallback->step;
+      }
+    } else {
+      lastShownStep_ = this->animStep;
+    }
+    // Always refill the prefetch window starting one ahead of the current step.
+    const int lookahead = frameCache_->workerCount();
+    frameCache_->prefetchWindow(this->animStep + 1, lookahead);
+  } else {
+    emit mainWindow->actionRenderPreview();
+  }
 
   updatePauseButtonIcon();
+}
+
+bool Animate::tryShowCachedFrame(int step)
+{
+  if (!frameCache_ || !mainWindow) return false;
+  auto frame = frameCache_->tryGet(step);
+  if (!frame) return false;
+  const auto state = frame->state.load(std::memory_order_acquire);
+  if (state != OpenScad::Animate::FrameState::Ready) return false;
+  if (!frame->result) return false;
+  mainWindow->showAnimationFrame(frame->result);
+  return true;
+}
+
+void Animate::onFrameReady(int step)
+{
+  if (!animateTimer->isActive()) return;
+  // Don't backtrack: if a slower worker finishes a step we already rendered
+  // past in this cycle, skip it. Otherwise show the just-finished frame —
+  // for scenes where compute > 1/fps this is the only path that ever paints,
+  // because by the time a worker finishes step N animStep has already moved
+  // past it. (Previously we required step == animStep here, which guaranteed
+  // a blank GLView for any non-trivial scene.)
+  if (lastShownStep_ != -1 && step <= lastShownStep_) return;
+  if (tryShowCachedFrame(step)) {
+    lastShownStep_ = step;
+  }
+}
+
+void Animate::rebuildFrameCacheSource()
+{
+  if (!frameCache_ || !mainWindow) return;
+  lastShownStep_ = -1;
+  if (this->animNumSteps <= 0) {
+    frameCache_->invalidateAll();
+    cachedSource_.reset();
+    return;
+  }
+  if (!mainWindow->rootFile) {
+    frameCache_->invalidateAll();
+    cachedSource_.reset();
+    return;
+  }
+  const std::string docPath = std::filesystem::path(
+                                mainWindow->activeEditor->filepath.toStdString())
+                                .parent_path()
+                                .string();
+  frameCache_->setSource(mainWindow->rootFile, docPath, this->animNumSteps,
+                         mainWindow->qglview->cam, mainWindow->isPreview);
+  cachedSource_ = mainWindow->rootFile;
+  frameCache_->prefetchWindow(this->animStep, frameCache_->workerCount());
 }
 
 void Animate::updateTVal()
@@ -223,6 +334,8 @@ void Animate::cameraChanged()
 
 void Animate::editorContentChanged()
 {
+  if (frameCache_) frameCache_->invalidateAll();
+  if (animateTimer && animateTimer->isActive()) rebuildFrameCacheSource();
   this->animateUpdate();  // for now so that we do not change the behavior
 }
 

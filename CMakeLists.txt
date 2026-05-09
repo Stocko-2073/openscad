@@ -1318,6 +1318,8 @@ set(GUI_SOURCES
   src/gui/MainWindow.cc
   src/gui/Measurement.cc
   src/gui/Animate.cc
+  src/gui/AnimateFrameCache.cc
+  src/gui/AnimateFrameTask.cc
   src/gui/FontList.cc
   src/gui/ColorList.cc
   src/gui/ColorLabel.cc
@@ -1373,6 +1375,8 @@ set(GUI_HEADER_ONLY
 # To be added in Source for QtCreator to show them in project tree
 set(GUI_HEADERS
     src/gui/Animate.h
+    src/gui/AnimateFrameCache.h
+    src/gui/AnimateFrameTask.h
     src/gui/AppleEvents.h
     src/gui/AutoUpdater.h
     src/gui/CGALWorker.h

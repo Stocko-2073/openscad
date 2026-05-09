@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "geometry/Geometry.h"
@@ -20,9 +21,18 @@ CGALCache::CGALCache(size_t limit) : cache(limit)
 {
 }
 
+bool CGALCache::contains(const std::string& id) const
+{
+  const std::lock_guard<std::mutex> lock(mutex_);
+  return this->cache.contains(id);
+}
+
 std::shared_ptr<const Geometry> CGALCache::get(const std::string& id) const
 {
-  const auto& geom = this->cache[id]->N;
+  const std::lock_guard<std::mutex> lock(mutex_);
+  auto *entry = this->cache[id];
+  if (!entry) return nullptr;
+  const auto geom = entry->N;
 #ifdef DEBUG
   LOG("CGAL Cache hit: %1$s (%2$d bytes)", id.substr(0, 40), geom ? geom->memsize() : 0);
 #endif
@@ -44,6 +54,7 @@ bool CGALCache::acceptsGeometry(const std::shared_ptr<const Geometry>& geom)
 bool CGALCache::insert(const std::string& id, const std::shared_ptr<const Geometry>& geom)
 {
   assert(acceptsGeometry(geom));
+  const std::lock_guard<std::mutex> lock(mutex_);
   auto inserted = this->cache.insert(id, new cache_entry(geom), geom->memsize());
 #ifdef DEBUG
   LOG("CGAL Cache %1$s: %2$s (%3$d bytes)", inserted ? "inserted" : "insert failed", id.substr(0, 40),
@@ -54,31 +65,37 @@ bool CGALCache::insert(const std::string& id, const std::shared_ptr<const Geomet
 
 size_t CGALCache::size() const
 {
+  const std::lock_guard<std::mutex> lock(mutex_);
   return cache.size();
 }
 
 size_t CGALCache::totalCost() const
 {
+  const std::lock_guard<std::mutex> lock(mutex_);
   return cache.totalCost();
 }
 
 size_t CGALCache::maxSizeMB() const
 {
+  const std::lock_guard<std::mutex> lock(mutex_);
   return this->cache.maxCost() / (1024ul * 1024ul);
 }
 
 void CGALCache::setMaxSizeMB(size_t limit)
 {
+  const std::lock_guard<std::mutex> lock(mutex_);
   this->cache.setMaxCost(limit * 1024ul * 1024ul);
 }
 
 void CGALCache::clear()
 {
+  const std::lock_guard<std::mutex> lock(mutex_);
   cache.clear();
 }
 
 void CGALCache::print()
 {
+  const std::lock_guard<std::mutex> lock(mutex_);
   LOG("CGAL Polyhedrons in cache: %1$d", this->cache.size());
   LOG("CGAL cache size in bytes: %1$d", this->cache.totalCost());
 }

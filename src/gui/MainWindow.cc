@@ -116,6 +116,7 @@
 #endif
 #include "glview/preview/CSGTreeNormalizer.h"
 #include "glview/preview/ThrownTogetherRenderer.h"
+#include "gui/AnimateFrameCache.h"
 #include "gui/AboutDialog.h"
 #include "gui/CGALWorker.h"
 #include "gui/ColorList.h"
@@ -1872,6 +1873,40 @@ void MainWindow::csgRender()
   }
 
   compileEnded();
+}
+
+void MainWindow::showAnimationFrame(std::shared_ptr<OpenScad::Animate::FrameResult> frame)
+{
+  if (!frame) return;
+
+  // Adopt the precomputed CSG products. We don't refresh rootNode/absoluteRootNode
+  // here — those are rebuilt by the next instantiateRoot() when playback ends or
+  // a non-animation render is triggered.
+  this->rootProduct = frame->root_products;
+  this->highlightsProducts = frame->highlights_products;
+  this->backgroundProducts = frame->background_products;
+
+#ifdef ENABLE_OPENCSG
+  if (this->rootProduct
+      && this->rootProduct->size() <= GlobalPreferences::inst()->getValue("advanced/openCSGLimit").toUInt()) {
+    this->previewRenderer = std::make_shared<OpenCSGRenderer>(
+      this->rootProduct, this->highlightsProducts, this->backgroundProducts);
+  } else {
+    this->previewRenderer = nullptr;
+  }
+#endif
+  this->thrownTogetherRenderer = std::make_shared<ThrownTogetherRenderer>(
+    this->rootProduct, this->highlightsProducts, this->backgroundProducts);
+
+  if (viewActionThrownTogether->isChecked()) {
+    viewModeThrownTogether();
+  } else {
+#ifdef ENABLE_OPENCSG
+    viewModePreview();
+#else
+    viewModeThrownTogether();
+#endif
+  }
 }
 
 void MainWindow::sendToExternalTool(ExternalToolInterface& externalToolService)

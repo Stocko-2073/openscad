@@ -123,6 +123,25 @@ void print_messages_push();
 void print_messages_pop();
 void resetSuppressedMessages();
 
+// Thread-local toggle that fully suppresses PRINT/PRINT_NOCACHE for the
+// current thread. The print machinery and its output handler reach into Qt
+// widgets and global state that is not thread-safe; pre-fetch workers
+// (gui/AnimateFrameTask) set this so their speculative re-evaluation can't
+// spam the console or race on shared buffers. Use the RAII guard.
+extern thread_local bool g_suppress_print;
+
+class PrintSuppressGuard
+{
+public:
+  PrintSuppressGuard() : prev_(g_suppress_print) { g_suppress_print = true; }
+  ~PrintSuppressGuard() { g_suppress_print = prev_; }
+  PrintSuppressGuard(const PrintSuppressGuard&) = delete;
+  PrintSuppressGuard& operator=(const PrintSuppressGuard&) = delete;
+
+private:
+  bool prev_;
+};
+
 /* PRINT statements come out in same window as ECHO.
    usage: PRINTB("Var1: %s Var2: %i", var1 % var2 ); */
 void PRINT(const Message& msgObj);

@@ -39,9 +39,10 @@
 #include "core/ModuleInstantiation.h"
 #include "core/progress.h"
 
-size_t AbstractNode::idx_counter;
+std::atomic<size_t> AbstractNode::idx_counter{0};
 
-AbstractNode::AbstractNode(const ModuleInstantiation *mi) : modinst(mi), idx(idx_counter++)
+AbstractNode::AbstractNode(const ModuleInstantiation *mi)
+  : modinst(mi), idx(static_cast<int>(idx_counter.fetch_add(1, std::memory_order_relaxed)))
 {
 }
 
