@@ -116,10 +116,21 @@ void ErrorLog::resizeEvent(QResizeEvent *event)
   this->resize();
 }
 
+void ErrorLog::resetRows()
+{
+  // Do NOT call errorLogModel->clear(): that wipes headers and column count
+  // too, forcing a full re-setup. removeRows preserves them and keeps the
+  // model identity stable across the widget's lifetime, which avoids stale
+  // QHeaderView persistent-index bookkeeping after repeated recompiles.
+  if (errorLogModel->rowCount() > 0) {
+    errorLogModel->removeRows(0, errorLogModel->rowCount());
+  }
+  row = 0;
+}
+
 void ErrorLog::clearModel()
 {
-  errorLogModel->clear();
-  initGUI();
+  resetRows();
   lastMessages.clear();
 }
 
@@ -130,8 +141,7 @@ int ErrorLog::getLine(int row, int col)
 
 void ErrorLog::on_errorLogComboBox_currentTextChanged(const QString& group)
 {
-  errorLogModel->clear();
-  initGUI();
+  resetRows();
   for (auto& lastMessage : lastMessages) {
     if (group == QString::fromStdString("All") ||
         group == QString::fromStdString(getGroupName(lastMessage.group))) {

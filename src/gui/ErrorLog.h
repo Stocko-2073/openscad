@@ -24,7 +24,6 @@ public:
   ErrorLog& operator=(const ErrorLog& source) = delete;
   ErrorLog& operator=(ErrorLog&& source) = delete;
   ~ErrorLog() override = default;
-  void initGUI();
   void toErrorLog(const Message& logMsg);
   void showtheErrorInGUI(const Message& logMsg);
   void clearModel();
@@ -37,6 +36,8 @@ protected:
   void resizeEvent(QResizeEvent *event) override;
 
 private:
+  void initGUI();
+  void resetRows();
   void onIndexSelected(const QModelIndex& index);
   void resize();
 
