@@ -19,3 +19,6 @@
 [submodule "submodules/SolveSpaceLib"]
 	path = submodules/SolveSpaceLib
 	url = https://github.com/JacobStoren/SolveSpaceLib.git
+[submodule "submodules/JoltPhysics"]
+	path = submodules/JoltPhysics
+	url = https://github.com/jrouwe/JoltPhysics.git

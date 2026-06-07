@@ -836,6 +836,22 @@ add_cmdline_test(dump           OPENSCAD FILES ${FEATURES_2D_FILES} ${FEATURES_3
 if(EXAMPLES_DIR)
   add_cmdline_test(dump-examples  OPENSCAD FILES ${EXAMPLE_FILES} SUFFIX csg ARGS)
 endif(EXAMPLES_DIR)
+
+# physics() module tests. Resting poses carry tiny solver float noise, so
+# behavior is asserted through fuzzy image comparison; the csg dump covers
+# parameter parsing and toString() serialization (the geometry cache key).
+if(ENABLE_PHYSICS)
+  list(APPEND PHYSICS_TEST_FILES
+    ${TEST_SCAD_DIR}/physics/physics-cube-drop.scad
+    ${TEST_SCAD_DIR}/physics/physics-sphere-drop.scad
+    ${TEST_SCAD_DIR}/physics/physics-resting-box.scad
+    ${TEST_SCAD_DIR}/physics/physics-balance.scad
+    ${TEST_SCAD_DIR}/physics/physics-nudge-tip.scad
+    ${TEST_SCAD_DIR}/physics/physics-2d-child.scad
+    ${TEST_SCAD_DIR}/physics/physics-empty.scad)
+  add_cmdline_test(physics OPENSCAD SUFFIX png FILES ${PHYSICS_TEST_FILES} ARGS --render)
+  add_cmdline_test(dump    OPENSCAD SUFFIX csg FILES ${TEST_SCAD_DIR}/physics/physics-params.scad)
+endif()
 # non-ASCII filenames
 add_cmdline_test(export-csg-nonascii  OPENSCAD FILES ${TEST_SCAD_DIR}/misc/sfære.scad SUFFIX csg)
 

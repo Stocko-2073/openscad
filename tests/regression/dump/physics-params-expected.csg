@@ -1,0 +1,4 @@
+physics(density = 2.5, friction = 0.9, restitution = 0.25, gravity = 5000, max_time = 3, nudge = true, convexity = 2) {
+	cube(size = [10, 10, 10], center = false);
+}
+

@@ -47,6 +47,9 @@ public:
   Response visit(State& state, const RenderNode& node) override;
   Response visit(State& state, const TextNode& node) override;
   Response visit(State& state, const OffsetNode& node) override;
+#ifdef ENABLE_PHYSICS
+  Response visit(State& state, const PhysicsNode& node) override;
+#endif
 
   [[nodiscard]] const Tree& getTree() const { return this->tree; }
 

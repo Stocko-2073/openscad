@@ -69,6 +69,9 @@ extern void register_builtin_rotate_extrude();
 #if defined(ENABLE_EXPERIMENTAL) && defined(ENABLE_CGAL)
 extern void register_builtin_roof();
 #endif
+#ifdef ENABLE_PHYSICS
+extern void register_builtin_physics();
+#endif
 extern void register_builtin_text();
 extern void initialize_builtin_dxf_dim();
 
@@ -100,6 +103,9 @@ void Builtins::initialize()
   register_builtin_rotate_extrude();
 #if defined(ENABLE_EXPERIMENTAL) && defined(ENABLE_CGAL)
   register_builtin_roof();
+#endif
+#ifdef ENABLE_PHYSICS
+  register_builtin_physics();
 #endif
   register_builtin_text();
 }

@@ -44,6 +44,8 @@ option(USE_MANIFOLD_MINKOWSKI "Use Manifold's Minkowski instead of CGAL's" OFF)
 option(USE_BUILTIN_MANIFOLD "Use manifold from submodule" ON)
 option(USE_BUILTIN_CLIPPER2 "Use Clipper2 from submodule" ON)
 option(USE_BUILTIN_SOLVESPACE "Use SolveSpaceLib from submodule" ON)
+option(ENABLE_PHYSICS "Enable the physics() builtin module (Jolt Physics)." ON)
+option(USE_BUILTIN_JOLT "Use JoltPhysics from submodule" ON)
 option(USE_POLYSET_FOR_CGAL "Force CGAL backend to use PolySetRenderer instead of CGALRenderer." OFF)
 option(SNAPSHOT "Create dev snapshot, uses nightly icons" OFF)
 option(HEADLESS "Build without GUI frontend" OFF)
@@ -1132,6 +1134,14 @@ if(EXPERIMENTAL AND ENABLE_CGAL)
 )
 endif()
 
+if(ENABLE_PHYSICS)
+  list(APPEND CORE_SOURCES
+  src/core/PhysicsNode.cc
+  src/geometry/physics/MassProperties.cc
+  src/geometry/physics/PhysicsSimulator.cc
+)
+endif()
+
 set(CGAL_SOURCES
   src/geometry/cgal/cgalutils.cc
   src/geometry/cgal/cgalutils-applyops.cc
@@ -1190,6 +1200,40 @@ if(USE_BUILTIN_SOLVESPACE)
   endif()
   message(STATUS "SolveSpaceLib submodule")
   target_link_libraries(OpenSCADLibInternal PUBLIC SolveSpace::libslvs)
+endif()
+
+if(ENABLE_PHYSICS)
+  target_compile_definitions(OpenSCADLibInternal PUBLIC ENABLE_PHYSICS)
+  if(USE_BUILTIN_JOLT)
+    # Jolt's CMakeLists lives in the Build/ subdir. When included via
+    # add_subdirectory it automatically builds only the Jolt library target
+    # (no samples/tests). All JPH_* compile definitions are PUBLIC on the
+    # target, so they propagate to our translation units - never define
+    # JPH_* by hand.
+    set(OVERRIDE_CXX_FLAGS OFF CACHE BOOL "" FORCE)
+    # Determinism is a hard requirement: physics() results are cached by
+    # node string and must not jitter between recompiles.
+    set(CROSS_PLATFORM_DETERMINISTIC ON CACHE BOOL "" FORCE)
+    set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+    set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
+    set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+    set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+    set(PROFILER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+    if(CMAKE_UNITY_BUILD)
+      set(CMAKE_UNITY_BUILD OFF)
+      add_subdirectory(submodules/JoltPhysics/Build EXCLUDE_FROM_ALL)
+      set(CMAKE_UNITY_BUILD ON)
+    else()
+      add_subdirectory(submodules/JoltPhysics/Build EXCLUDE_FROM_ALL)
+    endif()
+    set_property(TARGET Jolt PROPERTY POSITION_INDEPENDENT_CODE ON)
+    message(STATUS "JoltPhysics submodule: ${JoltPhysics_VERSION}")
+    target_link_libraries(OpenSCADLibInternal PUBLIC Jolt)
+  else()
+    find_package(Jolt REQUIRED QUIET)
+    message(STATUS "JoltPhysics: ${Jolt_VERSION}")
+    target_link_libraries(OpenSCADLibInternal PUBLIC Jolt::Jolt)
+  endif()
 endif()
 
 if(ENABLE_MANIFOLD)
@@ -1514,6 +1558,8 @@ set_source_files_properties(
   # unity build will violate this so we just exclude them
   src/core/BuiltinContext.cc
   src/geometry/roof_vd.cc
+  # Jolt uses anonymous namespaces and heavy macros; keep it out of unity TUs
+  src/geometry/physics/PhysicsSimulator.cc
   src/geometry/manifold/manifold-applyops-minkowski.cc
   src/io/DxfData.cc
   src/utils/calc.cc

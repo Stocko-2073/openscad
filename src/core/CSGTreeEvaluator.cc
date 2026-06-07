@@ -14,6 +14,9 @@
 #include "core/ColorNode.h"
 #include "core/CsgOpNode.h"
 #include "core/ModuleInstantiation.h"
+#ifdef ENABLE_PHYSICS
+#include "core/PhysicsNode.h"
+#endif
 #include "core/RenderNode.h"
 #include "core/State.h"
 #include "core/TransformNode.h"
@@ -340,6 +343,32 @@ Response CSGTreeEvaluator::visit(State& state, const CgalAdvNode& node)
   }
   return Response::ContinueTraversal;
 }
+
+#ifdef ENABLE_PHYSICS
+Response CSGTreeEvaluator::visit(State& state, const PhysicsNode& node)
+{
+  if (state.isPostfix()) {
+    std::shared_ptr<CSGNode> t1;
+    // The simulated transform is baked into the evaluated geometry, so
+    // preview must render the node as a single evaluated leaf (like render()
+    // and the cgaladv nodes) instead of re-unioning the children's CSG terms.
+    std::shared_ptr<const Geometry> geom;
+    if (this->geomevaluator) {
+      geom = this->geomevaluator->evaluateGeometry(node, false);
+      if (geom) {
+        t1 = evaluateCSGNodeFromGeometry(state, geom, node.modinst, node);
+      } else {
+        t1 = CSGNode::createEmptySet();
+      }
+      node.progress_report();
+    }
+    this->stored_term[node.index()] = t1;
+    applyBackgroundAndHighlight(state, node);
+    addToParent(state, node);
+  }
+  return Response::ContinueTraversal;
+}
+#endif  // ENABLE_PHYSICS
 
 /*!
    Adds ourself to out parent's list of traversed children.

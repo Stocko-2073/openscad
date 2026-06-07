@@ -35,6 +35,9 @@ public:
   Response visit(State& state, const ColorNode& node) override;
   Response visit(State& state, const RenderNode& node) override;
   Response visit(State& state, const CgalAdvNode& node) override;
+#ifdef ENABLE_PHYSICS
+  Response visit(State& state, const PhysicsNode& node) override;
+#endif
 
   std::shared_ptr<CSGNode> buildCSGTree(const AbstractNode& node);
 

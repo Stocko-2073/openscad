@@ -55,6 +55,14 @@
 #ifdef ENABLE_MANIFOLD
 #include "geometry/manifold/manifoldutils.h"
 #endif
+#ifdef ENABLE_PHYSICS
+#include <iomanip>
+#include <sstream>
+
+#include "core/PhysicsNode.h"
+#include "geometry/physics/MassProperties.h"
+#include "geometry/physics/PhysicsSimulator.h"
+#endif
 
 #include <vector>
 
@@ -655,6 +663,108 @@ Response GeometryEvaluator::visit(State& state, const RenderNode& node)
   }
   return Response::ContinueTraversal;
 }
+
+#ifdef ENABLE_PHYSICS
+namespace {
+
+// Fixed-precision formatting with -0 normalization keeps the stats output
+// stable for regression tests.
+std::string physicsNumber(double v, int precision)
+{
+  const double scale = std::pow(10.0, precision);
+  std::ostringstream ss;
+  ss << std::fixed << std::setprecision(precision) << (std::round(v * scale) / scale + 0.0);
+  return ss.str();
+}
+
+std::string physicsMatrix(const Transform3d& t)
+{
+  std::ostringstream ss;
+  ss << "multmatrix([";
+  for (int r = 0; r < 3; ++r) {
+    ss << "[";
+    for (int c = 0; c < 4; ++c) {
+      ss << physicsNumber(t.matrix()(r, c), 6) << (c < 3 ? ", " : "");
+    }
+    ss << "], ";
+  }
+  ss << "[0, 0, 0, 1]])";
+  return ss.str();
+}
+
+}  // namespace
+
+/*!
+   physics() unions its children into a single rigid body, drops it onto the
+   infinite floor z=0 until it comes to rest, and applies the resulting rigid
+   transform to the geometry.
+
+   input: List of 3D objects
+   output: any Geometry
+ */
+Response GeometryEvaluator::visit(State& state, const PhysicsNode& node)
+{
+  if (state.isPrefix()) {
+    if (isSmartCached(node)) return Response::PruneTraversal;
+    state.setPreferNef(true);  // Improve quality of CSG by avoiding conversion loss
+  }
+  if (state.isPostfix()) {
+    std::shared_ptr<const Geometry> geom;
+    if (!isSmartCached(node)) {
+      ResultObject res = applyToChildren(node, OpenSCADOperator::UNION);
+      auto mutableGeom = res.asMutableGeometry();
+      geom = mutableGeom;
+      if (mutableGeom && !mutableGeom->isEmpty()) {
+        if (mutableGeom->getDimension() != 3) {
+          LOG(message_group::Warning, node.modinst->location(), this->tree.getDocumentPath(),
+              "physics() requires 3D children, leaving them untransformed");
+        } else {
+          mutableGeom->setConvexity(node.convexity);
+          auto ps = PolySetUtils::getGeometryAsPolySet(mutableGeom);
+          std::shared_ptr<const PolySet> tri =
+            (ps && !ps->isTriangular()) ? std::shared_ptr<const PolySet>(PolySetUtils::tessellate_faces(*ps))
+                                        : ps;
+          MassProps mp;
+          std::string err = "could not convert geometry to a triangle mesh";
+          if (!tri || tri->isEmpty() || !computeMassProperties(*tri, mp, err)) {
+            LOG(message_group::Warning, node.modinst->location(), this->tree.getDocumentPath(),
+                "physics(): %1$s, leaving children untransformed", err);
+          } else {
+            PhysicsInput input;
+            input.points = tri->vertices;
+            input.com = mp.com;
+            input.volume = mp.volume;
+            input.inertiaPerDensityAboutCom = mp.inertiaAboutCom;
+            input.bboxDiag = tri->getBoundingBox().diagonal().norm();
+            input.params = {node.density, node.friction, node.restitution,
+                            node.gravity,  node.max_time, node.nudge};
+            const PhysicsResult result = simulatePhysics(input);
+            for (const auto& warning : result.warnings) {
+              LOG(message_group::Warning, node.modinst->location(), this->tree.getDocumentPath(),
+                  "physics(): %1$s", warning);
+            }
+            mutableGeom->transform(result.transform);
+            LOG(message_group::Echo, "%1$s",
+                STR("physics: volume = ", physicsNumber(mp.volume, 3),
+                    ", mass = ", physicsNumber(node.density * mp.volume, 3),
+                    ", com = [", physicsNumber(mp.com.x(), 3), ", ", physicsNumber(mp.com.y(), 3),
+                    ", ", physicsNumber(mp.com.z(), 3), "], ",
+                    (result.slept ? "settled in " : "cut off at "),
+                    physicsNumber(result.settleTime, 3), " s"));
+            // Pasteable into the script to bake the pose without re-simulating.
+            LOG(message_group::Echo, "%1$s", STR("physics: ", physicsMatrix(result.transform)));
+          }
+        }
+      }
+    } else {
+      geom = smartCacheGet(node, state.preferNef());
+    }
+    node.progress_report();
+    addToParent(state, node, geom);
+  }
+  return Response::ContinueTraversal;
+}
+#endif  // ENABLE_PHYSICS
 
 /*!
    Leaf nodes can create their own geometry, so let them do that

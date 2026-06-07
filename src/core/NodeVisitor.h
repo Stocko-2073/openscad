@@ -26,7 +26,8 @@ class NodeVisitor : public BaseVisitor,
                     public Visitor<class SurfaceNode>,
                     public Visitor<class TransformNode>,
                     public Visitor<class ColorNode>,
-                    public Visitor<class OffsetNode>
+                    public Visitor<class OffsetNode>,
+                    public Visitor<class PhysicsNode>
 {
 public:
   NodeVisitor() = default;
@@ -110,6 +111,10 @@ public:
   Response visit(State& state, const OffsetNode& node) override
   {
     return visit(state, (const AbstractPolyNode&)node);
+  }
+  Response visit(State& state, const PhysicsNode& node) override
+  {
+    return visit(state, (const AbstractNode&)node);
   }
   // Add visit() methods for new visitable subtypes of AbstractNode here
 

@@ -34,6 +34,9 @@
 #include "core/ImportNode.h"
 #include "core/LinearExtrudeNode.h"
 #include "core/OffsetNode.h"
+#ifdef ENABLE_PHYSICS
+#include "core/PhysicsNode.h"
+#endif
 #include "core/ProjectionNode.h"
 #include "core/RenderNode.h"
 #include "core/RoofNode.h"
@@ -74,8 +77,11 @@ NodeCloneFunc(CubeNode) NodeCloneFunc(SphereNode) NodeCloneFunc(CylinderNode)
 #if defined(ENABLE_EXPERIMENTAL) && defined(ENABLE_CGAL)
               NodeCloneFunc(RoofNode)
 #endif
+#ifdef ENABLE_PHYSICS
+                NodeCloneFunc(PhysicsNode)
+#endif
 
-                std::shared_ptr<AbstractNode> AbstractNode::clone(void)
+                  std::shared_ptr<AbstractNode> AbstractNode::clone(void)
 {
   std::shared_ptr<AbstractNode> clone = nullptr;
   NodeCloneUse(CubeNode) NodeCloneUse(SphereNode) NodeCloneUse(CylinderNode) NodeCloneUse(PolyhedronNode)
@@ -88,7 +94,10 @@ NodeCloneFunc(CubeNode) NodeCloneFunc(SphereNode) NodeCloneFunc(CylinderNode)
 #if defined(ENABLE_EXPERIMENTAL) && defined(ENABLE_CGAL)
                 NodeCloneUse(RoofNode)
 #endif
-                  if (clone != nullptr)
+#ifdef ENABLE_PHYSICS
+                  NodeCloneUse(PhysicsNode)
+#endif
+                    if (clone != nullptr)
   {
     clone->idx = static_cast<int>(idx_counter.fetch_add(1, std::memory_order_relaxed));
     clone->children.clear();
