@@ -63,6 +63,13 @@ private:
   using ChildList = std::list<std::shared_ptr<const AbstractNode>>;
   std::map<int, ChildList> visitedchildren;
 
+#ifdef ENABLE_PHYSICS
+  // Parent state matrix stashed in the physics prefix (where the simulated
+  // transform is multiplied in for background/highlight ghosts) and restored
+  // in the postfix before the node's own leaf is placed.
+  std::map<int, Transform3d> physicsParentMatrix;
+#endif
+
 protected:
   const Tree& tree;
   GeometryEvaluator *geomevaluator;

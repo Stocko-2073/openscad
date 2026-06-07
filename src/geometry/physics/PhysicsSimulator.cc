@@ -7,6 +7,7 @@
 #include <limits>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // Jolt.h must be included before any other Jolt header.
@@ -66,7 +67,25 @@ void initJoltOnce()
   });
 }
 
+std::mutex transformCacheMutex;
+std::unordered_map<std::string, Transform3d> transformCache;
+
 }  // namespace
+
+void physicsTransformCacheStore(const std::string& key, const Transform3d& transform)
+{
+  std::lock_guard<std::mutex> lock(transformCacheMutex);
+  transformCache[key] = transform;
+}
+
+bool physicsTransformCacheLookup(const std::string& key, Transform3d& transform)
+{
+  std::lock_guard<std::mutex> lock(transformCacheMutex);
+  const auto it = transformCache.find(key);
+  if (it == transformCache.end()) return false;
+  transform = it->second;
+  return true;
+}
 
 PhysicsResult simulatePhysics(const PhysicsInput& in)
 {

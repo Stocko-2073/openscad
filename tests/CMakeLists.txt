@@ -851,6 +851,9 @@ if(ENABLE_PHYSICS)
     ${TEST_SCAD_DIR}/physics/physics-empty.scad)
   add_cmdline_test(physics OPENSCAD SUFFIX png FILES ${PHYSICS_TEST_FILES} ARGS --render)
   add_cmdline_test(dump    OPENSCAD SUFFIX csg FILES ${TEST_SCAD_DIR}/physics/physics-params.scad)
+  # Preview-only: background (%) and highlight (#) ghosts must follow the
+  # simulated transform.
+  add_cmdline_test(physics-preview OPENSCAD SUFFIX png FILES ${TEST_SCAD_DIR}/physics/physics-background.scad)
 endif()
 # non-ASCII filenames
 add_cmdline_test(export-csg-nonascii  OPENSCAD FILES ${TEST_SCAD_DIR}/misc/sfære.scad SUFFIX csg)

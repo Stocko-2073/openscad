@@ -16,6 +16,8 @@
 #include "core/ModuleInstantiation.h"
 #ifdef ENABLE_PHYSICS
 #include "core/PhysicsNode.h"
+#include "core/Tree.h"
+#include "geometry/physics/PhysicsSimulator.h"
 #endif
 #include "core/RenderNode.h"
 #include "core/State.h"
@@ -347,10 +349,30 @@ Response CSGTreeEvaluator::visit(State& state, const CgalAdvNode& node)
 #ifdef ENABLE_PHYSICS
 Response CSGTreeEvaluator::visit(State& state, const PhysicsNode& node)
 {
+  if (state.isPrefix() && this->geomevaluator) {
+    // Evaluate the simulated geometry up front (cached for the postfix) so
+    // the settled transform is known before the children are traversed:
+    // background (%) and highlight (#) ghosts in the child hierarchy are
+    // positioned by the accumulated state matrix at leaf creation, and must
+    // follow the simulated pose just like they follow regular transforms.
+    this->geomevaluator->evaluateGeometry(node, false);
+    Transform3d transform;
+    if (physicsTransformCacheLookup(this->tree.getIdString(node), transform)) {
+      this->physicsParentMatrix[node.index()] = state.matrix();
+      state.setMatrix(state.matrix() * transform);
+    }
+  }
   if (state.isPostfix()) {
+    // The simulated transform is baked into the evaluated geometry, so the
+    // node's own leaf must be placed with the parent matrix, not the
+    // ghost-adjusted one.
+    const auto stashed = this->physicsParentMatrix.find(node.index());
+    if (stashed != this->physicsParentMatrix.end()) {
+      state.setMatrix(stashed->second);
+      this->physicsParentMatrix.erase(stashed);
+    }
     std::shared_ptr<CSGNode> t1;
-    // The simulated transform is baked into the evaluated geometry, so
-    // preview must render the node as a single evaluated leaf (like render()
+    // Preview renders the node as a single evaluated leaf (like render()
     // and the cgaladv nodes) instead of re-unioning the children's CSG terms.
     std::shared_ptr<const Geometry> geom;
     if (this->geomevaluator) {

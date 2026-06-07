@@ -743,6 +743,10 @@ Response GeometryEvaluator::visit(State& state, const PhysicsNode& node)
               LOG(message_group::Warning, node.modinst->location(), this->tree.getDocumentPath(),
                   "physics(): %1$s", warning);
             }
+            // Publish the transform so the CSG (preview) evaluator can move
+            // background/highlight ghosts in the child hierarchy along with
+            // the settled pose.
+            physicsTransformCacheStore(this->tree.getIdString(node), result.transform);
             mutableGeom->transform(result.transform);
             LOG(message_group::Echo, "%1$s",
                 STR("physics: volume = ", physicsNumber(mp.volume, 3),
