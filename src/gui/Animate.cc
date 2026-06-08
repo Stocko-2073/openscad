@@ -84,11 +84,12 @@ void Animate::on_e_tval_textChanged(const QString&)
   }
 
   this->animTVal = t;
-  // During timer-driven playback, the prefetch cache delivers the frame via
-  // onFrameReady. Skip the synchronous render to avoid double work and the
-  // GuiLocker contention that drops frames. The text-change still fires from
-  // user scrubbing — fall through to the sync path then.
-  if (!this->inTimerTick_) {
+  // During timer-driven playback (inTimerTick_) and button-driven stepping
+  // (inButtonStep_), the prefetch cache delivers the frame. Skip the synchronous
+  // render to avoid double work and the GuiLocker contention that drops frames.
+  // Free-form scrubbing in the t field leaves both flags false — fall through to
+  // the sync path then.
+  if (!this->inTimerTick_ && !this->inButtonStep_) {
     emit mainWindow->actionRenderPreview();
   }
 
@@ -234,8 +235,60 @@ bool Animate::tryShowCachedFrame(int step)
   return true;
 }
 
+// Button-driven step/jump. Mirrors the playback path in incrementTVal(), but for
+// the paused case: the timer is stopped, so we drive the cache lookup + warming
+// directly instead of waiting for the next tick.
+void Animate::showCurrentStepFromCache()
+{
+  if (this->animNumSteps == 0) return; // nothing to show — matches updateTVal's guard
+
+  // Normalize animStep/animTVal and update the t field, but suppress the
+  // synchronous render hop (inButtonStep_) so we can consult the cache first.
+  this->inButtonStep_ = true;
+  this->updateTVal();
+  this->inButtonStep_ = false;
+
+  if (!frameCache_) {
+    emit mainWindow->actionRenderPreview();
+    return;
+  }
+
+  // (Re)seed when the cached AST no longer matches: covers a cold cache (the
+  // animation was never played, so the timer never ran rebuildFrameCacheSource)
+  // and post-edit / auto-reload re-parses. The identity check stops us re-seeding
+  // on every step within a stable source — setSource clears frames_ and bumps the
+  // generation, which would throw away the warmed window. Mirrors incrementTVal.
+  auto cached = cachedSource_.lock();
+  if (!cached || cached != mainWindow->rootFile) {
+    rebuildFrameCacheSource();
+  }
+
+  // Hit -> instant draw, no recompile. Miss -> sync-render the correct frame now
+  // (immediate, and always current-camera-correct, exactly as before this
+  // change). Either way the centered prefetch below warms the neighbourhood so
+  // the NEXT step lands a hit.
+  if (tryShowCachedFrame(this->animStep)) {
+    // actionRenderPreview disables measurements on every preview; match that so a
+    // cached step leaves the same state as a synchronously-rendered one.
+    mainWindow->resetMeasurementsState(false, "Render (not preview) to enable measurements");
+  } else {
+    emit mainWindow->actionRenderPreview();
+  }
+
+  // Warm BOTH directions: prefetchWindow only walks forward, so start half a
+  // window behind the parked step to cover back-stepping too (wrap is mod n).
+  const int lookahead = frameCache_->workerCount();
+  frameCache_->prefetchWindow(this->animStep - lookahead / 2, lookahead);
+
+  updatePauseButtonIcon();
+}
+
 void Animate::onFrameReady(int step)
 {
+  // Only playback consumes async completions. A paused step has already drawn
+  // its frame synchronously (cache hit, or sync render on a miss) with the
+  // current camera, so there is nothing left to paint here — and repainting from
+  // a worker would risk clobbering it with the cache's stale camera snapshot.
   if (!animateTimer->isActive()) return;
   // Don't backtrack: if a slower worker finishes a step we already rendered
   // past in this cycle, skip it. Otherwise show the just-finished frame —
@@ -420,26 +473,26 @@ void Animate::on_pushButton_MoveToBeginning_clicked()
 {
   pauseAnimation();
   this->animStep = 0;
-  this->updateTVal();
+  this->showCurrentStepFromCache();
 }
 
 void Animate::on_pushButton_StepBack_clicked()
 {
   pauseAnimation();
   this->animStep -= 1;
-  this->updateTVal();
+  this->showCurrentStepFromCache();
 }
 
 void Animate::on_pushButton_StepForward_clicked()
 {
   pauseAnimation();
   this->animStep += 1;
-  this->updateTVal();
+  this->showCurrentStepFromCache();
 }
 
 void Animate::on_pushButton_MoveToEnd_clicked()
 {
   pauseAnimation();
   this->animStep = this->animNumSteps - 1;
-  this->updateTVal();
+  this->showCurrentStepFromCache();
 }

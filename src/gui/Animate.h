@@ -65,6 +65,9 @@ private:
 
   void rebuildFrameCacheSource();
   bool tryShowCachedFrame(int step);
+  // Button-driven frame navigation (step/jump): try the prefetch cache first and
+  // only sync-render on a miss, then warm the neighbourhood around the new step.
+  void showCurrentStepFromCache();
 
   double animTVal;
   bool animDumping;
@@ -74,6 +77,9 @@ private:
   // True while incrementTVal is updating e_tval — suppresses the synchronous
   // actionRenderPreview path so the prefetch cache can handle the frame.
   bool inTimerTick_ = false;
+  // True while a navigation BUTTON is updating e_tval — same idea as
+  // inTimerTick_, so the button path can consult the cache before recompiling.
+  bool inButtonStep_ = false;
 
   // Highest step we have actually painted in the current cycle. Out-of-order
   // completions from the parallel worker pool can deliver an older frame after

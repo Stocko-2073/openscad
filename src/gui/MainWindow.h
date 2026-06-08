@@ -480,7 +480,11 @@ private:
   QSoundEffect *renderCompleteSoundEffect;
   std::vector<std::unique_ptr<QTemporaryFile>> allTempFiles;
 
+public:
+  // Public so the Animate dock can disable measurements when it shows a cached
+  // preview frame (parity with actionRenderPreview's reset).
   void resetMeasurementsState(bool enable, const QString& tooltipMessage);
+private:
   QActionGroup *measurementGroup;
   QAction *activeMeasurement = nullptr;
 
