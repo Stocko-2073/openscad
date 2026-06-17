@@ -987,6 +987,63 @@ void MainWindow::instantiateRoot()
    Generates CSG tree for OpenCSG evaluation.
    Assumes that the design has been parsed and evaluated (this->root_node is set)
  */
+#ifdef ENABLE_MANIFOLD
+// Minimum overlap volume (model units^3) for a pair to count as interfering.
+// Flush mating faces yield ~zero-volume intersections, so they stay below this.
+static constexpr double kInterferenceVolumeEps = 1e-5;
+
+// Scene-wide static interference check, run on every preview/reload from the end
+// of compileCSG(). Treats each direct child of the root as one "part": culls
+// non-touching pairs by bounding box, then confirms a real overlap with an exact
+// Manifold intersection whose volume exceeds kInterferenceVolumeEps. Colliding
+// pairs are logged to the console.
+void MainWindow::runInterferenceCheck()
+{
+  if (!this->rootNode) return;
+
+  GeometryEvaluator geomevaluator(this->tree);
+
+  struct Part {
+    int number;
+    Location loc{Location::NONE};
+    BoundingBox bbox;
+    std::shared_ptr<const ManifoldGeometry> manifold;
+  };
+  std::vector<Part> parts;
+
+  int number = 0;
+  for (const auto& child : this->rootNode->getChildren()) {
+    ++number;
+    if (!child) continue;
+    if (child->modinst && child->modinst->isBackground()) continue;  // skip % ghosts
+    auto geom = geomevaluator.evaluateGeometry(*child, true);
+    if (!geom || geom->isEmpty() || geom->getDimension() != 3) continue;
+    auto mani = ManifoldUtils::createManifoldFromGeometry(geom);
+    if (!mani || mani->isEmpty()) continue;
+    const Location loc = child->modinst ? child->modinst->location() : Location::NONE;
+    parts.push_back({number, loc, geom->getBoundingBox(), mani});
+  }
+
+  int collisions = 0;
+  for (size_t i = 0; i < parts.size(); ++i) {
+    for (size_t j = i + 1; j < parts.size(); ++j) {
+      if (!parts[i].bbox.intersects(parts[j].bbox)) continue;  // cheap cull
+      const ManifoldGeometry overlap = *parts[i].manifold * *parts[j].manifold;
+      const double vol = overlap.isEmpty() ? 0.0 : overlap.getManifold().Volume();
+      if (vol <= kInterferenceVolumeEps) continue;  // flush faces / numerical noise
+      ++collisions;
+      LOG(message_group::Warning, parts[i].loc, this->tree.getDocumentPath(), "%1$s",
+          STR("Interference: part ", parts[i].number, " (line ", parts[i].loc.firstLine(),
+              ") overlaps part ", parts[j].number, " (line ", parts[j].loc.firstLine(),
+              "), overlap volume = ", vol));
+    }
+  }
+  LOG(message_group::Echo, "%1$s",
+      STR("Interference check: ", parts.size(), " part(s), ", collisions,
+          " overlapping pair(s)."));
+}
+#endif  // ENABLE_MANIFOLD
+
 void MainWindow::compileCSG()
 {
   OpenSCAD::hardwarnings = GlobalPreferences::inst()->getValue("advanced/enableHardwarnings").toBool();
@@ -1086,6 +1143,9 @@ void MainWindow::compileCSG()
 #endif  // ifdef ENABLE_OPENCSG
     this->thrownTogetherRenderer = std::make_shared<ThrownTogetherRenderer>(
       this->rootProduct, this->highlightsProducts, this->backgroundProducts);
+#ifdef ENABLE_MANIFOLD
+    runInterferenceCheck();
+#endif
     LOG("Compile and preview finished.");
     renderStatistic.printRenderingTime();
     this->processEvents();

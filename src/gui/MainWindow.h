@@ -223,6 +223,9 @@ private:
   void updateCompileResult();
   void compile(bool reload, bool forcedone = false);
   void compileCSG();
+#ifdef ENABLE_MANIFOLD
+  void runInterferenceCheck();
+#endif
   bool checkEditorModified();
   QString dumpCSGTree(const std::shared_ptr<AbstractNode>& root);
 
