@@ -189,6 +189,7 @@
          <addaction name="viewActionShowAxes"/>
          <addaction name="viewActionShowScaleProportional"/>
          <addaction name="viewActionShowEdges"/>
+         <addaction name="viewActionShowInterference"/>
         </widget>
        </item>
       </layout>
@@ -1145,6 +1146,20 @@
    </property>
    <property name="shortcut">
     <string>Ctrl+1</string>
+   </property>
+  </action>
+  <action name="viewActionShowInterference">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset theme="chokusen-circle-error"/>
+   </property>
+   <property name="text">
+    <string>Interference Check</string>
+   </property>
+   <property name="toolTip">
+    <string>Highlight overlapping parts (interference check)</string>
    </property>
   </action>
   <action name="viewActionShowAxes">

@@ -416,6 +416,7 @@ public slots:
   void on_viewActionShowAxes_toggled(bool checked);
   void on_viewActionShowScaleProportional_toggled(bool checked);
   void on_viewActionShowCrosshairs_toggled(bool checked);
+  void on_viewActionShowInterference_toggled(bool checked);
   void on_viewActionTop_triggered();
   void on_viewActionBottom_triggered();
   void on_viewActionLeft_triggered();

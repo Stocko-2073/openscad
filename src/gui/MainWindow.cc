@@ -437,7 +437,8 @@ void MainWindow::applySimplifyViewerToolbar(bool simplified)
       this->viewActionRight, this->viewActionLeft,
       this->viewActionBack,  this->viewActionFront,
       this->viewActionTop,   this->viewActionBottom, makeSeparator(),
-      this->viewActionShowAxes, this->viewActionShowScaleProportional, makeSeparator(),
+      this->viewActionShowAxes, this->viewActionShowScaleProportional,
+      this->viewActionShowInterference, makeSeparator(),
       this->designActionMeasureDist, this->designActionMeasureAngle,
     };
   }
@@ -551,6 +552,13 @@ void MainWindow::loadViewSettings()
   if (settings.value("view/showScaleProportional", true).toBool()) {
     viewActionShowScaleProportional->setChecked(true);
   }
+  // Restore without firing the slot (which would recompile during setup).
+  viewActionShowInterference->blockSignals(true);
+  viewActionShowInterference->setChecked(settings.value("view/showInterference", false).toBool());
+  viewActionShowInterference->blockSignals(false);
+#ifndef ENABLE_MANIFOLD
+  viewActionShowInterference->setVisible(false);  // the exact test needs Manifold
+#endif
   viewTogglePerspective();
 
   updateUndockMode(GlobalPreferences::inst()->getValue("advanced/undockableWindows").toBool());
@@ -1015,6 +1023,7 @@ static void collectSubtreeIndices(const std::shared_ptr<const AbstractNode>& nod
 // console, and every part involved in a collision is recolored in the preview.
 void MainWindow::runInterferenceCheck()
 {
+  if (!this->viewActionShowInterference->isChecked()) return;
   if (!this->rootNode) return;
 
   GeometryEvaluator geomevaluator(this->tree);
@@ -2878,6 +2887,15 @@ void MainWindow::on_viewActionShowScaleProportional_toggled(bool checked)
   settings.setValue("view/showScaleProportional", checked);
   this->qglview->setShowScaleProportional(checked);
   this->qglview->update();
+}
+
+void MainWindow::on_viewActionShowInterference_toggled(bool checked)
+{
+  QSettingsCached settings;
+  settings.setValue("view/showInterference", checked);
+  // The interference recolor is baked into the CSG products during compileCSG(),
+  // so a full preview recompile is needed to apply or clear it.
+  actionRenderPreview();
 }
 
 bool MainWindow::isEmpty()
