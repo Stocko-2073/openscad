@@ -19,7 +19,10 @@ if(USE_MIMALLOC)
     set(mimalloc_DIR "${CMAKE_CURRENT_SOURCE_DIR}/${MI_SUBDIR}/cmake" PARENT_SCOPE)
 
     set(MI_DEBUG_FULL        OFF CACHE BOOL "") # Use full internal heap invariant checking in DEBUG mode (expensive)
-    set(MI_PADDING           ON  CACHE BOOL "") # Enable padding to detect heap block overflow (used only in DEBUG mode)
+    # Padding to detect heap block overflow. Contrary to what the old comment here
+    # claimed, mimalloc honours MI_PADDING in release builds too, where it costs a
+    # word per block and ~2% of OpenSCAD's script evaluation time.
+    set(MI_PADDING           OFF CACHE BOOL "")
     if(APPLE)
       set(MI_OVERRIDE        OFF CACHE BOOL "") # Override the standard malloc interface (e.g. define entry points for malloc() etc)
     else()
