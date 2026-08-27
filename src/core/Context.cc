@@ -72,20 +72,6 @@ std::vector<const std::shared_ptr<const Context> *> Context::list_referenced_con
   return output;
 }
 
-boost::optional<const Value&> Context::try_lookup_variable(const Identifier& name) const
-{
-  if (name.isConfigVariable()) {
-    return session()->try_lookup_special_variable(name);
-  }
-  for (const Context *context = this; context != nullptr; context = context->getParent().get()) {
-    boost::optional<const Value&> result = context->lookup_local_variable(name);
-    if (result) {
-      return result;
-    }
-  }
-  return boost::none;
-}
-
 const Value& Context::lookup_variable(const Identifier& name, const Location& loc) const
 {
   boost::optional<const Value&> result = try_lookup_variable(name);

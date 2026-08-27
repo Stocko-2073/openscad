@@ -45,22 +45,6 @@ ContextFrame::ContextFrame(EvaluationSession *session) : evaluation_session(sess
 {
 }
 
-boost::optional<const Value&> ContextFrame::lookup_local_variable(const Identifier& name) const
-{
-  if (name.isConfigVariable()) {
-    auto result = config_variables.find(name);
-    if (result != config_variables.end()) {
-      return result->second;
-    }
-  } else {
-    auto result = lexical_variables.find(name);
-    if (result != lexical_variables.end()) {
-      return result->second;
-    }
-  }
-  return boost::none;
-}
-
 boost::optional<CallableFunction> ContextFrame::lookup_local_function(const Identifier& name,
                                                                       const Location& /*loc*/) const
 {

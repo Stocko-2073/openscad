@@ -8,11 +8,11 @@
 
 #include "core/AST.h"
 #include "core/Identifier.h"
+#include "core/Value.h"
 #include "core/ValueMap.h"
 #include "core/callables.h"
 
 class EvaluationSession;
-class Value;
 
 class ContextFrame
 {
@@ -22,7 +22,18 @@ public:
 
   ContextFrame(ContextFrame&& other) = default;
 
-  virtual boost::optional<const Value&> lookup_local_variable(const Identifier& name) const;
+  // Not virtual: this runs ~150M times instantiating a large model, so it is
+  // defined here to be inlined into the context-chain walk.
+  boost::optional<const Value&> lookup_local_variable(const Identifier& name) const
+  {
+    const ValueMap& variables = name.isConfigVariable() ? config_variables : lexical_variables;
+    auto result = variables.find(name);
+    if (result != variables.end()) {
+      return result->second;
+    }
+    return boost::none;
+  }
+
   virtual boost::optional<CallableFunction> lookup_local_function(const Identifier& name,
                                                                   const Location& loc) const;
   virtual boost::optional<InstantiableModule> lookup_local_module(const Identifier& name,
