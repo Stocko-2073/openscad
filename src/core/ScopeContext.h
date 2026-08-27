@@ -30,6 +30,10 @@ protected:
     : Context(parent), scope(std::move(scope))
   {
     function_bits |= this->scope->functionBits();
+    // This frame, not the parent's, is now the nearest scope on the chain.
+    // See Context::scopeOwner().
+    scope_owner = this;
+    scope_serial = session()->nextScopeSerial();
   }
 
 private:

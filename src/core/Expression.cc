@@ -35,6 +35,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <ostream>
 #include <sstream>
 #include <typeinfo>
@@ -481,8 +482,53 @@ static void NOINLINE print_trace(EvaluationException& e, const FunctionCall *val
         val->get_name());
 }
 
+/*
+ * Numbers the call sites, so that a session can key its function-lookup cache
+ * on an array index instead of a hash of the node address.
+ *
+ * Numbers are handed back when a node dies, which keeps the numbering
+ * proportional to the scripts currently loaded rather than to how many times
+ * they have been parsed: the GUI reparses on every edit, and a session sizes
+ * its cache to the highest number it sees. Locked because parsing one file can
+ * overlap evaluating another.
+ */
+namespace {
+
+std::mutex& callSiteMutex()
+{
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::vector<size_t>& releasedCallSites()
+{
+  static auto *released = new std::vector<size_t>();
+  return *released;
+}
+
+size_t acquireCallSite()
+{
+  static size_t next = 0;
+  const std::lock_guard<std::mutex> lock(callSiteMutex());
+  std::vector<size_t>& released = releasedCallSites();
+  if (!released.empty()) {
+    const size_t site = released.back();
+    released.pop_back();
+    return site;
+  }
+  return next++;
+}
+
+void releaseCallSite(size_t site)
+{
+  const std::lock_guard<std::mutex> lock(callSiteMutex());
+  releasedCallSites().push_back(site);
+}
+
+}  // namespace
+
 FunctionCall::FunctionCall(Expression *expr, AssignmentList args, const Location& loc)
-  : Expression(loc), expr(expr), arguments(std::move(args))
+  : Expression(loc), callSite(acquireCallSite()), expr(expr), arguments(std::move(args))
 {
   allPositionalArgs = true;
   for (const auto& argument : arguments) {
@@ -506,21 +552,81 @@ FunctionCall::FunctionCall(Expression *expr, AssignmentList args, const Location
   }
 }
 
+FunctionCall::~FunctionCall()
+{
+  releaseCallSite(callSite);
+}
+
+/*
+ * Resolve the call's target, remembering the answer on the call site.
+ *
+ * A lookup walks the context chain, testing each frame's function filter and
+ * probing the frames that pass. Instantiating a BOSL2-heavy model does that
+ * 21M times, and two thirds of those end in the builtin table one frame past a
+ * file scope that had to be probed and missed on the way -- the same walk, to
+ * the same answer, every time the site runs.
+ *
+ * What a site resolves to is fixed by exactly two things: the ordered list of
+ * LocalScopes on the chain, which is immutable once parsed, and any variable on
+ * the chain holding a function value. So the cached answer is guarded by
+ *
+ *  - the serial of the nearest enclosing scope context. An equal serial means
+ *    the same object, hence the same chain of objects below it; the frames
+ *    above it carry no LocalScope and so define no functions;
+ *  - Identifier::hasFunctionValue(), which goes true the first time anything
+ *    binds this name to a function value. That covers the frames above the
+ *    scope owner, and it is deliberately global and monotonic: a script that
+ *    keeps its functions in variables simply keeps walking.
+ *
+ * Only the two answers that can be rebuilt without keeping a context alive are
+ * cached -- a builtin, whose pointer is a global, and a function defined by the
+ * scope owner itself, whose defining context is the scope owner the guard has
+ * just identified. A function from a scope further down the chain, one reached
+ * through `use`, or a function value all fall through to the walk.
+ */
 boost::optional<CallableFunction> FunctionCall::evaluate_function_expression(
   const std::shared_ptr<const Context>& context) const
 {
-  if (isLookup) {
-    return context->lookup_function(name, location());
-  } else {
+  if (!isLookup) {
     auto v = expr->evaluate(context);
     if (v.type() == Value::Type::FUNCTION) {
       return CallableFunction{std::move(v)};
-    } else {
-      LOG(message_group::Warning, loc, context->documentRoot(), "Can't call function on %1$s",
-          v.typeName());
-      return boost::none;
+    }
+    LOG(message_group::Warning, loc, context->documentRoot(), "Can't call function on %1$s",
+        v.typeName());
+    return boost::none;
+  }
+
+  const uint64_t serial = context->scopeSerial();
+  if (serial == 0 || name.isConfigVariable() || name.hasFunctionValue()) {
+    return context->lookup_function(name, location());
+  }
+
+  EvaluationSession *session = context->session();
+  const FunctionLookupCache& cached = session->functionLookupCache(callSite);
+  if (cached.scope_serial == serial && cached.site == this) {
+    if (cached.builtin) {
+      return CallableFunction{cached.builtin};
+    }
+    return CallableFunction{
+      CallableUserFunction{context->scopeOwner()->get_shared_ptr(), cached.function}};
+  }
+
+  boost::optional<CallableFunction> result = context->lookup_function(name, location());
+  if (result) {
+    // Re-fetched rather than reusing the reference above: resolving a name
+    // through `use` builds a FileContext, whose assignments can run script and
+    // grow the cache out from under it.
+    FunctionLookupCache& entry = session->functionLookupCache(callSite);
+    if (const auto *builtin = std::get_if<const BuiltinFunction *>(&*result)) {
+      entry = FunctionLookupCache{this, serial, *builtin, nullptr};
+    } else if (const auto *callable = std::get_if<CallableUserFunction>(&*result)) {
+      if (callable->defining_context.get() == context->scopeOwner()) {
+        entry = FunctionLookupCache{this, serial, nullptr, callable->function};
+      }
     }
   }
+  return result;
 }
 
 /*

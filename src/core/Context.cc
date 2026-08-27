@@ -43,7 +43,10 @@ Context::Context(EvaluationSession *session) : ContextFrame(session), parent(nul
 }
 
 Context::Context(const std::shared_ptr<const Context>& parent)
-  : ContextFrame(parent->evaluation_session), parent(parent)
+  : ContextFrame(parent->evaluation_session),
+    parent(parent),
+    scope_owner(parent->scope_owner),
+    scope_serial(parent->scope_serial)
 {
 }
 

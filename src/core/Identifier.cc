@@ -43,12 +43,17 @@ const Identifier::Entry *Identifier::intern(const std::string& name)
   static size_t next_index = 0;
 
   const std::lock_guard<std::mutex> lock(internMutex());
-  auto it = table->find(name);
-  if (it == table->end()) {
+  // Built in place rather than moved in: Entry holds an atomic flag, so it is
+  // not movable. See Entry::function_value.
+  auto [it, inserted] = table->try_emplace(name);
+  if (inserted) {
+    Entry& entry = it->second;
     const size_t index = next_index++;
+    entry.name = name;
+    entry.is_config = isConfigName(name);
     // Round-robin so the first 64 distinct names get a bit each; see bit().
-    const uint64_t bit = uint64_t(1) << (index & 63);
-    it = table->emplace(name, Entry{name, isConfigName(name), bit, index}).first;
+    entry.bit = uint64_t(1) << (index & 63);
+    entry.index = index;
   }
   return &it->second;
 }

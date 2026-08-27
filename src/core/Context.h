@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -134,12 +135,39 @@ public:
 
   const std::shared_ptr<const Context>& getParent() const { return this->parent; }
   // This modifies the semantics of the context in an error-prone way. Use with caution.
-  void setParent(const std::shared_ptr<const Context>& parent) { this->parent = parent; }
+  void setParent(const std::shared_ptr<const Context>& parent)
+  {
+    this->parent = parent;
+    if (this->scope_owner != this) {
+      this->scope_owner = parent ? parent->scope_owner : nullptr;
+      this->scope_serial = parent ? parent->scope_serial : 0;
+    }
+  }
+
+  /*
+   * Nearest enclosing scope context -- the frame that carries a LocalScope, so
+   * the only kind that can define a function -- and a serial unique to it
+   * among every scope context the process has built. Both are inherited from
+   * the parent, so reading them costs nothing; ScopeContext overrides them
+   * with itself.
+   *
+   * Equal serials mean the same object, which means the whole chain below it
+   * is the same objects too, because a context's parent is fixed once it is
+   * built. That is what lets a call site cache what it resolved to: see
+   * FunctionCall::evaluate_function_expression. Comparing the pointers instead
+   * would not do -- contexts are created and destroyed tens of millions of
+   * times, so addresses are reused.
+   */
+  [[nodiscard]] const Context *scopeOwner() const { return this->scope_owner; }
+  [[nodiscard]] uint64_t scopeSerial() const { return this->scope_serial; }
 
   void setAccountingAdded() { accountingAdded = true; }
 
 protected:
   std::shared_ptr<const Context> parent;
+  // See scopeOwner(). Set by ScopeContext's constructor, inherited otherwise.
+  const Context *scope_owner = nullptr;
+  uint64_t scope_serial = 0;
 
   bool accountingAdded =
     false;  // avoiding bad accounting when exception threw in constructor issue #3871

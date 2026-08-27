@@ -189,6 +189,10 @@ class FunctionCall : public Expression
 {
 public:
   FunctionCall(Expression *expr, AssignmentList arglist, const Location& loc);
+  ~FunctionCall() override;
+  // Owns a call-site number, which the destructor hands back. See callSite.
+  FunctionCall(const FunctionCall&) = delete;
+  FunctionCall& operator=(const FunctionCall&) = delete;
   [[nodiscard]] boost::optional<CallableFunction> evaluate_function_expression(
     const std::shared_ptr<const Context>& context) const;
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
@@ -206,6 +210,12 @@ public:
    * 98.8% qualify. Fixed by the parser, so the test costs nothing at runtime.
    */
   bool allPositionalArgs;
+  /*
+   * This site's number in the process-wide numbering of call sites, which is
+   * what the per-session function-lookup cache is keyed on. Released back for
+   * reuse when the node dies. See EvaluationSession::functionLookupCache().
+   */
+  size_t callSite;
   Identifier name;
   std::shared_ptr<Expression> expr;
   AssignmentList arguments;

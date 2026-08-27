@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -60,14 +61,38 @@ public:
    */
   size_t index() const { return entry->index; }
 
+  /*
+   * True once anything, anywhere in the process, has bound this name to a
+   * function *value* -- a variable holding a function, as opposed to a
+   * `function name() = ...` definition. Function lookup can then no longer be
+   * decided from the immutable scope structure alone, so the call-site cache
+   * in FunctionCall stops trusting itself for this name.
+   *
+   * Set from ContextFrame::set_variable and never cleared, which keeps it
+   * conservative: the worst a stale reading can do is walk the context chain
+   * that the cache would have skipped. Sharing it across evaluations is
+   * likewise only ever conservative.
+   */
+  bool hasFunctionValue() const
+  {
+    return entry->function_value.load(std::memory_order_relaxed);
+  }
+  void markFunctionValue() const
+  {
+    entry->function_value.store(true, std::memory_order_relaxed);
+  }
+
   size_t hash() const { return std::hash<const void *>{}(entry); }
 
 private:
   struct Entry {
     std::string name;
-    bool is_config;
-    uint64_t bit;
-    size_t index;
+    bool is_config = false;
+    uint64_t bit = 0;
+    size_t index = 0;
+    // See hasFunctionValue(). Written from script evaluation, which the GUI's
+    // animation prefetch runs on more than one thread at once.
+    mutable std::atomic<bool> function_value{false};
   };
   static const Entry *intern(const std::string& name);
   static const Entry *emptyEntry();
