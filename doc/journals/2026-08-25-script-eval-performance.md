@@ -862,3 +862,162 @@ awk -F'\t' '$3=="is_vector"' /tmp/prof.tsv | sort -t$'\t' -k1,1nr | head
 awk -F'\t' 'NR>1 {tot[$4]+=$1} END {for (f in tot) print tot[f], f}' \
   /tmp/prof.tsv | sort -rn | head
 ```
+
+---
+
+## 2026-08-27 (later) — Could the type predicates move into C++?
+
+Discussion only; nothing implemented. The profiler's finding — that ~60% of
+the model's function calls are BOSL2 type assertions — raises two questions.
+Can that work move into the interpreter, and can it be done without patching
+BOSL2? Written up here as a handoff, because the answer is yes to both but
+only via a specific mechanism.
+
+### Most of the type checking is already in C++
+
+Splitting the profile's calls against OpenSCAD's builtin table:
+
+```
+builtin calls (already C++) : 13,795,463   64.6%
+user calls (BOSL2 .scad)    :  7,552,777   35.4%
+loop iterations             :  8,916,824
+module instantiations       :    262,419
+```
+
+`is_num`, `is_list`, `is_undef`, `is_bool`, `is_string`, `is_function` and
+`len` are builtins already, and BOSL2 does not redefine any of them. So there
+is nothing to port for the bulk of the calls; what costs is the *call*, not the
+check.
+
+Only three predicates are .scad, and they are 67% of all user function calls:
+
+```scad
+function is_nan(x) = (x!=x);                                   // 2,057,701 calls
+function is_finite(x) = is_num(x) && !is_nan(0*x);             // 2,350,057
+function is_vector(v, length, zero, all_nonzero=false, eps=EPSILON) =
+    is_list(v) && len(v)>0 && []==[for(vi=v) if(!is_finite(vi)) 0] && …  // 640,056
+```
+
+The prize is their fan-out, not their bodies. `is_nan` has **exactly one call
+site in the entire model** — inside `is_finite` — so a native `is_finite`
+deletes the whole chain:
+
+```
+2,350,057  is_finite user calls  -> builtin calls (body contexts gone)
+2,057,701  is_nan user calls     -> gone entirely
+~2,350,000 is_num builtin calls  -> gone
+~4,400,000 BinaryOps (0*x, x!=x) -> gone
+─────────
+  ~6.8M of 30.5M events and ~4.4M of 18M contexts, from one small builtin
+```
+
+`is_vector` accounts for most of the remaining ~10M (its comprehension is
+2,004,006 iterations and 2,004,006 of the `is_finite` calls), but see below —
+it is the wrong shape.
+
+### Adding builtins alone does nothing for vanilla BOSL2
+
+`Context::lookup_function` walks the context chain and `BuiltinContext` is at
+the bottom, so a user `function is_finite(x) = …` in an included file is found
+first, every time. A builtin of the same name is never reached: dead code.
+
+### The proposal: priority dispatch, guarded by the definition
+
+Idea from this session: a priority builtin table consulted *before* the chain
+walk. Mechanically that is a one-liner in `Context::lookup_function`.
+
+Name-only priority is not acceptable — it inverts scoping, which nothing in
+the language can undo. No script could say "no, I mean mine", every script
+defining a same-named function would silently change behaviour, and other
+libraries define these names (`is_vector` especially) differently.
+
+**The fix is to guard the substitution on the definition rather than the
+name.** The priority table finds a candidate; the walk still resolves the user
+definition; the native implementation is used only if the user definition's
+parameter list and body match the one being replaced; the decision is then
+cached on the call site. This never changes any script's meaning — the native
+version runs only where the .scad version provably *is* what was
+reimplemented — and it works against vanilla BOSL2. The priority context stops
+being a scoping change and becomes a dispatch accelerator.
+
+The inline cache is where much of the win lands: after the first call, that
+site skips lookup entirely.
+
+### The semantics are the risk, and they are not intuitive
+
+Probed empirically rather than reasoned about (`doc/journals` reproduction
+below). Both candidates surprised:
+
+```
+is_num(nan)     = false     # OpenSCAD's is_num already excludes NaN
+is_nan([nan])   = true      # vector != propagates NaN element-wise
+is_nan([[nan]]) = true      # and recursively
+[nan]==[nan]    = false
+is_finite([nan])= false     # the is_num guard fires first
+```
+
+So:
+
+- A native `is_nan` written as `type == NUMBER && std::isnan(x)` **would be
+  wrong**: it returns false where BOSL2 returns true, for any vector
+  containing a NaN at any depth. The correct native form is
+  `Value(arg != arg)`, reusing OpenSCAD's own comparison operator — exact by
+  construction rather than by reimplementation.
+- A native `is_finite` as `type == NUMBER && std::isfinite(x)` is exact. It was
+  checked against all 12 value types (number, ±inf, nan, undef, bool, string,
+  vector, empty vector, range, function) plus the vector-of-NaN case; the
+  `is_num` guard excludes everything non-numeric.
+
+That asymmetry is the strongest argument for the body-matching guard: it
+protects against exactly this class of mistake.
+
+### Why `is_vector` is the wrong shape
+
+Body-matching would make it *safe*, but the native side has to carry a lot of
+library semantics:
+
+- five parameters, and `eps=EPSILON` where `EPSILON` is a BOSL2 *variable*
+  evaluated in the defining context. A builtin has no such context, so its
+  value (1e-9) would have to be hard-coded into the interpreter.
+- an internal `assert(is_num(length))` whose message would have to be
+  reproduced exactly.
+- a call out to `all_nonzero`, another user function with its own default
+  `eps=EPSILON`.
+
+### Plan for next session
+
+1. **Measure the ceiling first.** Copy BOSL2, stub `is_finite`, `is_nan` and
+   `is_vector` to trivially cheap definitions, and time `u-bot.scad` against
+   `OPENSCADPATH` pointing at the copy. If script evaluation drops ~25% the
+   mechanism pays for itself; if it drops ~8% because the events are cheaper
+   than the count suggests, the general fast paths (leads 1-3 below) win
+   instead. This is ~20 minutes and decides the rest.
+2. If it pays: implement guarded priority dispatch behind an opt-in flag,
+   with `is_finite` only. One builtin, ~6.8M events, and the smallest possible
+   semantic surface.
+3. Add `is_nan` as `Value(arg != arg)` only if step 1 shows the direct
+   `is_nan` calls matter — in this model there are none outside `is_finite`.
+4. Leave `is_vector` alone until the general call-path work is done; revisit
+   only if it is still the top item afterwards.
+
+Whatever happens, the general leads are unaffected and compound with this:
+cheap calling convention for single-argument builtins (13.8M calls), a stack
+fast path for user functions whose bodies create nothing that outlives the
+call (7.5M calls), and loop-context reuse (8.9M iterations).
+
+## Reproducing (additions)
+
+```bash
+# builtin vs user split of the profile
+grep -oE 'Builtins::init\("[a-z_0-9]+"' src/core/builtin_functions.cc \
+  | sed 's/.*"\(.*\)"/\1/' | sort > /tmp/builtins.txt
+# then classify column 3 of the --profile-file TSV against that list
+
+# All call sites of one function, busiest first
+awk -F'\t' '$3=="is_nan"' /tmp/prof.tsv | sort -t$'\t' -k1,1nr
+
+# Predicate semantics across every value type: define BOSL2's is_nan/is_finite
+# in a scratch .scad and echo them over
+#   [1, -0.5, 0/0, 1/0, -1/0, undef, true, "abc", [1,2], [], [0:2], function(y) y]
+# plus [nan], [[nan]], [1,nan]. Do this before writing any native version.
+```
