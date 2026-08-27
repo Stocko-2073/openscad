@@ -434,6 +434,10 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
 
   // Do we have an explicit root node (! modifier)?
   std::shared_ptr<const AbstractNode> root_node;
+  // Declared out here only so the single printAll below can see it; the
+  // non-geometry export formats leave it null.
+  std::shared_ptr<const Geometry> root_geom;
+  bool evaluated_geometry = false;
   const Location *nextLocation = nullptr;
   if (!(root_node = find_root_tag(absolute_root_node, &nextLocation))) {
     root_node = absolute_root_node;
@@ -476,9 +480,9 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
   } else if (export_format == FileFormat::ECHO) {
     // echo -> don't need to evaluate any geometry
   } else {
+    evaluated_geometry = true;
     GeometryEvaluator geomevaluator(tree);
     std::unique_ptr<OffscreenView> glview;
-    std::shared_ptr<const Geometry> root_geom;
     const RenderStatistic::ScopedPhase geometryPhase(renderStatistic,
                                                      RenderStatistic::PHASE_GEOMETRY);
     if ((export_format == FileFormat::ECHO || export_format == FileFormat::PNG) &&
@@ -540,7 +544,23 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
       }
     }
     renderStatistic.endPhase(RenderStatistic::PHASE_EXPORT);
+  }
 
+  /*
+   * Outside the export_format chain above, so that the formats which need no
+   * geometry -- echo, csg, ast, param, term -- can report their phase times
+   * too: `--summary time -o x.echo` used to print nothing at all, and the echo
+   * path is the cheapest way to time script evaluation on its own, with no
+   * geometry stage and no export write to add noise. printAll already tolerates
+   * a null geometry.
+   *
+   * But only when a summary was actually asked for. With no --summary and no
+   * --summary-file, printAll still logs the cache statistics and the rendering
+   * time, which for a geometry export is the familiar default output and for an
+   * echo export would be new console noise -- and the echo regression tests
+   * compare the console output verbatim.
+   */
+  if (evaluated_geometry || !cmd.summaryOptions.empty() || !cmd.summaryFile.empty()) {
     renderStatistic.printAll(root_geom, camera, cmd.summaryOptions, cmd.summaryFile);
   }
   return 0;
