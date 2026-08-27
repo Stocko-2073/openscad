@@ -737,3 +737,128 @@ started.
 # rebuild, rather than reverting the whole change:
 #   bool may_hold_function(...) const { return true; }
 ```
+
+---
+
+## 2026-08-27 — A profiler for the script, not the interpreter
+
+Every count in this journal so far came from hand-patching temporary counters
+into the evaluator and rebuilding. That answered "what does the interpreter
+do a lot of" but never "which of *my* lines causes it", because at the C++
+level every script-level call looks like the same handful of frames.
+
+Nothing existed for this. The tree had no profiling code at all — `--summary
+time` (added earlier in this effort) and `--trace-usermodule-parameters` were
+the whole toolkit. Upstream has an open request,
+[#6653](https://github.com/openscad/openscad/issues/6653) with PR #6654, for
+`timer_new()`/`timer_stop()` builtins: manual instrumentation you sprinkle by
+hand, useful only once you already suspect the right code.
+
+### `05cc58632` profile: count script-level calls per source location
+
+`--profile` counts function calls, module instantiations and loop iterations
+per source location and reports them after evaluation. `--profile-file` writes
+every site as TSV, which a real model needs — `u-bot.scad` has 3768 sites.
+
+Counting rather than timing, deliberately: there are ~30M script-level events
+in this model, so reading a clock twice per event would cost more than the work
+being measured and distort it. Counts are exact, and they localise the problem
+regardless of what each event costs.
+
+Hook points, each the single place an event can be counted neither twice nor
+never:
+
+- **calls** — the `FunctionCall` branch of `simplify_function_body`. Not
+  `FunctionCall::evaluate`: the tail-call loop reaches a call's body through
+  that branch too, so counting in both would double-count and counting only in
+  `evaluate` would miss tail calls.
+- **modules** — `ModuleInstantiation::evaluate`.
+- **loop iterations** — the innermost point of `doForEach`, several frames
+  below the AST node that owns the count, so the count travels down as a
+  `ProfileSite`. This counts *body executions*; the journal's earlier
+  `forContext` figure (8,941,394) counts *variable bindings*, which is why
+  `--profile` reports slightly fewer (8,916,824): a nested `for(a=…, b=…)`
+  binds twice per innermost iteration.
+
+Sites register on first use and keep their count in the AST node, so the
+steady state is an increment behind one global test. Measured on `u-bot.scad`:
+6.52–6.56s with profiling off, 6.38–6.43s on, against 6.53–6.63s before the
+commit — no measurable cost either way.
+
+The registry holds pointers into the AST, so `ScriptProfile::ScopedRun` in
+`SourceFile::instantiate` drops them when evaluation ends, including when it
+throws. Registration and clearing take a lock because the GUI's animation
+prefetch re-evaluates the same AST on a worker thread; the per-event
+increments are unsynchronised by design, so two concurrent evaluations can
+lose counts against each other but cannot corrupt the registry.
+
+### What it says about u-bot.scad
+
+```
+  function calls            21,348,240  at 2,602 sites
+  module instantiations        262,419  at 975 sites
+  loop iterations            8,916,824  at 191 sites
+
+Busiest names                    Busiest sites
+ 8,916,824  loop  for             2,350,057  call  is_num      BOSL2/utility.scad:196:25
+ 2,779,989  call  is_undef        2,057,701  call  is_nan      BOSL2/utility.scad:196:39
+ 2,778,579  call  is_num          2,004,006  call  is_finite   BOSL2/vectors.scad:49:50
+ 2,368,089  call  is_list         2,004,006  loop  for         BOSL2/vectors.scad:49:36
+ 2,350,057  call  is_finite       1,214,287  loop  for         BOSL2/utility.scad:292:16
+ 2,197,303  call  len               850,290  loop  for         BOSL2/linalg.scad:231:9
+ 2,057,701  call  is_nan            806,645  call  concat      BOSL2/transforms.scad:1569:36
+ 1,260,111  call  norm              640,056  call  is_list     BOSL2/vectors.scad:49:5
+```
+
+**Roughly 60% of the model's 21.3M function calls are BOSL2 type assertions**
+(`is_undef`, `is_num`, `is_list`, `is_finite`, `is_nan`, `is_vector`,
+`is_bool` ≈ 12.8M). They are not spread thin; they funnel through one
+function:
+
+```scad
+// vectors.scad:49
+function is_vector(v, length, zero, all_nonzero=false, eps=EPSILON) =
+    is_list(v) && len(v)>0 && []==[for(vi=v) if(!is_finite(vi)) 0]
+    && ...
+// utility.scad:196
+function is_finite(x) = is_num(x) && !is_nan(0*x);
+```
+
+`is_vector` walks the vector, and each element costs `is_finite` → `is_num` +
+`is_nan`. One `is_vector([x,y,z])` is therefore ~14 script-level events. There
+are 640k of them, called mostly from `linalg.scad:51`, `vectors.scad:224` and
+`transforms.scad:1542` — so `is_vector` and its fan-out account for something
+like 9M of the ~30M events in the run, and none of it computes any geometry.
+
+Totals by library file:
+
+```
+8,764,492  BOSL2/utility.scad     2,428,970  BOSL2/vnf.scad
+7,399,236  BOSL2/vectors.scad     2,416,184  BOSL2/linalg.scad
+4,346,638  BOSL2/transforms.scad    993,621  BOSL2/affine.scad
+```
+
+The script's own files barely register: the busiest non-BOSL2 site is 91,782
+loop iterations in `lib/globals.scad:29` (a `reverse()` that shadows BOSL2's
+own), 0.3% of the total. **Nothing the author writes is the problem; the
+library's argument validation is.**
+
+That reframes the remaining interpreter work. The leads below make the
+evaluator faster at running type predicates. The larger prize is not running
+them: a way for a library to compile out its own validation, or for the
+evaluator to recognise and fold these predicates. Neither is in scope here,
+but it is the reason this model spends 6.5s evaluating a 24KB script.
+
+## Reproducing (additions)
+
+```bash
+$BIN --profile -o /tmp/out.stl u-bot.scad                    # console report
+$BIN --profile-file /tmp/prof.tsv -o /tmp/out.stl u-bot.scad # every site
+
+# Who calls a given function, busiest first
+awk -F'\t' '$3=="is_vector"' /tmp/prof.tsv | sort -t$'\t' -k1,1nr | head
+
+# Events attributed to each file
+awk -F'\t' 'NR>1 {tot[$4]+=$1} END {for (f in tot) print tot[f], f}' \
+  /tmp/prof.tsv | sort -rn | head
+```
