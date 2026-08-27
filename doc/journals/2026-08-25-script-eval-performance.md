@@ -1021,3 +1021,242 @@ awk -F'\t' '$3=="is_nan"' /tmp/prof.tsv | sort -t$'\t' -k1,1nr
 #   [1, -0.5, 0/0, 1/0, -1/0, undef, true, "abc", [1,2], [], [0:2], function(y) y]
 # plus [nan], [[nan]], [1,nan]. Do this before writing any native version.
 ```
+
+---
+
+## 2026-08-27 (later still) — Working the general call path
+
+Measured the ceiling from the previous entry's plan, found it did not clear
+the bar the entry set, and worked leads 1 and 3 instead. Script evaluation on
+`u-bot.scad` went from 6534ms to 5341ms, **-18.3%**; total render 10.0s -> 9.1s.
+
+### First: the benchmark was lying
+
+Every number in this journal before today was taken from two or three
+consecutive runs. This machine needs **four warm-up passes** to settle: a cold
+run reads ~4% slow, which is the size of most of the effects being measured.
+A 13-run series made it obvious — 5502, 5596, 5516, 5426, 5590, then 5322,
+5284, 5294, 5346, 5275, 5280, 5285, 5280.
+
+`doc/journals/bench.sh` in the reproduction below discards four runs and
+reports min/median over the rest. Median across 9 warmed runs is repeatable to
+about ±0.5%. **Earlier entries' percentages should be treated as ±4%**, and
+anything reported there under ~5% is not distinguishable from warm-up drift.
+
+### Step 1 of the plan: the predicate ceiling, measured
+
+Stubbed BOSL2's predicates in a scratch copy pointed at by `OPENSCADPATH`.
+Geometry stayed byte-identical (md5 `4426e8e3…`) at every stage:
+
+```
+baseline                                          6425 ms   --
+is_finite(x) = is_num(x)                          6065 ms   -5.6%
+  + is_vector without the finite comprehension    5380 ms  -16.3%
+  + is_vector stripped to a minimal body          5282 ms  -17.8%
+```
+
+(unwarmed, so ±4%; the stages are consistent with each other.)
+
+Stubs still pay for the user-function call itself, so a native `is_finite` and
+`is_vector` would go further — projecting ~21% off script evaluation. The
+previous entry set the bar at "~25% and the mechanism pays for itself, ~8% and
+the general fast paths win instead". 21% lands between them, and guarded
+priority dispatch only ever helps scripts that use BOSL2, so the general leads
+went first. **The proposal is not dead**; it now has a measured ceiling.
+
+### `Arguments` on the stack — ~1%
+
+20.9M `Arguments` are built instantiating this model, of which **79% carry a
+single argument and 98% carry two or fewer**; only **1.2%** of calls use a
+named argument at all. Switching the base from `std::vector<Argument>` to
+`boost::container::small_vector<Argument, 2>` — the trade `ValueMap` already
+makes — keeps 98% of them off the heap.
+
+Worth ~1%, which is less than the allocation count suggests: 20.9M alloc/free
+pairs for ~90ms is ~4ns each, because mimalloc (`97d87e05b`) had already made
+them nearly free. **Kept, because builtin calls still build one**, but this is
+the entry's evidence that raw allocation count is a poor proxy for cost here.
+
+### Binding positional arguments straight into the callee — ~11.5%
+
+This is lead 1, and it is where the time was. A user-function call did this:
+
+```
+Arguments{...}                  evaluate each argument into {optional<Identifier>, Value}
+Parameters::parse(...)            match against parameters into a second ContextFrame
+  ...                             evaluate defaults for whatever was not supplied
+  Parameters{...}                 push that frame on the special-variable stack
+body_context->apply_variables(...) move the frame's ValueMap into the body context
+```
+
+Two containers and a spare `ContextFrame`, every value moved three times, and
+a special-variable stack push/pop that the function-call path never reads —
+`Parameters` is constructed and immediately destructured.
+
+When no argument is named, argument *i* is simply parameter *i*, and none of
+it is needed: `bind_positional_arguments()` evaluates each argument straight
+into the body context, then fills defaults. `FunctionCall::allPositionalArgs`
+is fixed by the parser, so the test costs nothing at runtime.
+
+It falls back to the general path, unchanged, for three cases:
+
+- **more arguments than parameters**, which has to warn;
+- **a config-variable parameter.** The body context is already on the
+  special-variable stack, so binding a `$`-name into it early would let a
+  later default expression see it. `function f($fn, x = $fn) = ...; f(5)`
+  must give `x` the *outer* `$fn`, and it still does;
+- **a parameter named `this`**, which `builtin_object` fills from the defining
+  context in preference to anything supplied.
+
+### Reusing the loop context — 7.4%
+
+Lead 3. A `for` binds its variable in a fresh child context per iteration —
+8.9M of them — and almost none outlive the iteration that made them.
+`LoopContext` keeps one and rebinds it, allocating again only when the
+previous iteration's context was captured.
+
+The test for "was it captured" is `use_count() == 1`, which is complete
+because a child context holds its parent by `shared_ptr`, so anything that
+outlives the iteration — a closure, an object, a surviving child — raises the
+count. `ContextMemoryManager::addContext` already makes exactly this test to
+decide whether a context can be dropped instead of handed to the collector.
+Allocation is lazy so a loop over an empty list still builds nothing.
+
+Measured by A/B on warmed builds with everything else held constant: median
+5709ms with reuse off, 5284ms on.
+
+The decisive correctness case, which reuse would break if the guard were
+wrong:
+
+```scad
+fns = [for (i = [1, 2, 3]) function() i];
+echo([for (f = fns) f()]);      // [1, 2, 3], not [3, 3, 3]
+```
+
+That and the nested, range, string and partial-capture variants all hold.
+
+### Where the time is now
+
+Script evaluation is 5341ms of 9.1s. Flat self-time over the script-eval
+window, 3040 active samples:
+
+```
+ 9.6%  FunctionCall::evaluate 291   (simplify_function_body inlined; spread
+                                     evenly over the whole body, no hotspot)
+ 6.6%  operator new 101 + operator delete 99
+ 4.7%  Context::try_lookup_variable 143
+ 3.9%  Value::clone 118
+ 5.0%  function lookup    FileContext 60, LocalScope::lookup 51, lookup_function 41
+ 3.3%  BinaryOp::evaluate 100
+ 3.2%  multvecmat 96                (genuine arithmetic)
+ 2.3%  ValueMap::insert_or_assign 70
+ 1.6%  collectGarbage 45
+ 1.5%  Arguments::Arguments 45      (builtin calls only now)
+ 0.9%  _tlv_get_addr 28             (thread-local access, StackCheck)
+ 0.7%  std::function trampoline 22  (builtin dispatch)
+```
+
+`Parameters::parse` and `ContextFrame::ContextFrame(&&)` have left the profile
+entirely, which is the fast path doing its job.
+
+### Checked and dropped
+
+- **Replacing `BuiltinFunction`'s `std::function` with a tagged function
+  pointer.** The trampoline is 22 samples, 0.7%. Not worth the churn.
+- **Reordering the `typeid` chain in `simplify_function_body`.** `FunctionCall`
+  is tested last behind four types that essentially never occur, which looked
+  like a free win. It is only worth ~4 pointer comparisons: no `strcmp`
+  appears in the script-eval profile, so libc++ is taking the unique-RTTI fast
+  path. Left alone as not worth the restructuring risk for <1%.
+
+### A latent crash, found by accident
+
+Stubbing `is_finite(x) = true` sent BOSL2's `_edges` into runaway recursion
+building a deeply nested list, and OpenSCAD **segfaulted on the stack guard
+while destroying it** — no error, just SIGSEGV.
+
+`VectorType::VectorObjectDeleter::operator()` (`src/core/Value.cc:674`)
+already contains an iterative unwinder written to avoid exactly this, but the
+whole loop body is gated on `v->embed_excess`:
+
+```cpp
+while (true) {
+  if (v && v->embed_excess) {      // <-- gate
+    for (Value& val : v->vec) { ...collect children into purge... }
+  }
+  if (purge.empty()) break;        // plain nested vector: always breaks here
+  ...
+}
+delete orig;                       // recurses one frame per nesting level
+```
+
+`embed_excess` is non-zero only when `EmbeddedVectorType`s have been appended,
+i.e. list-comprehension flattening (`Value.cc:644`). A plainly nested `VECTOR`
+has `embed_excess == 0`, the unwinder is skipped, and `delete orig` unwinds
+naturally: `~Value` -> variant destroy dispatch -> `__on_zero_shared` ->
+deleter -> repeat, one C++ frame per level until the 8MB stack runs out.
+
+Evaluation *built* the structure fine — `StackCheck` and the 1,000,000-depth
+`RecursionException` both let it through. Only destruction dies. So a script
+that survives the recursion limits can still take the process down with no
+diagnostic. Pre-existing, unrelated to this branch, and not fixed here.
+
+## Reproducing (additions)
+
+```bash
+# Warmed benchmark: four discarded passes, then min/median over N runs.
+doc/journals/bench.sh 9 "label"
+
+# Is a change actually paying? Build both ways and compare warmed medians;
+# a single unwarmed pair will not resolve anything under ~5%.
+
+# Ceiling for a library predicate, without patching the installed library:
+cp -R ~/Documents/OpenSCAD/libraries/BOSL2 /tmp/libs/ && edit /tmp/libs/BOSL2/...
+OPENSCADPATH=/tmp/libs $BIN --summary time --summary-file - -o /tmp/out.stl u-bot.scad
+# OPENSCADPATH takes precedence over the user library dir; confirm with an
+# echo() in the copy before trusting the numbers.
+
+# Argument-shape census: temporary counters in Arguments::Arguments over
+# argument_expressions.size() and whether any argument is named. Not committed.
+
+# Script-eval-only profile: sample for ~6s from launch, so the window is
+# parsing (0.15s) plus script evaluation, and read "Sort by top of stack".
+# Do NOT use sample's call tree here -- BOSL2 recursion is deep enough that
+# stacks get truncated and subtree attribution silently under-counts.
+$BIN -o /tmp/prof.stl u-bot.scad & sample $! 6 1 -f /tmp/sample.txt; wait
+```
+
+## Open leads (revised again)
+
+1. **`FunctionCall::evaluate` — 9.6%, spread evenly.** No hotspot; it is the
+   aggregate of the `typeid` chain, `boost::optional<CallableFunction>`, and
+   the `variant<SimplifiedExpression, Value>` built and destroyed per
+   simplification step, where `SimplifiedExpression` carries an
+   `optional<ContextHandle<Context>>`. Cutting it means restructuring the
+   step protocol, not tuning a line.
+
+2. **Function lookup — ~5%, and an inline cache would take most of it.**
+   `FileContext::lookup_local_function` + `LocalScope::lookup` +
+   `Context::lookup_function`. A call site's target almost never changes;
+   caching the resolution on the `FunctionCall` node with a validity check is
+   the same mechanism the guarded-dispatch proposal needs anyway.
+
+3. **`Value` copy and destroy — ~4% in `clone` plus the variant dispatchers.**
+   Unchanged as an analysis. Every variable read clones. The atomic
+   refcounting cannot simply be made non-atomic: geometry evaluation is
+   multi-threaded and the GUI prefetches on a worker thread.
+
+4. **Native `is_finite` / `is_vector` behind guarded priority dispatch.**
+   Ceiling now measured at ~21% of script evaluation for this model, 0% for
+   models that do not use BOSL2. Lead 2 above builds the inline cache it needs.
+
+5. **`collectGarbage` — 1.6%**, down from 2%. Unchanged.
+
+6. **Early termination and lexical-path prune for `!`** — unchanged.
+
+7. **`Parameters`' string-keyed accessors** — unchanged.
+
+### Beyond script evaluation
+
+Script evaluation is now 58% of total render (5341ms of 9.1s), down from 64%.
+Geometry evaluation is 34% (3.1s) and still untouched.
