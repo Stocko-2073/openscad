@@ -798,6 +798,16 @@ Value FunctionCall::evaluate(const std::shared_ptr<const Context>& context) cons
    * instantiating a large model builds, 20.9M were these.
    */
   boost::optional<ContextHandle<Context>> expression_context;
+  /*
+   * MUST be declared after expression_context, so that it is destroyed before
+   * it. It aliases the same context, and ~ContextHandle hands that context to
+   * ContextMemoryManager::addContext, which registers it with the garbage
+   * collector unless the handle is its sole owner. Declared the other way
+   * round the handle goes first, addContext sees use_count 2, and 7.2M of the
+   * 9.9M contexts a large model builds take the collector's path instead of
+   * being dropped on the spot: 578MB peak instead of 160MB, and ~10% slower.
+   * Both measured, by getting it wrong.
+   */
   std::shared_ptr<const Context> current_context = context;
 
   const Expression *expression = this;

@@ -4,7 +4,10 @@
 RUNS=${1:-7}
 LABEL=${2:-run}
 BIN=${BIN:-$(git rev-parse --show-toplevel)/build-release/OpenSCAD.app/Contents/MacOS/OpenSCAD}
-MODEL=${MODEL:-$HOME/prj/Make/stocko/u-bot/u-bot.scad}
+# Frozen snapshot, not the live model: the live one is edited between sessions,
+# which makes timings from different days incomparable and quietly invalidates
+# the exported-STL md5 used as the correctness check. See its README.
+MODEL=${MODEL:-$HOME/prj/Make/stocko-bench/u-bot/u-bot.scad}
 cd "$(dirname "$MODEL")" || exit 1
 # Discard warm-up runs: this machine needs ~4 passes to settle, and an
 # unsettled run reads ~4% slow, which is the size of the effects being measured.
