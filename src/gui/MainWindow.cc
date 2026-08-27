@@ -918,6 +918,8 @@ std::shared_ptr<AbstractNode> MainWindow::instantiateRootFromSource(SourceFile *
 
 void MainWindow::instantiateRoot()
 {
+  const RenderStatistic::ScopedPhase phase(renderStatistic, RenderStatistic::PHASE_EVALUATION);
+
   // Go on and instantiate root_node, then call the continuation slot
 
   // Invalidate renderers before we kill the CSG tree
@@ -944,7 +946,7 @@ void MainWindow::instantiateRoot()
 
   if (this->rootFile) {
     // Evaluate CSG tree
-    LOG("Compiling design (CSG Tree generation)...");
+    LOG("Compiling design (script evaluation)...");
     this->processEvents();
 
     AbstractNode::resetIndexCounter();
@@ -1026,6 +1028,8 @@ void MainWindow::runInterferenceCheck()
   if (!this->viewActionShowInterference->isChecked()) return;
   if (!this->rootNode) return;
 
+  const RenderStatistic::ScopedPhase phase(renderStatistic, RenderStatistic::PHASE_INTERFERENCE);
+
   GeometryEvaluator geomevaluator(this->tree);
 
   struct Part {
@@ -1095,7 +1099,7 @@ void MainWindow::compileCSG()
   OpenSCAD::hardwarnings = GlobalPreferences::inst()->getValue("advanced/enableHardwarnings").toBool();
   try {
     assert(this->rootNode);
-    LOG("Compiling design (CSG Products generation)...");
+    LOG("Compiling design (CSG tree generation)...");
     this->processEvents();
 
     // Main CSG evaluation
@@ -1112,7 +1116,11 @@ void MainWindow::compileCSG()
     try {
 #ifdef ENABLE_OPENCSG
       this->processEvents();
-      this->csgRoot = csgrenderer.buildCSGTree(*rootNode);
+      {
+        const RenderStatistic::ScopedPhase phase(renderStatistic,
+                                                 RenderStatistic::PHASE_CSG_BUILD);
+        this->csgRoot = csgrenderer.buildCSGTree(*rootNode);
+      }
 #endif
       renderStatistic.printCacheStatistic();
       this->processEvents();
@@ -1124,7 +1132,8 @@ void MainWindow::compileCSG()
     progress_report_fin();
     updateStatusBar(nullptr);
 
-    LOG("Compiling design (CSG Products normalization)...");
+    renderStatistic.beginPhase(RenderStatistic::PHASE_CSG_NORMALIZATION);
+    LOG("Compiling design (CSG normalization)...");
     this->processEvents();
 
     const size_t normalizelimit =
@@ -1174,12 +1183,14 @@ void MainWindow::compileCSG()
     } else {
       this->backgroundProducts.reset();
     }
+    renderStatistic.endPhase(RenderStatistic::PHASE_CSG_NORMALIZATION);
 
 #ifdef ENABLE_MANIFOLD
     // Detect interfering parts and recolor them before the renderers bake colors.
     runInterferenceCheck();
 #endif
 
+    renderStatistic.beginPhase(RenderStatistic::PHASE_RENDERERS);
     if (this->rootProduct && (this->rootProduct->size() >
                               GlobalPreferences::inst()->getValue("advanced/openCSGLimit").toUInt())) {
       LOG(message_group::UI_Warning, "Normalized tree has %1$d elements!", this->rootProduct->size());
@@ -1194,6 +1205,8 @@ void MainWindow::compileCSG()
 #endif  // ifdef ENABLE_OPENCSG
     this->thrownTogetherRenderer = std::make_shared<ThrownTogetherRenderer>(
       this->rootProduct, this->highlightsProducts, this->backgroundProducts);
+    renderStatistic.endPhase(RenderStatistic::PHASE_RENDERERS);
+
     LOG("Compile and preview finished.");
     renderStatistic.printRenderingTime();
     this->processEvents();
@@ -1841,6 +1854,8 @@ std::shared_ptr<SourceFile> MainWindow::parseDocument(EditorInterface *editor)
 
 void MainWindow::parseTopLevelDocument()
 {
+  const RenderStatistic::ScopedPhase phase(renderStatistic, RenderStatistic::PHASE_PARSING);
+
   resetSuppressedMessages();
 
   this->lastCompiledDoc = activeEditor->toPlainText();
@@ -2109,11 +2124,15 @@ void MainWindow::cgalRender()
   if (!isClosing) progress_report_prep(this->rootNode, report_func, this);
   else return;
 
+  // Ended in actionRenderDone(), which the worker's done() signal delivers back
+  // on this thread, so the phase is only ever touched from the GUI thread.
+  renderStatistic.beginPhase(RenderStatistic::PHASE_GEOMETRY);
   this->cgalworker->start(this->tree);
 }
 
 void MainWindow::actionRenderDone(const std::shared_ptr<const Geometry>& root_geom)
 {
+  renderStatistic.endPhase(RenderStatistic::PHASE_GEOMETRY);
 #ifdef ENABLE_PYTHON
   python_lock();
 #endif

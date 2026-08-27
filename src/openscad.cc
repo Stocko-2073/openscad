@@ -388,7 +388,7 @@ Camera get_camera(const po::variables_map& vm)
 }
 
 int do_export(const CommandLine& cmd, const RenderVariables& render_variables, FileFormat export_format,
-              SourceFile *root_file)
+              SourceFile *root_file, RenderStatistic& renderStatistic)
 {
   auto filename_str = fs::path(cmd.output_file).generic_string();
   // Avoid possibility of fs::absolute throwing when passed an empty path
@@ -410,15 +410,18 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
   std::shared_ptr<const FileContext> file_context;
   std::shared_ptr<AbstractNode> absolute_root_node;
 
+  {
+    const RenderStatistic::ScopedPhase phase(renderStatistic, RenderStatistic::PHASE_EVALUATION);
 #ifdef ENABLE_PYTHON
-  if (python_result_node != NULL && python_active) {
-    absolute_root_node = python_result_node;
-  } else {
+    if (python_result_node != NULL && python_active) {
+      absolute_root_node = python_result_node;
+    } else {
 #endif
-    absolute_root_node = root_file->instantiate(*builtin_context, &file_context);
+      absolute_root_node = root_file->instantiate(*builtin_context, &file_context);
 #ifdef ENABLE_PYTHON
+    }
+#endif
   }
-#endif
 
   Camera camera = cmd.camera;
   if (file_context) {
@@ -472,11 +475,11 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
   } else if (export_format == FileFormat::ECHO) {
     // echo -> don't need to evaluate any geometry
   } else {
-    // start measuring render time
-    RenderStatistic renderStatistic;
     GeometryEvaluator geomevaluator(tree);
     std::unique_ptr<OffscreenView> glview;
     std::shared_ptr<const Geometry> root_geom;
+    const RenderStatistic::ScopedPhase geometryPhase(renderStatistic,
+                                                     RenderStatistic::PHASE_GEOMETRY);
     if ((export_format == FileFormat::ECHO || export_format == FileFormat::PNG) &&
         (cmd.viewOptions.renderer == RenderType::OPENCSG ||
          cmd.viewOptions.renderer == RenderType::THROWNTOGETHER)) {
@@ -507,11 +510,13 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
         LOG("Converted to backend-specific geometry");
       }
     }
+    renderStatistic.endPhase(RenderStatistic::PHASE_GEOMETRY);
 
     const std::string input_filename = cmd.is_stdin ? "<stdin>" : cmd.filename;
     const int dim = fileformat::is3D(export_format) ? 3 : fileformat::is2D(export_format) ? 2 : 0;
     ExportInfo exportInfo = createExportInfo(export_format, fileformat::info(export_format),
                                              input_filename, &cmd.camera, cmd.exportOptions);
+    const RenderStatistic::ScopedPhase exportPhase(renderStatistic, RenderStatistic::PHASE_EXPORT);
     if (dim > 0 && !checkAndExport(root_geom, dim, exportInfo, cmd.is_stdout, filename_str)) {
       return 1;
     }
@@ -533,6 +538,7 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
         return 1;
       }
     }
+    renderStatistic.endPhase(RenderStatistic::PHASE_EXPORT);
 
     renderStatistic.printAll(root_geom, camera, cmd.summaryOptions, cmd.summaryFile);
   }
@@ -612,10 +618,16 @@ int cmdline(const CommandLine& cmd)
 #endif  // ifdef ENABLE_PYTHON
   text += "\n\x03\n" + commandline_commands;
 
+  // Spans parsing through export, so the itemized phases add up to the total.
+  RenderStatistic renderStatistic;
+
   SourceFile *root_file = nullptr;
-  if (!parse(root_file, text, cmd.filename, cmd.filename, false)) {
-    delete root_file;  // parse failed
-    root_file = nullptr;
+  {
+    const RenderStatistic::ScopedPhase phase(renderStatistic, RenderStatistic::PHASE_PARSING);
+    if (!parse(root_file, text, cmd.filename, cmd.filename, false)) {
+      delete root_file;  // parse failed
+      root_file = nullptr;
+    }
   }
   if (!root_file) {
     LOG("Can't parse file '%1$s'!\n", cmd.filename);
@@ -649,7 +661,7 @@ int cmdline(const CommandLine& cmd)
 
   if (cmd.animate.frames == 0) {
     render_variables.time = 0;
-    return do_export(cmd, render_variables, export_format, root_file);
+    return do_export(cmd, render_variables, export_format, root_file, renderStatistic);
   } else {
     // export the requested number of animated frames
     const unsigned start_frame = ((cmd.animate.shard - 1) * cmd.animate.frames) / cmd.animate.num_shards;
@@ -672,7 +684,9 @@ int cmdline(const CommandLine& cmd)
       CommandLine frame_cmd = cmd;
       frame_cmd.output_file = frame_str;
 
-      int const r = do_export(frame_cmd, render_variables, export_format, root_file);
+      // Each frame is reported separately; parsing happened once, before the loop.
+      renderStatistic.start();
+      int const r = do_export(frame_cmd, render_variables, export_format, root_file, renderStatistic);
       if (r != 0) {
         return r;
       }

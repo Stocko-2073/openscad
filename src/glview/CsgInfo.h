@@ -31,7 +31,7 @@ public:
     std::vector<std::shared_ptr<CSGNode>> highlightNodes = evaluator.getHighlightNodes();
     std::vector<std::shared_ptr<CSGNode>> backgroundNodes = evaluator.getBackgroundNodes();
 
-    LOG("Compiling design (CSG Products normalization)...");
+    LOG("Compiling design (CSG normalization)...");
     CSGTreeNormalizer normalizer(RenderSettings::inst()->openCSGTermLimit);
     if (csgRoot) {
       const std::shared_ptr<CSGNode> normalizedRoot = normalizer.normalize(csgRoot);

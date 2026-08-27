@@ -27,13 +27,16 @@
 
 #include <algorithm>
 #include <array>
+#include <boost/format.hpp>
 #include <boost/range/algorithm/find.hpp>
 #include <cassert>
 #include <chrono>
+#include <cstddef>
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "geometry/Geometry.h"
@@ -64,7 +67,8 @@ struct StatisticVisitor : public GeometryVisitor {
   }
   virtual void printCamera(const Camera& camera) = 0;
   virtual void printCacheStatistic() = 0;
-  virtual void printRenderingTime(std::chrono::milliseconds) = 0;
+  virtual void printRenderingTime(std::chrono::milliseconds,
+                                  const std::vector<RenderStatistic::PhaseTime>&) = 0;
   virtual void finish() = 0;
 
 protected:
@@ -91,7 +95,8 @@ struct LogVisitor : public StatisticVisitor {
 #endif  // ENABLE_MANIFOLD
   void printCamera(const Camera& camera) override;
   void printCacheStatistic() override;
-  void printRenderingTime(std::chrono::milliseconds) override;
+  void printRenderingTime(std::chrono::milliseconds,
+                          const std::vector<RenderStatistic::PhaseTime>&) override;
   void finish() override;
 
 private:
@@ -122,7 +127,8 @@ struct StreamVisitor : public StatisticVisitor {
 #endif  // ENABLE_MANIFOLD
   void printCamera(const Camera& camera) override;
   void printCacheStatistic() override;
-  void printRenderingTime(std::chrono::milliseconds) override;
+  void printRenderingTime(std::chrono::milliseconds,
+                          const std::vector<RenderStatistic::PhaseTime>&) override;
   void finish() override;
 
 private:
@@ -130,6 +136,24 @@ private:
   std::ofstream fstream;
   std::ostream& stream;
 };
+
+static std::string formatDuration(const std::chrono::milliseconds ms)
+{
+  return (boost::format("%1$d:%2$02d:%3$02d.%4$03d") % (ms.count() / 1000 / 60 / 60) %
+          (ms.count() / 1000 / 60 % 60) % (ms.count() / 1000 % 60) % (ms.count() % 1000))
+    .str();
+}
+
+// One itemized phase line, indented under the total. The name is padded to the
+// widest of the phases so the durations and percentages line up in a column.
+static void logPhase(const std::string& name, const std::chrono::milliseconds ms,
+                     const std::chrono::milliseconds total, const size_t width)
+{
+  std::string label = name + ":";
+  label.resize(width + 1, ' ');
+  const double percent = total.count() > 0 ? 100.0 * ms.count() / total.count() : 0.0;
+  LOG("   %1$s %2$s (%3$4.1f%)", label, formatDuration(ms), percent);
+}
 
 static nlohmann::json getBoundingBox2d(const Geometry& geometry)
 {
@@ -177,6 +201,47 @@ RenderStatistic::RenderStatistic() : begin(std::chrono::steady_clock::now())
 void RenderStatistic::start()
 {
   begin = std::chrono::steady_clock::now();
+  phases.clear();
+}
+
+RenderStatistic::Phase *RenderStatistic::findPhase(const std::string& name)
+{
+  const auto it = std::find_if(phases.begin(), phases.end(),
+                               [&name](const Phase& phase) { return phase.name == name; });
+  return it == phases.end() ? nullptr : &*it;
+}
+
+void RenderStatistic::beginPhase(const std::string& name)
+{
+  auto *phase = findPhase(name);
+  if (!phase) {
+    phase = &phases.emplace_back();
+    phase->name = name;
+  }
+  if (phase->running) return;  // already timing; keep the earlier start
+  phase->begin = std::chrono::steady_clock::now();
+  phase->running = true;
+}
+
+void RenderStatistic::endPhase(const std::string& name)
+{
+  auto *phase = findPhase(name);
+  if (!phase || !phase->running) return;
+  phase->elapsed += std::chrono::steady_clock::now() - phase->begin;
+  phase->running = false;
+}
+
+std::vector<RenderStatistic::PhaseTime> RenderStatistic::phaseTimes() const
+{
+  const auto now = std::chrono::steady_clock::now();
+  std::vector<PhaseTime> result;
+  result.reserve(phases.size());
+  for (const auto& phase : phases) {
+    auto elapsed = phase.elapsed;
+    if (phase.running) elapsed += now - phase.begin;
+    result.push_back({phase.name, std::chrono::duration_cast<std::chrono::milliseconds>(elapsed)});
+  }
+  return result;
 }
 
 std::chrono::milliseconds RenderStatistic::ms()
@@ -195,7 +260,7 @@ void RenderStatistic::printCacheStatistic()
 void RenderStatistic::printRenderingTime()
 {
   LogVisitor visitor({});
-  visitor.printRenderingTime(ms());
+  visitor.printRenderingTime(ms(), phaseTimes());
 }
 
 void RenderStatistic::printAll(const std::shared_ptr<const Geometry>& geom, const Camera& camera,
@@ -213,7 +278,7 @@ void RenderStatistic::printAll(const std::shared_ptr<const Geometry>& geom, cons
   }
 
   visitor->printCacheStatistic();
-  visitor->printRenderingTime(ms());
+  visitor->printRenderingTime(ms(), phaseTimes());
   if (geom && !geom->isEmpty()) {
     geom->accept(*visitor);
   }
@@ -325,11 +390,26 @@ void LogVisitor::printCacheStatistic()
 #endif
 }
 
-void LogVisitor::printRenderingTime(const std::chrono::milliseconds ms)
+void LogVisitor::printRenderingTime(const std::chrono::milliseconds ms,
+                                    const std::vector<RenderStatistic::PhaseTime>& phases)
 {
   // always enabled
-  LOG("Total rendering time: %1$d:%2$02d:%3$02d.%4$03d", (ms.count() / 1000 / 60 / 60),
-      (ms.count() / 1000 / 60 % 60), (ms.count() / 1000 % 60), (ms.count() % 1000));
+  LOG("Total rendering time: %1$s", formatDuration(ms));
+  if (phases.empty()) return;
+
+  size_t width = 0;
+  for (const auto& phase : phases) width = std::max(width, phase.name.size());
+
+  auto accounted = std::chrono::milliseconds::zero();
+  for (const auto& phase : phases) {
+    accounted += phase.ms;
+    logPhase(phase.name, phase.ms, ms, width);
+  }
+
+  // Whatever the itemized phases don't cover: startup, event processing, time
+  // spent between phases. Only worth a line when it isn't just rounding noise.
+  const auto other = ms - accounted;
+  if (other.count() > 0 && other * 100 >= ms) logPhase("Other", other, ms, width);
 }
 
 void LogVisitor::finish()
@@ -434,14 +514,23 @@ void StreamVisitor::printCacheStatistic()
   }
 }
 
-void StreamVisitor::printRenderingTime(const std::chrono::milliseconds ms)
+void StreamVisitor::printRenderingTime(const std::chrono::milliseconds ms,
+                                      const std::vector<RenderStatistic::PhaseTime>& phases)
 {
   if (is_enabled(RenderStatistic::TIME)) {
     nlohmann::json timeJson;
-    timeJson["time"] = (boost::format("%1$d:%2$02d:%3$02d.%4$03d") % (ms.count() / 1000 / 60 / 60) %
-                        (ms.count() / 1000 / 60 % 60) % (ms.count() / 1000 % 60) % (ms.count() % 1000))
-                         .str();
+    timeJson["time"] = formatDuration(ms);
     timeJson["total"] = ms.count();
+    if (!phases.empty()) {
+      nlohmann::json phasesJson = nlohmann::json::array();
+      for (const auto& phase : phases) {
+        nlohmann::json phaseJson;
+        phaseJson["name"] = phase.name;
+        phaseJson["total"] = phase.ms.count();
+        phasesJson.push_back(phaseJson);
+      }
+      timeJson["phases"] = phasesJson;
+    }
     timeJson["milliseconds"] = ms.count() % 1000;
     timeJson["seconds"] = ms.count() / 1000 % 60;
     timeJson["minutes"] = ms.count() / 1000 / 60 % 60;
