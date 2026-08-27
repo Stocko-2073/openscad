@@ -63,6 +63,15 @@ public:
   T *operator->() { return context.get(); }
   std::shared_ptr<const T> operator*() const { return context; }
 
+  /*
+   * True when this handle is the context's only owner, so nothing has
+   * captured it and it can be cleared and reused rather than replaced. This
+   * is the test ContextMemoryManager::addContext already applies to decide
+   * whether a context can simply be dropped instead of handed to the
+   * collector.
+   */
+  [[nodiscard]] bool sole_owner() const { return context.use_count() == 1; }
+
 private:
   std::shared_ptr<T> context;
 };

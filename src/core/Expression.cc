@@ -972,6 +972,47 @@ static inline ContextHandle<Context> forContext(const std::shared_ptr<const Cont
   return innerContext;
 }
 
+/*
+ * The context a `for` binds its variable in, kept across iterations.
+ *
+ * Each iteration needs its own binding, and instantiating a BOSL2-heavy model
+ * runs ~8.9M of them. Almost none outlive the iteration that created them, so
+ * rather than allocate a context, push it on the special-variable stack,
+ * account for it and destroy it every time, the previous one is cleared and
+ * rebound.
+ *
+ * An iteration whose context *was* captured -- by a function literal, by an
+ * object, or by a child context that survived -- leaves the use count above
+ * one, and the next iteration gets a fresh context. Nothing can reach the
+ * reused context except through a shared_ptr, since a child holds its parent
+ * by one, so the use count is a complete test.
+ *
+ * The first binding allocates lazily, which keeps a loop over an empty range
+ * or list from building a context it never uses.
+ */
+class LoopContext
+{
+public:
+  explicit LoopContext(const std::shared_ptr<const Context>& parent) : parent(parent) {}
+
+  const ContextHandle<Context>& bind(const Identifier& name, Value&& value)
+  {
+    if (!handle) {
+      handle.emplace(Context::create<Context>(parent));
+    } else if (handle->sole_owner()) {
+      (*handle)->clear();
+    } else {
+      *handle = Context::create<Context>(parent);
+    }
+    (*handle)->set_variable(name, std::move(value));
+    return *handle;
+  }
+
+private:
+  const std::shared_ptr<const Context>& parent;
+  boost::optional<ContextHandle<Context>> handle;
+};
+
 static void doForEach(const AssignmentList& assignments, const Location& location,
                       const std::function<void(const std::shared_ptr<const Context>&)>& operation,
                       size_t assignment_index, const std::shared_ptr<const Context>& context,
@@ -986,6 +1027,7 @@ static void doForEach(const AssignmentList& assignments, const Location& locatio
 
   const Identifier& variable_name = assignments[assignment_index]->getName();
   Value variable_values = assignments[assignment_index]->getExpr()->evaluate(context);
+  LoopContext loop{context};
 
   if (variable_values.type() == Value::Type::RANGE) {
     const RangeType& range = variable_values.toRange();
@@ -999,7 +1041,7 @@ static void doForEach(const AssignmentList& assignments, const Location& locatio
       }
       for (double value : range) {
         doForEach(assignments, location, operation, assignment_index + 1,
-                  *forContext(context, variable_name, value), nullptr, profile);
+                  *loop.bind(variable_name, value), nullptr, profile);
       }
     }
   } else if (variable_values.type() == Value::Type::VECTOR) {
@@ -1009,7 +1051,7 @@ static void doForEach(const AssignmentList& assignments, const Location& locatio
     }
     for (const auto& value : vec) {
       doForEach(assignments, location, operation, assignment_index + 1,
-                *forContext(context, variable_name, value.clone()), nullptr, profile);
+                *loop.bind(variable_name, value.clone()), nullptr, profile);
     }
   } else if (variable_values.type() == Value::Type::OBJECT) {
     auto& keys = variable_values.toObject().keys();
@@ -1018,7 +1060,7 @@ static void doForEach(const AssignmentList& assignments, const Location& locatio
     }
     for (auto key : keys) {
       doForEach(assignments, location, operation, assignment_index + 1,
-                *forContext(context, variable_name, key), nullptr, profile);
+                *loop.bind(variable_name, key), nullptr, profile);
     }
   } else if (variable_values.type() == Value::Type::STRING) {
     auto& wrapper = variable_values.toStrUtf8Wrapper();
@@ -1027,7 +1069,7 @@ static void doForEach(const AssignmentList& assignments, const Location& locatio
     }
     for (auto value : wrapper) {
       doForEach(assignments, location, operation, assignment_index + 1,
-                *forContext(context, variable_name, Value(std::move(value))), nullptr, profile);
+                *loop.bind(variable_name, Value(std::move(value))), nullptr, profile);
     }
   } else if (variable_values.type() != Value::Type::UNDEFINED) {
     doForEach(assignments, location, operation, assignment_index + 1,
