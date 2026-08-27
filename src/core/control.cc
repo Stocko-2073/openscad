@@ -37,6 +37,7 @@
 #include "core/Context.h"
 #include "core/ContextFrame.h"
 #include "core/Expression.h"
+#include "core/Identifier.h"
 #include "core/ModuleInstantiation.h"
 #include "core/Parameters.h"
 #include "core/module.h"
@@ -84,8 +85,9 @@ static std::shared_ptr<AbstractNode> builtin_children(const ModuleInstantiation 
 
   BuiltinModule::noChildren(inst, arguments);
 
+  static const std::vector<Identifier> optional{"index"};
   Parameters parameters =
-    Parameters::parse(std::move(arguments), inst->location(), {}, std::vector<std::string>{"index"});
+    Parameters::parse(std::move(arguments), inst->location(), {}, optional);
   const Children *children = context->user_module_children();
   if (!children) {
     // children() called outside any user module

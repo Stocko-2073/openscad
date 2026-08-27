@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "core/Assignment.h"
+#include "core/Identifier.h"
 
 class AbstractNode;
 class Context;
@@ -36,7 +37,7 @@ public:
    * FYI can only find `function x()` not `x = function ()`
    */
   template <typename T>
-  std::optional<T> lookup(const std::string& name) const;
+  std::optional<T> lookup(const Identifier& name) const;
 
   AssignmentList assignments;
   std::vector<std::shared_ptr<ModuleInstantiation>> moduleInstantiations;
@@ -44,8 +45,8 @@ public:
 private:
   // Modules and functions are stored twice; once for lookup and once for AST serialization
   // FIXME: Should we split this class into an ASTNode and a run-time support class?
-  std::unordered_map<std::string, std::shared_ptr<UserFunction>> functions;
-  std::unordered_map<std::string, std::shared_ptr<UserModule>> modules;
+  std::unordered_map<Identifier, std::shared_ptr<UserFunction>> functions;
+  std::unordered_map<Identifier, std::shared_ptr<UserModule>> modules;
 
   // All below only used for printing:
   std::vector<std::pair<std::string, std::shared_ptr<UserModule>>> astModules;
@@ -53,7 +54,7 @@ private:
 };
 
 template <>
-std::optional<UserFunction *> LocalScope::lookup(const std::string& name) const;
+std::optional<UserFunction *> LocalScope::lookup(const Identifier& name) const;
 
 template <>
-std::optional<UserModule *> LocalScope::lookup(const std::string& name) const;
+std::optional<UserModule *> LocalScope::lookup(const Identifier& name) const;

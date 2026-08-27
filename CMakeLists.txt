@@ -1006,6 +1006,7 @@ set(CORE_SOURCES
   src/core/ColorUtil.cc
   src/core/Context.cc
   src/core/ContextFrame.cc
+  src/core/Identifier.cc
   src/core/ContextMemoryManager.cc
   src/core/CsgOpNode.cc
   src/core/CurveDiscretizer.cc

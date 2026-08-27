@@ -26,6 +26,7 @@
 
 #include "core/ImportNode.h"
 
+#include "core/Identifier.h"
 #include "geometry/Geometry.h"
 #include "geometry/PolySet.h"
 #include "io/import.h"
@@ -65,9 +66,10 @@ using namespace boost::assign;  // bring 'operator+=()' into scope
 static std::shared_ptr<AbstractNode> do_import(const ModuleInstantiation *inst, Arguments arguments,
                                                ImportType type)
 {
+  static const std::vector<Identifier> required{"file", "layer", "convexity", "origin", "scale"};
+  static const std::vector<Identifier> optional{"width", "height", "filename", "layername", "center", "dpi", "id"};
   Parameters parameters = Parameters::parse(
-    std::move(arguments), inst->location(), {"file", "layer", "convexity", "origin", "scale"},
-    {"width", "height", "filename", "layername", "center", "dpi", "id"});
+    std::move(arguments), inst->location(), required, optional);
 
   const auto& v = parameters["file"];
   std::string filename;

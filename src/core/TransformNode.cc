@@ -38,6 +38,7 @@
 
 #include "core/Builtins.h"
 #include "core/Children.h"
+#include "core/Identifier.h"
 #include "core/ModuleInstantiation.h"
 #include "core/Parameters.h"
 #include "core/Value.h"
@@ -54,7 +55,8 @@ std::shared_ptr<AbstractNode> builtin_scale(const ModuleInstantiation *inst, Arg
 {
   auto node = std::make_shared<TransformNode>(inst, "scale");
 
-  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), {"v"});
+  static const std::vector<Identifier> required{"v"};
+  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required);
 
   Vector3d scalevec(1, 1, 1);
   if (!parameters["v"].getVec3(scalevec[0], scalevec[1], scalevec[2], 1.0)) {
@@ -84,7 +86,8 @@ std::shared_ptr<AbstractNode> builtin_rotate(const ModuleInstantiation *inst, Ar
 {
   auto node = std::make_shared<TransformNode>(inst, "rotate");
 
-  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), {"a", "v"});
+  static const std::vector<Identifier> required{"a", "v"};
+  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required);
 
   const auto& val_a = parameters["a"];
   const auto& val_v = parameters["v"];
@@ -172,7 +175,8 @@ std::shared_ptr<AbstractNode> builtin_mirror(const ModuleInstantiation *inst, Ar
 {
   auto node = std::make_shared<TransformNode>(inst, "mirror");
 
-  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), {"v"});
+  static const std::vector<Identifier> required{"v"};
+  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required);
 
   double x = 1.0, y = 0.0, z = 0.0;
   if (!parameters["v"].getVec3(x, y, z, 0.0)) {
@@ -208,7 +212,8 @@ std::shared_ptr<AbstractNode> builtin_translate(const ModuleInstantiation *inst,
 {
   auto node = std::make_shared<TransformNode>(inst, "translate");
 
-  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), {"v"});
+  static const std::vector<Identifier> required{"v"};
+  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required);
 
   Vector3d translatevec(0, 0, 0);
   bool ok = parameters["v"].getVec3(translatevec[0], translatevec[1], translatevec[2], 0.0);
@@ -230,7 +235,8 @@ std::shared_ptr<AbstractNode> builtin_multmatrix(const ModuleInstantiation *inst
 {
   auto node = std::make_shared<TransformNode>(inst, "multmatrix");
 
-  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), {"m"});
+  static const std::vector<Identifier> required{"m"};
+  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required);
 
   if (parameters["m"].type() == Value::Type::VECTOR) {
     Matrix4d rawmatrix{Matrix4d::Identity()};

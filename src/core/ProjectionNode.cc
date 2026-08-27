@@ -33,6 +33,7 @@
 
 #include "core/Builtins.h"
 #include "core/Children.h"
+#include "core/Identifier.h"
 #include "core/ModuleInstantiation.h"
 #include "core/Parameters.h"
 #include "core/module.h"
@@ -43,8 +44,10 @@ static std::shared_ptr<AbstractNode> builtin_projection(const ModuleInstantiatio
 {
   auto node = std::make_shared<ProjectionNode>(inst);
 
+  static const std::vector<Identifier> required{"cut"};
+  static const std::vector<Identifier> optional{"convexity"};
   Parameters parameters =
-    Parameters::parse(std::move(arguments), inst->location(), {"cut"}, {"convexity"});
+    Parameters::parse(std::move(arguments), inst->location(), required, optional);
   node->convexity = static_cast<int>(parameters["convexity"].toDouble());
   if (parameters["cut"].type() == Value::Type::BOOL) {
     node->cut_mode = parameters["cut"].toBool();

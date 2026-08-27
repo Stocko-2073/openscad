@@ -34,6 +34,7 @@
 
 #include "core/Builtins.h"
 #include "core/Children.h"
+#include "core/Identifier.h"
 #include "core/ModuleInstantiation.h"
 #include "core/Parameters.h"
 #include "core/module.h"
@@ -45,9 +46,10 @@ namespace {
 std::shared_ptr<AbstractNode> builtin_linear_extrude(const ModuleInstantiation *inst,
                                                      Arguments arguments, const Children& children)
 {
+  static const std::vector<Identifier> required{"height", "v", "scale", "center", "twist", "slices", "segments"};
+  static const std::vector<Identifier> optional{"convexity", "h"};
   Parameters parameters = Parameters::parse(
-    std::move(arguments), inst->location(),
-    {"height", "v", "scale", "center", "twist", "slices", "segments"}, {"convexity", "h"});
+    std::move(arguments), inst->location(), required, optional);
   parameters.set_caller("linear_extrude");
 
   auto node = std::make_shared<LinearExtrudeNode>(inst, CurveDiscretizer(parameters, inst->location()));

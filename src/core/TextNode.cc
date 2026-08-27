@@ -34,6 +34,7 @@
 #include "core/Children.h"
 #include "core/EvaluationSession.h"
 #include "core/FreetypeRenderer.h"
+#include "core/Identifier.h"
 #include "core/ModuleInstantiation.h"
 #include "core/Parameters.h"
 #include "core/module.h"
@@ -42,9 +43,10 @@
 static std::shared_ptr<AbstractNode> builtin_text(const ModuleInstantiation *inst, Arguments arguments)
 {
   auto *session = arguments.session();
+  static const std::vector<Identifier> required{"text", "size", "font"};
+  static const std::vector<Identifier> optional{"direction", "language", "script", "halign", "valign", "spacing", "em"};
   Parameters parameters =
-    Parameters::parse(std::move(arguments), inst->location(), {"text", "size", "font"},
-                      {"direction", "language", "script", "halign", "valign", "spacing", "em"});
+    Parameters::parse(std::move(arguments), inst->location(), required, optional);
   parameters.set_caller("text");
 
   auto p = FreetypeRenderer::Params(parameters);

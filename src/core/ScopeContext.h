@@ -9,6 +9,7 @@
 #include "core/Arguments.h"
 #include "core/Children.h"
 #include "core/Context.h"
+#include "core/Identifier.h"
 #include "core/SourceFile.h"
 #include "core/callables.h"
 
@@ -18,9 +19,9 @@ class ScopeContext : public Context
 {
 public:
   void init() override;
-  boost::optional<CallableFunction> lookup_local_function(const std::string& name,
+  boost::optional<CallableFunction> lookup_local_function(const Identifier& name,
                                                           const Location& loc) const override;
-  boost::optional<InstantiableModule> lookup_local_module(const std::string& name,
+  boost::optional<InstantiableModule> lookup_local_module(const Identifier& name,
                                                           const Location& loc) const override;
 
 protected:
@@ -54,9 +55,9 @@ private:
 class FileContext : public ScopeContext
 {
 public:
-  boost::optional<CallableFunction> lookup_local_function(const std::string& name,
+  boost::optional<CallableFunction> lookup_local_function(const Identifier& name,
                                                           const Location& loc) const override;
-  boost::optional<InstantiableModule> lookup_local_module(const std::string& name,
+  boost::optional<InstantiableModule> lookup_local_module(const Identifier& name,
                                                           const Location& loc) const override;
 
 protected:

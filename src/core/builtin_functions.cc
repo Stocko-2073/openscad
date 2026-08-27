@@ -44,6 +44,7 @@
 #include "core/EvaluationSession.h"
 #include "core/Expression.h"
 #include "core/FreetypeRenderer.h"
+#include "core/Identifier.h"
 #include "core/Parameters.h"
 #include "core/UserModule.h"
 #include "core/function.h"
@@ -946,9 +947,10 @@ Value builtin_cross(Arguments arguments, const Location& loc)
 Value builtin_textmetrics(Arguments arguments, const Location& loc)
 {
   auto *session = arguments.session();
+  static const std::vector<Identifier> required{"text", "size", "font"};
+  static const std::vector<Identifier> optional{"direction", "language", "script", "halign", "valign", "spacing", "em"};
   Parameters parameters =
-    Parameters::parse(std::move(arguments), loc, {"text", "size", "font"},
-                      {"direction", "language", "script", "halign", "valign", "spacing", "em"});
+    Parameters::parse(std::move(arguments), loc, required, optional);
   parameters.set_caller("textmetrics");
 
   FreetypeRenderer::Params ftparams(parameters);
@@ -998,7 +1000,8 @@ Value builtin_textmetrics(Arguments arguments, const Location& loc)
 Value builtin_fontmetrics(Arguments arguments, const Location& loc)
 {
   auto *session = arguments.session();
-  Parameters parameters = Parameters::parse(std::move(arguments), loc, {"size", "font", "em"});
+  static const std::vector<Identifier> required{"size", "font", "em"};
+  Parameters parameters = Parameters::parse(std::move(arguments), loc, required);
   parameters.set_caller("fontmetrics");
 
   FreetypeRenderer::Params ftparams(parameters);
@@ -1098,7 +1101,8 @@ Value builtin_is_object(Arguments arguments, const Location& loc)
 Value builtin_import(Arguments arguments, const Location& loc)
 {
   auto session = arguments.session();
-  const Parameters parameters = Parameters::parse(std::move(arguments), loc, {}, {"file"});
+  static const std::vector<Identifier> optional{"file"};
+  const Parameters parameters = Parameters::parse(std::move(arguments), loc, {}, optional);
   std::string raw_filename = parameters.get("file", "");
   std::string file =
     lookup_file(raw_filename, loc.filePath().parent_path().string(), parameters.documentRoot());

@@ -9,15 +9,16 @@
 
 #include "core/Assignment.h"
 #include "core/Context.h"
+#include "core/Identifier.h"
 #include "core/Value.h"
 
 class EvaluationSession;
 
 struct Argument {
-  boost::optional<std::string> name;
+  boost::optional<Identifier> name;
   Value value;
 
-  Argument(boost::optional<std::string> name, Value value)
+  Argument(boost::optional<Identifier> name, Value value)
     : name(std::move(name)), value(std::move(value))
   {
   }

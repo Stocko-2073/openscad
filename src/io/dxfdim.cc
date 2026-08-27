@@ -38,6 +38,7 @@
 #include "core/AST.h"
 #include "core/Builtins.h"
 #include "core/CurveDiscretizer.h"
+#include "core/Identifier.h"
 #include "core/Parameters.h"
 #include "core/Value.h"
 #include "core/function.h"
@@ -53,8 +54,9 @@ namespace fs = std::filesystem;
 
 static Value builtin_dxf_dim(Arguments arguments, const Location& loc)
 {
+  static const std::vector<Identifier> optional{"file", "layer", "origin", "scale", "name"};
   const Parameters parameters =
-    Parameters::parse(std::move(arguments), loc, {}, {"file", "layer", "origin", "scale", "name"});
+    Parameters::parse(std::move(arguments), loc, {}, optional);
 
   std::string rawFilename;
   std::string filename;
@@ -160,8 +162,9 @@ static Value builtin_dxf_dim(Arguments arguments, const Location& loc)
 static Value builtin_dxf_cross(Arguments arguments, const Location& loc)
 {
   auto *session = arguments.session();
+  static const std::vector<Identifier> optional{"file", "layer", "origin", "scale", "name"};
   const Parameters parameters =
-    Parameters::parse(std::move(arguments), loc, {}, {"file", "layer", "origin", "scale", "name"});
+    Parameters::parse(std::move(arguments), loc, {}, optional);
 
   std::string rawFilename;
   std::string filename;

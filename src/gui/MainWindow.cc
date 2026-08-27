@@ -2284,7 +2284,7 @@ void MainWindow::rightClick(QPoint position)
         if (step->modinst) {
           const std::string vname = step->verbose_name();
           const int first_position = (vname.find("module") == std::string::npos) ? 0 : 7;
-          name = vname.empty() ? step->modinst->name() : vname.substr(first_position);
+          name = vname.empty() ? step->modinst->name().str() : vname.substr(first_position);
         } else {
           const std::string vname = step->verbose_name();
           const int first_position = (vname.find("module") == std::string::npos) ? 0 : 7;

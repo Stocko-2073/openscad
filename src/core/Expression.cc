@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <boost/assign/std/vector.hpp>
+#include <boost/container/small_vector.hpp>
 #include <boost/regex.hpp>
 #include <cassert>
 #include <cmath>
@@ -35,7 +36,6 @@
 #include <functional>
 #include <memory>
 #include <ostream>
-#include <set>
 #include <sstream>
 #include <typeinfo>
 #include <utility>
@@ -665,8 +665,10 @@ Assert::Assert(AssignmentList args, Expression *expr, const Location& loc)
 void Assert::performAssert(const AssignmentList& arguments, const Location& location,
                            const std::shared_ptr<const Context>& context)
 {
+  static const std::vector<Identifier> required{"condition"};
+  static const std::vector<Identifier> optional{"message"};
   Parameters parameters =
-    Parameters::parse(Arguments(arguments, context), location, {"condition"}, {"message"});
+    Parameters::parse(Arguments(arguments, context), location, required, optional);
   const Expression *conditionExpression = nullptr;
   for (const auto& argument : arguments) {
     if (argument->getName() == "" || argument->getName() == "condition") {
@@ -735,20 +737,21 @@ Let::Let(AssignmentList args, Expression *expr, const Location& loc)
 void Let::doSequentialAssignment(const AssignmentList& assignments, const Location& location,
                                  ContextHandle<Context>& targetContext)
 {
-  std::set<std::string> seen;
+  // Assignment lists are short, so a scanned array beats a tree here.
+  boost::container::small_vector<Identifier, 8> seen;
   for (const auto& assignment : assignments) {
     Value value = assignment->getExpr()->evaluate(*targetContext);
     if (assignment->getName().empty()) {
       LOG(message_group::Warning, location, targetContext->documentRoot(),
           "Assignment without variable name %1$s", value.toEchoStringNoThrow());
-    } else if (seen.find(assignment->getName()) != seen.end()) {
+    } else if (std::find(seen.begin(), seen.end(), assignment->getName()) != seen.end()) {
       // TODO Should maybe quote the entire assignment with a new quoteExpr() or quoteStmt().
       LOG(message_group::Warning, location, targetContext->documentRoot(),
           "Ignoring duplicate variable assignment %1$s = %2$s", quoteVar(assignment->getName()),
           value.toEchoStringNoThrow());
     } else {
       targetContext->set_variable(assignment->getName(), std::move(value));
-      seen.insert(assignment->getName());
+      seen.push_back(assignment->getName());
     }
   }
 }
@@ -867,7 +870,7 @@ LcFor::LcFor(AssignmentList args, Expression *expr, const Location& loc)
 }
 
 static inline ContextHandle<Context> forContext(const std::shared_ptr<const Context>& context,
-                                                const std::string& name, Value value)
+                                                const Identifier& name, Value value)
 {
   ContextHandle<Context> innerContext{Context::create<Context>(context)};
   innerContext->set_variable(name, std::move(value));
@@ -884,7 +887,7 @@ static void doForEach(const AssignmentList& assignments, const Location& locatio
     return;
   }
 
-  const std::string& variable_name = assignments[assignment_index]->getName();
+  const Identifier& variable_name = assignments[assignment_index]->getName();
   Value variable_values = assignments[assignment_index]->getExpr()->evaluate(context);
 
   if (variable_values.type() == Value::Type::RANGE) {

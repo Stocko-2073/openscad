@@ -26,11 +26,12 @@
 
 #include "core/Parameters.h"
 
+#include <algorithm>
+#include <boost/container/small_vector.hpp>
 #include <cassert>
 #include <cstddef>
 #include <initializer_list>
 #include <memory>
-#include <set>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -43,6 +44,9 @@
 #include "core/Expression.h"
 #include "utils/printutils.h"
 
+const Identifier Parameters::THIS_PARAMETER{"this"};
+const Identifier Parameters::THIS_CONTEXT{"#THIS"};
+
 Parameters::Parameters(ContextFrame&& frame, Location loc)
   : loc(std::move(loc)), frame(std::move(frame)), handle(&this->frame)
 {
@@ -53,9 +57,9 @@ Parameters::Parameters(Parameters&& other) noexcept
 {
 }
 
-boost::optional<const Value&> Parameters::lookup(const std::string& name) const
+boost::optional<const Value&> Parameters::lookup(const Identifier& name) const
 {
-  if (ContextFrame::is_config_variable(name)) {
+  if (name.isConfigVariable()) {
     return frame.session()->try_lookup_special_variable(name);
   } else {
     return frame.lookup_local_variable(name);
@@ -168,22 +172,27 @@ static ContextFrame parse_without_defaults(Arguments arguments, const Location& 
 {
   ContextFrame output{arguments.session()};
 
-  std::set<std::string> named_arguments;
+  // Argument lists are short, so a scanned array beats a tree and keeps this
+  // allocation-free for the sizes that occur in practice.
+  boost::container::small_vector<Identifier, 8> named_arguments;
+  const auto already_named = [&named_arguments](const Identifier& name) {
+    return std::find(named_arguments.begin(), named_arguments.end(), name) != named_arguments.end();
+  };
 
   size_t parameter_position = 0;
   bool warned_for_extra_arguments = false;
 
   for (auto& argument : arguments) {
-    std::string name;
+    Identifier name;
     if (argument.name) {
       name = *argument.name;
-      if (named_arguments.count(name)) {
+      if (already_named(name)) {
         LOG(message_group::Warning, loc, arguments.documentRoot(),
             "argument %1$s supplied more than once", quoteVar(name));
       } else if (output.lookup_local_variable(name)) {
         LOG(message_group::Warning, loc, arguments.documentRoot(),
             "argument %1$s overrides positional argument", quoteVar(name));
-      } else if (warn_for_unexpected_arguments && !ContextFrame::is_config_variable(name)) {
+      } else if (warn_for_unexpected_arguments && !name.isConfigVariable()) {
         bool found = false;
         for (const auto& parameter : required_parameters) {
           if (parameter_name(parameter) == name) {
@@ -202,15 +211,15 @@ static ContextFrame parse_without_defaults(Arguments arguments, const Location& 
               "variable %1$s not specified as parameter", quoteVar(name));
         }
       }
-      named_arguments.insert(name);
+      named_arguments.push_back(name);
     } else {
       while (parameter_position < required_parameters.size() + optional_parameters.size()) {
-        std::string candidate_name =
+        Identifier candidate_name =
           (parameter_position < required_parameters.size())
             ? parameter_name(required_parameters[parameter_position])
             : parameter_name(optional_parameters[parameter_position - required_parameters.size()]);
         parameter_position++;
-        if (!named_arguments.count(candidate_name)) {
+        if (!already_named(candidate_name)) {
           name = candidate_name;
           break;
         }
@@ -231,12 +240,14 @@ static ContextFrame parse_without_defaults(Arguments arguments, const Location& 
 }
 
 Parameters Parameters::parse(Arguments arguments, const Location& loc,
-                             const std::vector<std::string>& required_parameters,
-                             const std::vector<std::string>& optional_parameters)
+                             const std::vector<Identifier>& required_parameters,
+                             const std::vector<Identifier>& optional_parameters)
 {
   ContextFrame frame{parse_without_defaults(std::move(arguments), loc, required_parameters,
                                             optional_parameters, true,
-                                            [](const std::string& s) -> std::string { return s; })};
+                                            [](const Identifier& name) -> const Identifier& {
+                                              return name;
+                                            })};
 
   for (const auto& parameter : required_parameters) {
     if (!frame.lookup_local_variable(parameter)) {
@@ -253,7 +264,9 @@ Parameters Parameters::parse(Arguments arguments, const Location& loc,
 {
   ContextFrame frame{parse_without_defaults(
     std::move(arguments), loc, required_parameters, {}, OpenSCAD::parameterCheck,
-    [](const std::shared_ptr<Assignment>& assignment) { return assignment->getName(); })};
+    [](const std::shared_ptr<Assignment>& assignment) -> const Identifier& {
+      return assignment->getName();
+    })};
 
   for (const auto& parameter : required_parameters) {
     // see builtin_functions.cc::builtin_object() for an explanation

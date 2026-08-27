@@ -40,6 +40,7 @@
 
 #include "core/Builtins.h"
 #include "core/Children.h"
+#include "core/Identifier.h"
 #include "core/ModuleInstantiation.h"
 #include "core/Parameters.h"
 #include "core/Value.h"
@@ -138,7 +139,8 @@ static std::shared_ptr<AbstractNode> builtin_cube(const ModuleInstantiation *ins
 {
   auto node = std::make_shared<CubeNode>(inst);
 
-  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), {"size", "center"});
+  static const std::vector<Identifier> required{"size", "center"};
+  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required);
 
   const auto& size = parameters["size"];
   if (size.isDefined()) {
@@ -224,7 +226,9 @@ std::unique_ptr<const Geometry> SphereNode::createGeometry() const
 
 static std::shared_ptr<AbstractNode> builtin_sphere(const ModuleInstantiation *inst, Arguments arguments)
 {
-  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), {"r"}, {"d"});
+  static const std::vector<Identifier> required{"r"};
+  static const std::vector<Identifier> optional{"d"};
+  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required, optional);
 
   auto node = std::make_shared<SphereNode>(inst, CurveDiscretizer(parameters, inst->location()));
 
@@ -310,8 +314,9 @@ std::unique_ptr<const Geometry> CylinderNode::createGeometry() const
 static std::shared_ptr<AbstractNode> builtin_cylinder(const ModuleInstantiation *inst,
                                                       Arguments arguments)
 {
-  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(),
-                                            {"h", "r1", "r2", "center"}, {"r", "d", "d1", "d2"});
+  static const std::vector<Identifier> required{"h", "r1", "r2", "center"};
+  static const std::vector<Identifier> optional{"r", "d", "d1", "d2"};
+  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required, optional);
   auto node = std::make_shared<CylinderNode>(inst, CurveDiscretizer(parameters, inst->location()));
 
   if (parameters["h"].type() == Value::Type::NUMBER) {
@@ -418,8 +423,9 @@ static std::shared_ptr<AbstractNode> builtin_polyhedron(const ModuleInstantiatio
 {
   auto node = std::make_shared<PolyhedronNode>(inst);
 
-  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(),
-                                            {"points", "faces", "convexity"}, {"triangles"});
+  static const std::vector<Identifier> required{"points", "faces", "convexity"};
+  static const std::vector<Identifier> optional{"triangles"};
+  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required, optional);
 
   if (parameters["points"].type() != Value::Type::VECTOR) {
     LOG(message_group::Warning, inst->location(), parameters.documentRoot(),
@@ -521,7 +527,8 @@ static std::shared_ptr<AbstractNode> builtin_square(const ModuleInstantiation *i
 {
   auto node = std::make_shared<SquareNode>(inst);
 
-  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), {"size", "center"});
+  static const std::vector<Identifier> required{"size", "center"};
+  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required);
 
   const auto& size = parameters["size"];
   if (size.isDefined()) {
@@ -575,7 +582,9 @@ std::unique_ptr<const Geometry> CircleNode::createGeometry() const
 
 static std::shared_ptr<AbstractNode> builtin_circle(const ModuleInstantiation *inst, Arguments arguments)
 {
-  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), {"r"}, {"d"});
+  static const std::vector<Identifier> required{"r"};
+  static const std::vector<Identifier> optional{"d"};
+  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required, optional);
   auto node = std::make_shared<CircleNode>(inst, CurveDiscretizer(parameters, inst->location()));
 
   const auto r = lookup_radius(parameters, inst, "d", "r");
@@ -667,8 +676,9 @@ static std::shared_ptr<AbstractNode> builtin_polygon(const ModuleInstantiation *
 {
   auto node = std::make_shared<PolygonNode>(inst);
 
+  static const std::vector<Identifier> required{"points", "paths", "convexity"};
   Parameters parameters =
-    Parameters::parse(std::move(arguments), inst->location(), {"points", "paths", "convexity"});
+    Parameters::parse(std::move(arguments), inst->location(), required);
 
   if (parameters["points"].type() != Value::Type::VECTOR) {
     LOG(message_group::Warning, inst->location(), parameters.documentRoot(),

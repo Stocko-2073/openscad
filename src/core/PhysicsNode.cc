@@ -5,6 +5,7 @@
 
 #include "core/Builtins.h"
 #include "core/Children.h"
+#include "core/Identifier.h"
 #include "core/ModuleInstantiation.h"
 #include "core/Parameters.h"
 #include "core/module.h"
@@ -15,9 +16,9 @@ static std::shared_ptr<AbstractNode> builtin_physics(const ModuleInstantiation *
 {
   auto node = std::make_shared<PhysicsNode>(inst);
 
+  static const std::vector<Identifier> required{"density", "friction", "restitution", "gravity", "max_time", "nudge", "convexity"};
   Parameters parameters = Parameters::parse(
-    std::move(arguments), inst->location(),
-    {"density", "friction", "restitution", "gravity", "max_time", "nudge", "convexity"});
+    std::move(arguments), inst->location(), required);
   const auto getNumber = [&parameters](const char *name, double& target) {
     if (parameters[name].type() == Value::Type::NUMBER) {
       target = parameters[name].toDouble();

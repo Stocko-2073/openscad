@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "core/AST.h"
+#include "core/Identifier.h"
 #include "core/customizer/Annotation.h"
 
 class Assignment : public ASTNode
@@ -24,7 +25,7 @@ public:
   }
 
   void print(std::ostream& stream, const std::string& indent) const override;
-  const std::string& getName() const { return name; }
+  const Identifier& getName() const { return name; }
   const std::shared_ptr<Expression>& getExpr() const { return expr; }
   const AnnotationMap& getAnnotations() const { return annotations; }
   // setExpr used by customizer ParameterObject etc.
@@ -38,7 +39,7 @@ public:
   void setLocationOfOverwrite(const Location& locOfOverwrite) { this->locOfOverwrite = locOfOverwrite; }
 
 protected:
-  const std::string name;
+  const Identifier name;
   std::shared_ptr<class Expression> expr;
   AnnotationMap annotations;
   Location locOfOverwrite;

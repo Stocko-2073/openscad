@@ -32,6 +32,7 @@
 
 #include "core/Builtins.h"
 #include "core/Children.h"
+#include "core/Identifier.h"
 #include "core/ModuleInstantiation.h"
 #include "core/Parameters.h"
 #include "core/module.h"
@@ -42,7 +43,8 @@ static std::shared_ptr<AbstractNode> builtin_render(const ModuleInstantiation *i
 {
   auto node = std::make_shared<RenderNode>(inst);
 
-  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), {"convexity"});
+  static const std::vector<Identifier> required{"convexity"};
+  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required);
   if (parameters["convexity"].type() == Value::Type::NUMBER) {
     node->convexity = static_cast<int>(parameters["convexity"].toDouble());
   }

@@ -34,6 +34,7 @@
 
 #include "core/Builtins.h"
 #include "core/Children.h"
+#include "core/Identifier.h"
 #include "core/ModuleInstantiation.h"
 #include "core/Parameters.h"
 #include "core/module.h"
@@ -44,7 +45,8 @@ static std::shared_ptr<AbstractNode> builtin_minkowski(const ModuleInstantiation
 {
   auto node = std::make_shared<CgalAdvNode>(inst, CgalAdvType::MINKOWSKI);
 
-  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), {"convexity"});
+  static const std::vector<Identifier> required{"convexity"};
+  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required);
   node->convexity = static_cast<int>(parameters["convexity"].toDouble());
 
   return children.instantiate(node);
@@ -76,8 +78,9 @@ static std::shared_ptr<AbstractNode> builtin_resize(const ModuleInstantiation *i
 {
   auto node = std::make_shared<CgalAdvNode>(inst, CgalAdvType::RESIZE);
 
+  static const std::vector<Identifier> required{"newsize", "auto", "convexity"};
   Parameters parameters =
-    Parameters::parse(std::move(arguments), inst->location(), {"newsize", "auto", "convexity"});
+    Parameters::parse(std::move(arguments), inst->location(), required);
   node->convexity = static_cast<int>(parameters["convexity"].toDouble());
   node->newsize << 0, 0, 0;
   if (parameters["newsize"].type() == Value::Type::VECTOR) {

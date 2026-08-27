@@ -14,6 +14,7 @@
 #include "core/Arguments.h"
 #include "core/Builtins.h"
 #include "core/EvaluationSession.h"
+#include "core/Identifier.h"
 #include "core/Parameters.h"
 #include "core/SolutionType.h"
 #include "core/Value.h"
@@ -138,7 +139,9 @@ std::pair<double, double> jittered_seed(double u, double v,
 Value builtin_point(Arguments arguments, const Location& loc)
 {
   EvaluationSession *session = arguments.session();
-  Parameters params = Parameters::parse(std::move(arguments), loc, {"name"}, {"at"});
+  static const std::vector<Identifier> required{"name"};
+  static const std::vector<Identifier> optional{"at"};
+  Parameters params = Parameters::parse(std::move(arguments), loc, required, optional);
   if (params["name"].type() != Value::Type::STRING) {
     LOG(message_group::Warning, loc, params.documentRoot(),
         "point() requires a string name as the first argument");
@@ -1837,7 +1840,9 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
   EvaluationSession *session = arguments.session();
   const std::string doc_root = arguments.documentRoot();
 
-  Parameters params = Parameters::parse(std::move(arguments), loc, {"items"}, {"solve"});
+  static const std::vector<Identifier> required{"items"};
+  static const std::vector<Identifier> optional{"solve"};
+  Parameters params = Parameters::parse(std::move(arguments), loc, required, optional);
   if (params["items"].type() != Value::Type::VECTOR) {
     LOG(message_group::Warning, loc, params.documentRoot(),
         "solve2d() expects a single vector of entities and constraints");

@@ -8,6 +8,7 @@
 
 #include "core/AST.h"
 #include "core/Assignment.h"
+#include "core/Identifier.h"
 #include "core/LocalScope.h"
 
 using ModuleInstantiationList = std::vector<class ModuleInstantiation *>;
@@ -31,7 +32,7 @@ public:
   }
   std::shared_ptr<AbstractNode> evaluate(const std::shared_ptr<const Context>& context) const;
 
-  const std::string& name() const { return this->modname; }
+  const Identifier& name() const { return this->modname; }
   bool isBackground() const { return this->tag_background; }
   bool isHighlight() const { return this->tag_highlight; }
   bool isRoot() const { return this->tag_root; }
@@ -44,7 +45,7 @@ public:
   bool tag_background{false};
 
 protected:
-  std::string modname;
+  Identifier modname;
 };
 
 class IfElseModuleInstantiation : public ModuleInstantiation

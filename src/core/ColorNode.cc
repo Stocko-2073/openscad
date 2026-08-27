@@ -38,6 +38,7 @@
 #include "core/Builtins.h"
 #include "core/Children.h"
 #include "core/ColorUtil.h"
+#include "core/Identifier.h"
 #include "core/ModuleInstantiation.h"
 #include "core/Parameters.h"
 #include "core/module.h"
@@ -51,7 +52,8 @@ static std::shared_ptr<AbstractNode> builtin_color(const ModuleInstantiation *in
 {
   auto node = std::make_shared<ColorNode>(inst);
 
-  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), {"c", "alpha"});
+  static const std::vector<Identifier> required{"c", "alpha"};
+  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required);
   if (parameters["c"].type() == Value::Type::VECTOR) {
     const auto& vec = parameters["c"].toVector();
     Vector4f color;

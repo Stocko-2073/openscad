@@ -35,6 +35,7 @@
 
 #include "core/Builtins.h"
 #include "core/Children.h"
+#include "core/Identifier.h"
 #include "core/ModuleInstantiation.h"
 #include "core/Parameters.h"
 #include "core/module.h"
@@ -47,8 +48,10 @@ namespace {
 std::shared_ptr<AbstractNode> builtin_rotate_extrude(const ModuleInstantiation *inst,
                                                      Arguments arguments, const Children& children)
 {
+  static const std::vector<Identifier> required{"angle", "start"};
+  static const std::vector<Identifier> optional{"convexity", "a"};
   const Parameters parameters =
-    Parameters::parse(std::move(arguments), inst->location(), {"angle", "start"}, {"convexity", "a"});
+    Parameters::parse(std::move(arguments), inst->location(), required, optional);
 
   auto node = std::make_shared<RotateExtrudeNode>(inst, CurveDiscretizer(parameters, inst->location()));
 

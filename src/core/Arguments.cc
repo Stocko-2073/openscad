@@ -41,7 +41,7 @@ Arguments::Arguments(const AssignmentList& argument_expressions,
   for (const auto& argument_expression : argument_expressions) {
     emplace_back(argument_expression->getName().empty()
                    ? boost::none
-                   : boost::optional<std::string>(argument_expression->getName()),
+                   : boost::optional<Identifier>(argument_expression->getName()),
                  argument_expression->getExpr()->evaluate(context));
   }
 }

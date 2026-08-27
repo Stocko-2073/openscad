@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "core/AST.h"
+#include "core/Identifier.h"
 #include "core/ContextMemoryManager.h"  // FIXME: don't use as value type so we don't need to include header
 #include "core/callables.h"
 
@@ -22,11 +23,11 @@ public:
   void replace_frame(size_t index, ContextFrame *frame);
   void pop_frame(size_t index);
 
-  [[nodiscard]] boost::optional<const Value&> try_lookup_special_variable(const std::string& name) const;
-  [[nodiscard]] const Value& lookup_special_variable(const std::string& name, const Location& loc) const;
-  [[nodiscard]] boost::optional<CallableFunction> lookup_special_function(const std::string& name,
+  [[nodiscard]] boost::optional<const Value&> try_lookup_special_variable(const Identifier& name) const;
+  [[nodiscard]] const Value& lookup_special_variable(const Identifier& name, const Location& loc) const;
+  [[nodiscard]] boost::optional<CallableFunction> lookup_special_function(const Identifier& name,
                                                                           const Location& loc) const;
-  [[nodiscard]] boost::optional<InstantiableModule> lookup_special_module(const std::string& name,
+  [[nodiscard]] boost::optional<InstantiableModule> lookup_special_module(const Identifier& name,
                                                                           const Location& loc) const;
 
   [[nodiscard]] const std::string& documentRoot() const { return document_root; }

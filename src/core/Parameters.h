@@ -11,6 +11,7 @@
 #include "core/Assignment.h"
 #include "core/Context.h"
 #include "core/ContextFrame.h"
+#include "core/Identifier.h"
 
 /*
  * The parameters of a builtin function or module do not form a true Context;
@@ -34,8 +35,8 @@ public:
    * Optional parameters are not set at all.
    */
   static Parameters parse(Arguments arguments, const Location& loc,
-                          const std::vector<std::string>& required_parameters,
-                          const std::vector<std::string>& optional_parameters = {});
+                          const std::vector<Identifier>& required_parameters,
+                          const std::vector<Identifier>& optional_parameters = {});
   /*
    * Matches arguments with parameters.
    * Supports default arguments, and requires a context in which to interpret them.
@@ -45,7 +46,7 @@ public:
                           const AssignmentList& required_parameters,
                           const std::shared_ptr<const Context>& defining_context);
 
-  boost::optional<const Value&> lookup(const std::string& name) const;
+  boost::optional<const Value&> lookup(const Identifier& name) const;
 
   void set_caller(const std::string& caller);
   const std::string& get_caller() const { return caller; }
@@ -69,8 +70,8 @@ public:
   const std::string& documentRoot() const { return frame.documentRoot(); }
   const Location& location() const { return loc; }
 
-  static constexpr auto THIS_PARAMETER = "this";
-  static constexpr auto THIS_CONTEXT = "#THIS";
+  static const Identifier THIS_PARAMETER;
+  static const Identifier THIS_CONTEXT;
 
 private:
   Location loc;

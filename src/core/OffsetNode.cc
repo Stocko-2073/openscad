@@ -37,6 +37,7 @@
 #include "core/Builtins.h"
 #include "core/Children.h"
 #include "core/CurveDiscretizer.h"
+#include "core/Identifier.h"
 #include "core/ModuleInstantiation.h"
 #include "core/Parameters.h"
 #include "core/module.h"
@@ -46,8 +47,10 @@ using namespace boost::assign;  // bring 'operator+=()' into scope
 static std::shared_ptr<AbstractNode> builtin_offset(const ModuleInstantiation *inst, Arguments arguments,
                                                     const Children& children)
 {
+  static const std::vector<Identifier> required{"r"};
+  static const std::vector<Identifier> optional{"delta", "chamfer"};
   Parameters parameters =
-    Parameters::parse(std::move(arguments), inst->location(), {"r"}, {"delta", "chamfer"});
+    Parameters::parse(std::move(arguments), inst->location(), required, optional);
   auto node = std::make_shared<OffsetNode>(inst, CurveDiscretizer(parameters));
 
   // default with no argument at all is (r = 1, chamfer = false)

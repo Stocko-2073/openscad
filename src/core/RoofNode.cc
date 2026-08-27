@@ -11,6 +11,7 @@
 
 #include "core/Builtins.h"
 #include "core/Children.h"
+#include "core/Identifier.h"
 #include "core/ModuleInstantiation.h"
 #include "core/Parameters.h"
 #include "core/module.h"
@@ -19,8 +20,10 @@
 static std::shared_ptr<AbstractNode> builtin_roof(const ModuleInstantiation *inst, Arguments arguments,
                                                   const Children& children)
 {
+  static const std::vector<Identifier> required{"method"};
+  static const std::vector<Identifier> optional{"convexity"};
   Parameters parameters =
-    Parameters::parse(std::move(arguments), inst->location(), {"method"}, {"convexity"});
+    Parameters::parse(std::move(arguments), inst->location(), required, optional);
 
   auto node = std::make_shared<RoofNode>(inst, CurveDiscretizer(parameters, inst->location()));
 

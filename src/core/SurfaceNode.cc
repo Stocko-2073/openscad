@@ -46,6 +46,7 @@
 
 #include "core/Builtins.h"
 #include "core/Children.h"
+#include "core/Identifier.h"
 #include "core/ModuleInstantiation.h"
 #include "core/Parameters.h"
 #include "core/module.h"
@@ -66,8 +67,9 @@ static std::shared_ptr<AbstractNode> builtin_surface(const ModuleInstantiation *
 {
   auto node = std::make_shared<SurfaceNode>(inst);
 
-  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(),
-                                            {"file", "center", "convexity"}, {"invert"});
+  static const std::vector<Identifier> required{"file", "center", "convexity"};
+  static const std::vector<Identifier> optional{"invert"};
+  Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required, optional);
 
   std::string fileval = parameters["file"].isUndefined() ? "" : parameters["file"].toString();
   auto filename =
