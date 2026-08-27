@@ -84,7 +84,18 @@ public:
   template <typename C, typename... T>
   static ContextHandle<C> create(T&&...t)
   {
-    return ContextHandle<C>{std::shared_ptr<C>(new C(std::forward<T>(t)...))};
+    /*
+     * Context constructors are protected so that only this function can build
+     * one, which rules out make_shared. A derived class may still invoke a
+     * protected base constructor, so go through one: that puts the context and
+     * its control block in a single allocation instead of two, and a large
+     * model builds tens of millions of contexts.
+     */
+    struct Constructible : C {
+      explicit Constructible(T&&...args) : C(std::forward<T>(args)...) {}
+    };
+    std::shared_ptr<C> context = std::make_shared<Constructible>(std::forward<T>(t)...);
+    return ContextHandle<C>{std::move(context)};
   }
   std::shared_ptr<const Context> get_shared_ptr() const { return shared_from_this(); }
 
