@@ -554,6 +554,14 @@ static SimplificationResult simplify_function_body(const Expression *expression,
       return SimplifiedExpression{let->evaluateStep(let_context), std::move(let_context)};
     } else if (type == typeid(FunctionCall)) {
       const auto *call = static_cast<const FunctionCall *>(expression);
+      /*
+       * Every call passes through here exactly once, tail calls included --
+       * FunctionCall::evaluate reaches its own body by this branch -- which
+       * makes it the one place a per-site count is neither missed nor
+       * doubled.
+       */
+      profileEvent(ScriptProfile::Kind::Call, call->get_name(), call->location(),
+                   call->profileCount);
 
       const Expression *function_body;
       const AssignmentList *required_parameters;
@@ -907,9 +915,11 @@ static inline ContextHandle<Context> forContext(const std::shared_ptr<const Cont
 static void doForEach(const AssignmentList& assignments, const Location& location,
                       const std::function<void(const std::shared_ptr<const Context>&)>& operation,
                       size_t assignment_index, const std::shared_ptr<const Context>& context,
-                      const std::function<void(size_t)> *pReserve = nullptr)
+                      const std::function<void(size_t)> *pReserve = nullptr,
+                      const ProfileSite& profile = {})
 {
   if (assignment_index >= assignments.size()) {
+    profileEvent(ScriptProfile::Kind::LoopIteration, profile, location);
     operation(context);
     return;
   }
@@ -929,7 +939,7 @@ static void doForEach(const AssignmentList& assignments, const Location& locatio
       }
       for (double value : range) {
         doForEach(assignments, location, operation, assignment_index + 1,
-                  *forContext(context, variable_name, value));
+                  *forContext(context, variable_name, value), nullptr, profile);
       }
     }
   } else if (variable_values.type() == Value::Type::VECTOR) {
@@ -939,7 +949,7 @@ static void doForEach(const AssignmentList& assignments, const Location& locatio
     }
     for (const auto& value : vec) {
       doForEach(assignments, location, operation, assignment_index + 1,
-                *forContext(context, variable_name, value.clone()));
+                *forContext(context, variable_name, value.clone()), nullptr, profile);
     }
   } else if (variable_values.type() == Value::Type::OBJECT) {
     auto& keys = variable_values.toObject().keys();
@@ -948,7 +958,7 @@ static void doForEach(const AssignmentList& assignments, const Location& locatio
     }
     for (auto key : keys) {
       doForEach(assignments, location, operation, assignment_index + 1,
-                *forContext(context, variable_name, key));
+                *forContext(context, variable_name, key), nullptr, profile);
     }
   } else if (variable_values.type() == Value::Type::STRING) {
     auto& wrapper = variable_values.toStrUtf8Wrapper();
@@ -957,32 +967,33 @@ static void doForEach(const AssignmentList& assignments, const Location& locatio
     }
     for (auto value : wrapper) {
       doForEach(assignments, location, operation, assignment_index + 1,
-                *forContext(context, variable_name, Value(std::move(value))));
+                *forContext(context, variable_name, Value(std::move(value))), nullptr, profile);
     }
   } else if (variable_values.type() != Value::Type::UNDEFINED) {
     doForEach(assignments, location, operation, assignment_index + 1,
-              *forContext(context, variable_name, std::move(variable_values)));
+              *forContext(context, variable_name, std::move(variable_values)), nullptr, profile);
   }
 }
 
 void LcFor::forEach(const AssignmentList& assignments, const Location& loc,
                     const std::shared_ptr<const Context>& context,
                     const std::function<void(const std::shared_ptr<const Context>&)>& operation,
-                    const std::function<void(size_t)> *pReserve)
+                    const std::function<void(size_t)> *pReserve, const ProfileSite& profile)
 {
-  doForEach(assignments, loc, operation, 0, context, pReserve);
+  doForEach(assignments, loc, operation, 0, context, pReserve, profile);
 }
 
 Value LcFor::evaluate(const std::shared_ptr<const Context>& context) const
 {
   EmbeddedVectorType vec(context->session());
   std::function<void(size_t)> reserve = [&vec](size_t capacity) { vec.reserve(capacity); };
+  static const Identifier comprehension{"for"};
   forEach(
     this->arguments, this->loc, context,
     [&vec, expression = expr.get()](const std::shared_ptr<const Context>& iterationContext) {
       vec.emplace_back(expression->evaluate(iterationContext));
     },
-    &reserve);
+    &reserve, ProfileSite{comprehension, &this->profileCount});
   return {std::move(vec)};
 }
 

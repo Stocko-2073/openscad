@@ -90,6 +90,7 @@
 #include "core/EvaluationSession.h"
 #include "core/RenderVariables.h"
 #include "core/ScopeContext.h"
+#include "core/ScriptProfile.h"
 #include "core/Settings.h"
 #include "core/customizer/CommentParser.h"
 #include "core/customizer/ParameterObject.h"
@@ -939,6 +940,10 @@ int openscad_main(int argc, char **argv)
       "=true/false, configure the parameter range check for builtin modules")
     ("debug", po::value<std::string>(),
       "special debug info - specify 'all' or a set of source file names")
+    ("profile", "count script-level function calls, module instantiations and loop iterations "
+      "per source location, and report them after evaluation")
+    ("profile-file", po::value<std::string>(),
+      "write the full per-location profile to the given file as TSV (implies --profile)")
 #ifdef ENABLE_PYTHON
     ("trust-python", "Trust python")
     ("python-module", po::value<std::string>(), "=module Call pip python module")
@@ -1007,6 +1012,13 @@ int openscad_main(int argc, char **argv)
 
   if (vm.count("hardwarnings")) {
     OpenSCAD::hardwarnings = true;
+  }
+
+  if (vm.count("profile-file")) {
+    ScriptProfile::reportFile = vm["profile-file"].as<std::string>();
+  }
+  if (vm.count("profile") || !ScriptProfile::reportFile.empty()) {
+    ScriptProfile::enabled = true;
   }
 
   if (vm.count("traceDepth")) {

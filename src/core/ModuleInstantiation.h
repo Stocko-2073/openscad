@@ -10,6 +10,7 @@
 #include "core/Assignment.h"
 #include "core/Identifier.h"
 #include "core/LocalScope.h"
+#include "core/ScriptProfile.h"
 
 using ModuleInstantiationList = std::vector<class ModuleInstantiation *>;
 
@@ -43,6 +44,11 @@ public:
   bool tag_root{false};
   bool tag_highlight{false};
   bool tag_background{false};
+
+  // Times this site instantiated, and -- for the looping builtins -- times the
+  // body ran. Both for --profile; see core/ScriptProfile.h.
+  mutable uint64_t profileCount{0};
+  mutable uint64_t profileIterations{0};
 
 protected:
   Identifier modname;

@@ -1033,6 +1033,7 @@ set(CORE_SOURCES
   src/core/Selection.cc
   src/core/Settings.cc
   src/core/SolutionType.cc
+  src/core/ScriptProfile.cc
   src/core/SourceFile.cc
   src/core/SourceFileCache.cc
   src/core/StatCache.cc

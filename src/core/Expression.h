@@ -3,6 +3,7 @@
 #include <boost/logic/tribool.hpp>
 #include <boost/optional.hpp>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <ostream>
@@ -12,6 +13,7 @@
 
 #include "core/AST.h"
 #include "core/Assignment.h"
+#include "core/ScriptProfile.h"
 #include "core/Value.h"
 #include "core/callables.h"
 
@@ -200,6 +202,8 @@ public:
   Identifier name;
   std::shared_ptr<Expression> expr;
   AssignmentList arguments;
+  // Times this call site ran, for --profile. See core/ScriptProfile.h.
+  mutable uint64_t profileCount{0};
 };
 
 class FunctionDefinition : public Expression
@@ -287,13 +291,16 @@ public:
   static void forEach(const AssignmentList& assignments, const Location& loc,
                       const std::shared_ptr<const Context>& context,
                       const std::function<void(const std::shared_ptr<const Context>&)>& operation,
-                      const std::function<void(size_t)> *pReserve = nullptr);
+                      const std::function<void(size_t)> *pReserve = nullptr,
+                      const ProfileSite& profile = {});
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
 
 private:
   AssignmentList arguments;
   std::shared_ptr<Expression> expr;
+  // Body executions of this comprehension, for --profile.
+  mutable uint64_t profileCount{0};
 };
 
 class LcForC : public ListComprehension

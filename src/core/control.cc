@@ -34,6 +34,7 @@
 #include "core/Arguments.h"
 #include "core/Builtins.h"
 #include "core/Children.h"
+#include "core/ScriptProfile.h"
 #include "core/Context.h"
 #include "core/ContextFrame.h"
 #include "core/Expression.h"
@@ -179,10 +180,12 @@ static std::shared_ptr<AbstractNode> builtin_for(const ModuleInstantiation *inst
 {
   auto node = lazyUnionNode(inst);
   if (!inst->arguments.empty()) {
-    LcFor::forEach(inst->arguments, inst->location(), context,
-                   [inst, node](const std::shared_ptr<const Context>& iterationContext) {
-                     Children(inst->scope, iterationContext).instantiate(node);
-                   });
+    LcFor::forEach(
+      inst->arguments, inst->location(), context,
+      [inst, node](const std::shared_ptr<const Context>& iterationContext) {
+        Children(inst->scope, iterationContext).instantiate(node);
+      },
+      nullptr, ProfileSite{inst->name(), &inst->profileIterations});
   }
   return node;
 }
@@ -192,10 +195,12 @@ static std::shared_ptr<AbstractNode> builtin_intersection_for(
 {
   auto node = std::make_shared<AbstractIntersectionNode>(inst);
   if (!inst->arguments.empty()) {
-    LcFor::forEach(inst->arguments, inst->location(), context,
-                   [inst, node](const std::shared_ptr<const Context>& iterationContext) {
-                     Children(inst->scope, iterationContext).instantiate(node);
-                   });
+    LcFor::forEach(
+      inst->arguments, inst->location(), context,
+      [inst, node](const std::shared_ptr<const Context>& iterationContext) {
+        Children(inst->scope, iterationContext).instantiate(node);
+      },
+      nullptr, ProfileSite{inst->name(), &inst->profileIterations});
   }
   return node;
 }

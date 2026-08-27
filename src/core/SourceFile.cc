@@ -32,6 +32,7 @@
 #include <filesystem>
 #include <memory>
 #include <ostream>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -40,6 +41,7 @@
 #include "core/Context.h"
 #include "core/EvaluationSession.h"
 #include "core/ScopeContext.h"
+#include "core/ScriptProfile.h"
 #include "core/SourceFileCache.h"
 #include "core/StatCache.h"
 #include "core/node.h"
@@ -184,6 +186,12 @@ std::shared_ptr<AbstractNode> SourceFile::instantiate(
   const std::shared_ptr<const Context>& context,
   std::shared_ptr<const FileContext> *resulting_file_context) const
 {
+  /*
+   * Holds the script profile only for the duration of this evaluation: its
+   * entries point into the AST, which a re-parse is free to replace.
+   */
+  const ScriptProfile::ScopedRun profile_run;
+
   auto node = std::make_shared<RootNode>();
   try {
     ContextHandle<FileContext> file_context{Context::create<FileContext>(context, this)};
@@ -194,6 +202,16 @@ std::shared_ptr<AbstractNode> SourceFile::instantiate(
   } catch (EvaluationException& e) {
     // LOG(message_group::NONE,,e.what()); //please output the message before throwing the exception
     *resulting_file_context = nullptr;
+  }
+
+  if (ScriptProfile::enabled && !ScriptProfile::instance().empty()) {
+    ScriptProfile::documentRoot = this->modulePath();
+    std::ostringstream report;
+    ScriptProfile::instance().report(report, 20);
+    LOG("%1$s", report.str());
+    if (!ScriptProfile::reportFile.empty()) {
+      ScriptProfile::instance().writeTsv(ScriptProfile::reportFile);
+    }
   }
   return node;
 }

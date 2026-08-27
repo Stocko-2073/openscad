@@ -7,6 +7,7 @@
 
 #include "core/Context.h"
 #include "core/Expression.h"
+#include "core/ScriptProfile.h"
 #include "core/callables.h"
 #include "core/module.h"
 #include "utils/compiler_specific.h"
@@ -73,6 +74,8 @@ static void NOINLINE print_trace(EvaluationException& e, const ModuleInstantiati
 std::shared_ptr<AbstractNode> ModuleInstantiation::evaluate(
   const std::shared_ptr<const Context>& context) const
 {
+  profileEvent(ScriptProfile::Kind::Module, this->name(), this->loc, this->profileCount);
+
   boost::optional<InstantiableModule> module = context->lookup_module(this->name(), this->loc);
   if (!module) {
     return nullptr;
