@@ -1260,3 +1260,252 @@ $BIN -o /tmp/prof.stl u-bot.scad & sample $! 6 1 -f /tmp/sample.txt; wait
 
 Script evaluation is now 58% of total render (5341ms of 9.1s), down from 64%.
 Geometry evaluation is 34% (3.1s) and still untouched.
+
+---
+
+## 2026-08-27 (evening) — The inline function-lookup cache
+
+Lead 2 from the previous entry. Script evaluation on `u-bot.scad` 5249ms ->
+4877ms, **-7.1%**; total render 8.70s -> 8.26s (warmed medians of 3; the
+previous entry's 9.1s for the same commit was measured before `bench.sh`
+existed and reads about 5% high). Exported STL byte-identical
+(md5 `4426e8e3…`), regression suite 2721/2724 with the same three pre-existing
+`export-svg*_spec-paths-arcs01` content diffs.
+
+`8514e596f perf: cache each call site's function resolution`
+
+### What makes a cached resolution valid
+
+The lead said "a call site's target almost never changes; cache the resolution
+with a validity check". The whole problem is the validity check: the walk
+starts at whatever context the call is being evaluated in, and there are 18M
+of those.
+
+What a site resolves to is fixed by exactly two things.
+
+1. **The ordered list of `LocalScope`s on the chain.** Immutable once parsed,
+   and the only frames carrying one are the scope contexts (`FileContext`,
+   `UserModuleContext`). So if the *nearest enclosing scope context is the same
+   object*, the whole chain below it is the same objects too — a context's
+   parent is fixed when it is built — and the frames above it, being ordinary
+   contexts, define no functions at all.
+
+2. **Variables holding function values.** The dynamic part, and the earlier
+   census said how dynamic: of 21.3M lookups, **9,316** resolve to a function
+   value.
+
+So `Context` now carries the nearest enclosing scope context and a serial
+unique to it, both inherited from the parent for free and overridden by
+`ScopeContext`'s constructor. A serial rather than the pointer, because
+contexts are created and destroyed tens of millions of times and addresses get
+reused — an ABA compare would hand back a resolution from a dead chain.
+
+And `Identifier` carries a flag set the first time anything binds that name to
+a function value, from `ContextFrame::set_variable`, where the existing
+`function_bits` filter is already maintained. Global to the process and never
+cleared. That sounds crude, and it is exactly as crude as it needs to be: on
+this model it fires for the 9,316 lookups that genuinely resolve to a function
+value and nothing else.
+
+The guard is then a serial compare and a flag test:
+
+```cpp
+const uint64_t serial = context->scopeSerial();
+if (serial == 0 || name.isConfigVariable() || name.hasFunctionValue()) {
+  return context->lookup_function(name, location());   // walk
+}
+```
+
+### Only two of the four answers can be cached
+
+`CallableFunction` has four alternatives, and two of them cannot be stored on
+a call site:
+
+- a **builtin** is a global pointer: cacheable;
+- a **user function defined by the scope owner itself** is cacheable, because
+  the guard has just identified the scope owner, so the defining context is
+  recoverable as `context->scopeOwner()->get_shared_ptr()`. Storing the
+  `shared_ptr` instead would pin a context for the life of the AST and defeat
+  the context memory manager;
+- a user function from a scope **further down** the chain, or one reached
+  through `use` (which builds a fresh `FileContext` that is not on the chain at
+  all), and a **function value**: not cached, fall through to the walk.
+
+Caching the deeper scope hit would mean storing how far down it was, and the
+depth is only lexically fixed if nothing ever interposes a context — a
+property that holds today but is not enforced anywhere. The census below says
+it is worth 1.1% of lookups, so it was left alone.
+
+### The cache cannot live on the AST node
+
+Which is where an inline cache belongs, and where the first version put it.
+`UserModule.h` and `ScriptProfile.h` both already record why it cannot: the
+GUI's animation prefetch evaluates **the same AST on several worker threads at
+once**. `profileCount` tolerates that because a lost count is a lost count.
+A three-word cache does not: thread A writes `{serial=100, builtin=X}` while
+thread B writes `{serial=200, user=Y}`, and a reader sees
+`{serial=200, builtin=X}` and calls the wrong function.
+
+So the entries live on the `EvaluationSession` — one per render — in a vector
+keyed by a call site number assigned to each `FunctionCall` as it is parsed.
+Concurrent evaluations have separate sessions and cannot see each other's
+entries at all.
+
+Site numbers are handed back in `~FunctionCall`, because the GUI reparses on
+every edit and a session sizes its cache to the highest number it sees;
+without recycling the numbering would climb for as long as the process runs.
+On this model the vector settles at 23,312 entries (746KB). An entry also
+records which site filled it, so a number recycled mid-session cannot serve a
+stale answer to its successor.
+
+### The census
+
+Temporary counters in `evaluate_function_expression`:
+
+```
+lookups 21,347,022
+  bypassed: function-value name 9,316   config name 0   no scope on chain 0
+  hit:      builtin 13,708,363   user function 7,265,664      = 98.3%
+  miss:     363,679  ->  filled builtin 133,521  filled user 1,202
+                         uncacheable    228,956  failed 0
+```
+
+The lookup total matches the earlier entry's census exactly (21,347,022), which
+is a good sign that nothing about the call path changed.
+
+Two things worth keeping:
+
+- **The bypass count is exactly the "hit variable" count from the 2026-08-26
+  census.** The global monotonic flag costs nothing on this model because BOSL2
+  keeps functions in variables under names it does not also call directly.
+- **133,521 builtin fills against 1,202 user fills**, on 13.7M and 7.3M hits
+  respectively. Fills are per scope-context, so this is the shape of the
+  script: user-function call sites are reached almost entirely from the root
+  file scope, one serial for the whole render, while builtin call sites also
+  sit inside module bodies, and every module instantiation is a new
+  `UserModuleContext` with a new serial that invalidates them.
+- **228,956 uncacheable** — 1.1% of lookups — is the deeper-scope case
+  described above. Not worth the depth bookkeeping.
+
+### Where the time is now
+
+Function lookup has left the profile. `FileContext::lookup_local_function`,
+`LocalScope::lookup`, `Context::lookup_function` and
+`ContextFrame::lookup_local_function` are all below the reporting threshold;
+what is left is `evaluate_function_expression` itself at 48 samples, which is
+the guard plus the `shared_from_this()` on the 7.3M user-function hits.
+
+Flat self-time, 2929 main-thread samples over a 4.7s window from launch
+(parsing 0.15s, then script evaluation):
+
+```
+11.4%  FunctionCall::evaluate 334
+ 6.9%  Value variant dispatch  ~203 across move/destroy alternatives
+ 6.8%  raw allocation          operator new 96, operator delete 104
+ 6.5%  variable lookup         try_lookup_variable 159, lookup_variable 30
+ 4.4%  Value::clone 129
+ 3.4%  BinaryOp::evaluate 99
+ 3.1%  ValueMap::insert_or_assign 90
+ 3.1%  multvecmat 90            (genuine arithmetic)
+ 2.6%  collectGarbage 77
+ 2.0%  doForEach 59
+ 1.7%  Arguments::Arguments 49  (builtin calls only)
+ 1.6%  evaluate_function_expression 48
+ 1.4%  VectorObjectDeleter 40
+ 1.4%  ContextFrame::clear 40
+```
+
+Note the window matters. A 6s sample at this speed reaches ~1s into geometry
+evaluation, and `_platform_strcmp` (77), `__class_type_info::search_below_dst`
+(45) and `std::type_info::operator==` (39) appear — all from geometry's
+`dynamic_cast`s on the node tree, none from `simplify_function_body`'s `typeid`
+chain. The 2026-08-27 entry's reading that script evaluation takes libc++'s
+unique-RTTI fast path still holds; a wide window just makes it look otherwise.
+
+### Peak memory
+
+1.70GB (three runs: 1.70, 1.72, 1.73), against 1.68GB for the same three runs
+without the change (1.68, 1.75, 1.66). Unchanged — the spread between runs is
+larger than any difference. **The 1.55GB recorded in the 2026-08-26 entry does
+not reproduce**; a single reading of this number is worth about ±5%.
+
+## Reproducing (additions)
+
+```bash
+# Inline-cache census: temporary counters in
+# FunctionCall::evaluate_function_expression around each exit (bypassed by
+# which guard, hit builtin/user, miss and what the fill decided), dumped from a
+# static destructor. Not committed; see the numbers above.
+
+# Cache footprint: temporary fprintf in
+# EvaluationSession::functionLookupCache when the vector grows.
+
+# Semantics: the cases that must not change, in one scratch script --
+#   a function VALUE shadowing a builtin (sin = function(x) 999)
+#   one call site whose target varies with the enclosing module instantiation
+#   a function defined in a module scope, called from a file-scope helper
+#     (lexical: the helper must NOT see it)
+#   closures captured per loop iteration
+#   a function value passed as a parameter and called by name
+#   let-bound function value vs. a same-named scope function
+#   `use <lib.scad>` where the used file shadows a builtin
+#   nested module scopes three deep, each instantiated twice
+#   tail and non-tail recursion
+#   a $-named function, and an unknown function (must still warn)
+# Diff the echo output against a build of HEAD~1; identical is the bar.
+
+# Peak memory needs at least three runs each way; a single pair is noise.
+```
+
+## Open leads (revised again)
+
+1. **`FunctionCall::evaluate` — 11.4%, spread evenly.** Unchanged as an
+   analysis and now the largest single item by a wide margin: the `typeid`
+   chain, the `boost::optional<CallableFunction>`, and the
+   `variant<SimplifiedExpression, Value>` built and destroyed per
+   simplification step, where `SimplifiedExpression` carries an
+   `optional<ContextHandle<Context>>`. Cutting it means restructuring the step
+   protocol. With lookup gone, this is where the next real win is.
+
+2. **`Value` copy and destroy — ~11% together** (variant dispatch ~6.9%,
+   `clone` 4.4%). Two separable halves, as before: libc++'s `std::variant`
+   dispatching through a function table rather than a switch, and the atomic
+   refcounting. The variant half is the tractable one — a hand-rolled tag and
+   switch in `Value`'s move and destroy paths — and it is now the second
+   largest item. The atomics cannot simply be relaxed: geometry evaluation is
+   multi-threaded and the GUI prefetches on worker threads.
+
+3. **Variable lookup — 6.5%.** `try_lookup_variable` is now the third item.
+   The frames are small and the file scope is indexed, so what is left is the
+   walk. The scope-serial machinery this entry added is the guard a *variable*
+   inline cache would need too, but a variable's value changes per call where a
+   function's target does not, so the cacheable thing is the frame and offset,
+   not the value. Worth a census before any code.
+
+4. **Native `is_finite` / `is_vector` behind guarded priority dispatch.**
+   Ceiling measured at ~21% of script evaluation for this model, 0% for models
+   that do not use BOSL2. The inline cache lead 4 was waiting on now exists,
+   and the guarded-dispatch design drops straight into
+   `evaluate_function_expression`: the priority table supplies a candidate, the
+   walk still resolves the user definition, the bodies are compared once, and
+   the answer goes in the same cache entry.
+
+5. **`collectGarbage` — 2.6%**, up from 1.6% as a share. Scans the weak-pointer
+   list of live contexts; the cadence may no longer suit a population half the
+   size it was tuned for.
+
+6. **Deeper-scope function hits — 1.1% of lookups**, uncached. Needs a stable
+   depth or a scope-identity walk. Small.
+
+7. **Early termination and lexical-path prune for `!`** — unchanged.
+
+8. **`Parameters`' string-keyed accessors** — unchanged.
+
+### Beyond script evaluation
+
+Script evaluation is 58% of total render (4.83s of 8.26s), geometry evaluation
+35% (2.87s) and export 5% (0.40s). Both shares are measured warm and are the
+first ones in this journal that can be compared with each other -- the earlier
+entries' totals are unwarmed and read a few percent high across the board.
+Geometry is still entirely untouched; it was 18% of an 11.5s render when this
+effort started.
