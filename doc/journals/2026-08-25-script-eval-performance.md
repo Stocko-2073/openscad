@@ -533,3 +533,207 @@ $BIN -o /tmp/tree.csg u-bot.scad && grep -c 'group()' /tmp/tree.csg
 # Event counts: temporary counters as described above, dumped from a static
 # destructor. Not committed; see the numbers in this entry.
 ```
+
+---
+
+## 2026-08-26 (evening) — Working the counted leads
+
+Starting point after `e87051a1d`: script evaluation 7.78s, total 11.47s
+(medians of 3). Run-to-run spread on this machine is about ±1%, so anything
+under ~1.5% is not distinguishable from noise; two changes below landed in
+that band and are recorded as such.
+
+| Commit | Script evaluation | |
+|---|---|---|
+| — | 7.78s | starting point |
+| `ecb98d8c6` perf: reserve the argument vector | 7.54s | −3.0% |
+| `73f6ee66f` perf: make function lookup skip and probe more cheaply | 7.22s | −4.3% |
+| `75d730448` perf: build a function call's context only when it is needed | 6.84s | −5.3% |
+| `db45f4cc6` perf: index the context frames that are not small | 6.57s | −3.9% |
+
+**Net: script evaluation 7.78s → 6.60s (−15.1%); total 11.47s → 10.34s
+(−9.8%).** Exported STL byte-identical at every step. Regression suite
+2721/2724 throughout, the three failures being the same pre-existing
+`export-svg*_spec-paths-arcs01` content diffs. Peak RSS is now 1.55GB,
+against the 1.67–1.79GB recorded earlier in this journal.
+
+### Function lookup: the counted lead was right, the diagnosis was not
+
+Lead 1 predicted the cost was the `boost::optional<CallableFunction>` each
+frame builds to say "not here". Instrumenting the walk on `u-bot.scad`:
+
+```
+lookups 21,347,022   frames walked 98,633,951   skipped 63,445,009   probed 35,188,942
+hit builtin 13,841,884   hit scope 7,495,822   hit variable 9,316   miss 0
+resolution depth: modal 4, range 2-13
+```
+
+Two things fall out of that. Nothing ever misses, and **two thirds of all
+calls resolve to a builtin**, which means the typical lookup walks past
+several frames holding no function at all, fails a lookup in the file scope,
+and succeeds in the builtin table.
+
+So the frames were given a 64-bit filter (one bit per interned name, unioned
+from the scope's functions and from any variable set to a function value; a
+clear bit is conclusive). It rejects 63.4M of the 98.6M probes — and on its
+own, against the hashed tables, **it measured as noise**. The frames it skips
+were the cheap ones: probing an empty `ValueMap` costs almost nothing.
+
+What did pay was replacing the scope and builtin tables with `IdentifierMap`,
+open-addressed on the interned name's index instead of hashed and chained
+(−3.9%). And *then* the filter is worth 2.2%, measured by stubbing
+`may_hold_function()` to `return true`. Both are in `73f6ee66f`.
+
+`boost::optional` was never the problem: it holds the variant in aligned
+storage behind a bool, so an empty one neither constructs nor dispatches.
+The journal's earlier reading of that — "*saying 'not here'* runs variant
+construction and destructor dispatch, 98.6M times" — was wrong.
+
+### The comment above ValueMap was measuring the wrong population
+
+Lead 2's context saving was straightforward and landed as predicted (−5.3%,
+`75d730448`; see the commit for the one semantic subtlety, which is that the
+empty placeholder context had no config variables of its own to copy and that
+had to be preserved deliberately).
+
+Removing it exposed the real one. `ContextFrame::lookup_local_function` and
+`Context::lookup_variable` were the two hottest entries in the profile after
+`FunctionCall::evaluate`, which made no sense for frames the journal had
+measured as holding 0.69 variables on average. Counting the scan itself:
+
+```
+finds 171,327,636   comparisons 1,363,408,667   mean 7.96 per find
+  size 0     : 19,179,981
+  size 1     : 74,840,473
+  size 2     : 19,795,422
+  size 3-4   : 20,135,583
+  size 5-8   : 17,624,748
+  size 9-16  :    746,882
+  size 17-32 :  2,929,992
+  size 33-64 :    355,819
+  size >64   : 15,718,736
+```
+
+**1.36 billion pointer compares**, and the 15.7M finds against frames holding
+more than 64 variables account for ~92% of them. The frame histogram in the
+earlier entry is correct and irrelevant: it counts *frames*, and the frames
+that matter are counted by *lookups*. `include` merges scopes, so a BOSL2
+script's file scope holds every constant the library defines, and it sits at
+the bottom of every chain — any name it does not hold is paid for by scanning
+all of it.
+
+`ValueMap` now builds a side index past 16 entries (`db45f4cc6`). Thresholds
+of 8, 16 and 32 all measured the same to within noise.
+
+### Tried and dropped
+
+- **`Parameters::release_frame()`**, handing the parameter frame to the target
+  context in place instead of returning it by value from `to_context_frame()`.
+  `ContextFrame::ContextFrame(ContextFrame&&)` is 85 profile samples, but the
+  change measured at zero: `small_vector` steals its heap pointer once a frame
+  outgrows its two inline entries, so the move was already cheap. Reverted.
+
+- **Lead 6, caching `usedlibs` resolution**, is not measurable on this model:
+  `u-bot.scad` and everything it pulls in use `include`, not `use`, so
+  `source_file->usedlibs` is empty and the loop never runs. The
+  `SourceFileCache` hash lookups still visible in the profile are from parsing
+  and dependency handling. The lead is still real for scripts that do `use`,
+  and `FileContext` now has to accept every name in its filter when
+  `usedlibs` is non-empty, which makes it slightly more expensive than before
+  for those scripts.
+
+### Where the time is now
+
+Unfolded profile (`-Wl,-no_deduplicate`), main thread, 4810 samples. Grouped,
+because nothing dominates any more:
+
+```
+~10%  context churn      ~ContextFrame 103, ContextFrame(&&) 85, insert_or_assign 108,
+                          clear 49, set_variable 45, ContextHandle 30, push_frame 29,
+                          release 28, ~Context 24
+ ~7%  raw allocation      operator new 171, operator delete 160
+ ~7%  Value copy/destroy  clone 141, variant destroy/move dispatch ~300 across alternatives,
+                          VectorObjectDeleter 57, __release_weak 47
+ ~7%  argument marshalling Parameters::parse 100, allocator<Argument>::construct 69,
+                          Arguments::Arguments 56, vector<Argument>::reserve 55,
+                          __swap_out_circular_buffer 35
+ ~7%  FunctionCall::evaluate 329 (simplify_function_body inlined)
+ ~6%  variable lookup     try_lookup_variable 206, lookup_variable 33,
+                          try_lookup_special_variable 26
+ ~5%  function lookup     FileContext 82, LocalScope::lookup 68, Context::lookup_function 54,
+                          ContextFrame::lookup_local_function 30
+ ~3%  expression eval     BinaryOp 143, Lookup 47, ArrayLookup 32, Vector 26, checkUndef 40
+ ~2%  loop machinery      doForEach 92
+ ~2%  garbage collection  collectGarbage 84
+ ~2%  genuine arithmetic  multvecmat 97
+```
+
+`ContextFrame::lookup_local_function` went from 250 samples to 30, and the
+file-scope scan behind `Context::lookup_variable` is gone.
+
+---
+
+## Open leads (revised again)
+
+1. **Argument and parameter marshalling — ~7%, 20.9M times.** Every call
+   builds an `Arguments` vector of `{optional<Identifier>, Value}`, then
+   `Parameters::parse` matches it against the parameter list into a fresh
+   `ContextFrame`, which is then moved into the body context. Three
+   containers and two passes over the values to get N arguments into N slots.
+   A call whose arguments are all positional and match the parameters in
+   order — the common case — could write straight into the body context.
+
+2. **`Value` copy and destroy — ~7%.** Unchanged from the previous list as an
+   analysis (lead 5 there), but it is now proportionally larger. Two separable
+   halves: the `shared_ptr` refcounting, which is atomic for no reason a
+   single-threaded session needs, and libc++'s `std::variant` dispatch, which
+   is an indirect call through a function table rather than a switch. The
+   second may be the cheaper one to fix: a hand-rolled tag and switch in
+   `Value`'s move and destroy paths, without touching the value model.
+
+3. **Context churn — ~10%, 18M contexts.** Down from 38.9M after
+   `75d730448`. 8.9M of what is left are single-variable loop contexts
+   (`forContext`), which is the old lead 4: if the previous iteration's
+   context was not captured by a closure, it could be overwritten instead of
+   reallocated. The rest are function body contexts, which are harder to
+   avoid.
+
+4. **Variable lookup — ~6%, 60.6M lookups at depth 2.47.** The frames are
+   small now and the file scope is indexed, so what is left is the walk
+   itself. A filter like the one function lookup got would not help: the
+   frames on a variable chain are the tiny ones, and scanning one entry is
+   already cheaper than a bit test plus a branch.
+
+5. **`collectGarbage` — ~2%.** Scans the weak-pointer list of live contexts.
+   Worth looking at what triggers it now that there are half as many
+   contexts; the cadence may no longer suit the population.
+
+6. **Early termination for `!`** — unchanged from the original list. Still
+   ~30 lines, still the only cheap way to make `!` prune evaluation.
+
+7. **Lexical-path prune for `!`** — unchanged.
+
+8. **`Parameters`' string-keyed accessors** — unchanged, still a few hundred
+   edits for ~0.3%.
+
+### Beyond script evaluation
+
+Script evaluation is now 64% of the total (6.60s of 10.34s) and geometry
+evaluation is 29% (3.00s), still untouched. It was 18% when this effort
+started.
+
+## Reproducing (additions)
+
+```bash
+# Function-lookup census: temporary counters in Context::lookup_function
+# around the chain walk (lookups, frames walked, frames skipped by the
+# filter, which alternative of CallableFunction won, resolution depth),
+# dumped from a static destructor. Not committed.
+
+# ValueMap scan census: temporary counters in ValueMap::find (calls, steps,
+# and a histogram of map.size() at each call). Not committed.
+
+# Is a candidate filter/branch actually paying? Stub the predicate and
+# rebuild, rather than reverting the whole change:
+#   bool may_hold_function(...) const { return true; }
+```
