@@ -26,8 +26,9 @@ void BuiltinContext::init()
 boost::optional<CallableFunction> BuiltinContext::lookup_local_function(const Identifier& name,
                                                                         const Location& loc) const
 {
-  const auto& search = Builtins::instance()->getFunctions().find(name);
-  if (search != Builtins::instance()->getFunctions().end()) {
+  const auto& functions = Builtins::instance()->getFunctions();
+  const auto search = functions.find(name);
+  if (search != functions.end()) {
     BuiltinFunction *f = search->second;
     if (f->is_enabled()) {
       return CallableFunction{f};
@@ -42,14 +43,16 @@ boost::optional<CallableFunction> BuiltinContext::lookup_local_function(const Id
 boost::optional<InstantiableModule> BuiltinContext::lookup_local_module(const Identifier& name,
                                                                         const Location& loc) const
 {
-  const auto& search = Builtins::instance()->getModules().find(name);
-  if (search != Builtins::instance()->getModules().end()) {
+  const Builtins *builtins = Builtins::instance();
+  const auto& modules = builtins->getModules();
+  const auto search = modules.find(name);
+  if (search != modules.end()) {
     AbstractModule *m = search->second;
     if (!m->is_enabled()) {
       LOG(message_group::Warning, loc, documentRoot(),
           "Experimental builtin module '%1$s' is not enabled", name);
     }
-    std::string replacement = Builtins::instance()->instance()->isDeprecated(name);
+    const std::string& replacement = builtins->isDeprecated(name);
     if (!replacement.empty()) {
       LOG(message_group::Deprecated, loc, documentRoot(),
           "The %1$s() module will be removed in future releases. Use %2$s instead.", name, replacement);

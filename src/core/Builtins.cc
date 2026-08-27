@@ -110,12 +110,11 @@ void Builtins::initialize()
   register_builtin_text();
 }
 
-std::string Builtins::isDeprecated(const std::string& name) const
+const std::string& Builtins::isDeprecated(const Identifier& name) const
 {
-  if (this->deprecations.find(name) != this->deprecations.end()) {
-    return this->deprecations.at(name);
-  }
-  return {};
+  static const std::string none;
+  const auto it = this->deprecations.find(name);
+  return it == this->deprecations.end() ? none : it->second;
 }
 
 Builtins::Builtins()

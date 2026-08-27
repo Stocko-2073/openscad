@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "core/Assignment.h"
+#include "core/Identifier.h"
 
 class AbstractModule;
 class BuiltinFunction;
@@ -21,7 +22,7 @@ public:
   static void init(const std::string& name, BuiltinFunction *function,
                    const std::vector<std::string>& calltipList);
   void initialize();
-  std::string isDeprecated(const std::string& name) const;
+  const std::string& isDeprecated(const Identifier& name) const;
 
   const auto& getAssignments() const { return this->assignments; }
   const auto& getFunctions() const { return this->functions; }
@@ -36,8 +37,10 @@ private:
   static void initKeywordList();
 
   AssignmentList assignments;
-  std::unordered_map<std::string, BuiltinFunction *> functions;
-  std::unordered_map<std::string, AbstractModule *> modules;
+  // Keyed by Identifier: these are probed for every builtin call in a script,
+  // and a pointer compare beats hashing the name each time.
+  std::unordered_map<Identifier, BuiltinFunction *> functions;
+  std::unordered_map<Identifier, AbstractModule *> modules;
 
-  std::unordered_map<std::string, std::string> deprecations;
+  std::unordered_map<Identifier, std::string> deprecations;
 };
