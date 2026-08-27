@@ -390,3 +390,146 @@ cluster**: `lookup_local_function` + `FileContext::lookup_local_function` +
 # Peak memory
 /usr/bin/time -l $BIN -o /tmp/out.stl u-bot.scad 2>&1 | grep 'maximum resident'
 ```
+
+---
+
+## 2026-08-26 (later still) — Counting what the interpreter actually does
+
+The revised leads above were ranked off the profile alone. Counting the events
+first changes the ranking substantially, and corrects an earlier reading.
+
+Temporary counters in `Context::Context`, `FunctionCall::evaluate`,
+`forContext`, `Let::sequentialAssignmentContext`, `UserModule::instantiate`,
+`ScopeContext::init`, `Context::lookup_function` and `Context::lookup_module`
+(not committed). On `u-bot.scad`:
+
+```
+contexts constructed          : 38,933,214
+FunctionCall::evaluate        : 20,909,762
+forContext (for / list comp)  :  8,941,394
+Let contexts                  :      40,781
+UserModule::instantiate       :      81,114
+ScopeContext::init assignments:     193,431
+
+function lookups: 21,347,022   frames walked: 98,633,951   mean depth: 4.62
+module lookups  :    262,419   frames walked:  1,036,689   mean depth: 3.95
+```
+
+For comparison, the node tree this produces has ~205k group nodes
+(`grep -c 'group()'` on a `-o tree.csg` export), and the model is 518k facets.
+
+### The module machinery is not where the time goes
+
+**This corrects the 2026-08-26 profile entry.** That entry listed frame
+*appearances across sampled stacks* — 299,676 `ModuleInstantiation::evaluate`,
+192,023 `Children::instantiate`, 102,054 `builtin_children` — and lead 6
+concluded that context churn was "proportional to the `children()` hop count,
+which BOSL2 inflates enormously". Those numbers measure how deep the stacks
+are, not how often anything is called. The call counts say otherwise: 262k
+module instantiations total, 81k of them user modules, against 20.9M function
+calls. Module instantiation is ~1% of the events.
+
+So these are all *not* worth pursuing, and are recorded here so nobody else
+costs them out:
+
+- `StaticModuleNameStack` copies a `std::string` into a `thread_local` vector
+  on every user module instantiation — 81k times.
+- `UserModule::instantiate` builds `std::string("module ") + this->name` for
+  every `GroupNode`, one heap allocation each, retained for the life of the
+  node tree, and read only by the GUI backtrace — 81k times.
+- `Children` is copied by value into `UserModuleContext` — 81k times.
+
+Each is real waste and each is ~0.2% of the interpreter's event count.
+
+### Where the events actually are
+
+**20.9M function calls and 8.9M loop iterations.** Together they account for
+essentially all 38.9M contexts. That is ~40 function calls per output facet;
+it is what BOSL2 costs.
+
+---
+
+## Open leads (revised again, ranked by counted events)
+
+1. **The function-lookup return protocol — 98.6M probes.** 21.3M lookups at a
+   mean chain depth of 4.62. Each probe is a virtual call returning
+   `boost::optional<CallableFunction>`, and `CallableFunction` is a
+   `std::variant<const BuiltinFunction *, CallableUserFunction, Value,
+   const Value *>` — it holds a `shared_ptr` and a `Value`, so *saying "not
+   here"* runs variant construction and destructor dispatch, 98.6M times.
+   Fix: give the walk a cheaper protocol — an out-parameter, or a `probe`
+   that returns a raw discriminated pointer and only builds the
+   `CallableFunction` once, at the frame that matched. This is the largest
+   single item in the profile (~10%) and the arithmetic explains why.
+
+   Note the asymmetry with variable lookup, which is 60.6M lookups at depth
+   2.47 and now costs a fraction as much: variables resolve near the top of
+   the chain, functions run most of the way down it.
+
+2. **`FunctionCall::evaluate` creates a context it never uses — 20.9M of the
+   38.9M contexts.** `expression_context` is an empty child of `context`,
+   created only to be a slot the tail-call loop can replace with
+   `simplified_expression->new_context`. Because it holds no variables, the
+   first `simplify_function_body(this, *expression_context)` is equivalent to
+   passing `context` itself. Making it lazy removes over half of all contexts
+   built during evaluation.
+
+   Delicate: `ContextFrameHandle::release()` asserts it is on top of the
+   special-variable stack, so the order in which handles are constructed,
+   replaced and destroyed matters. Wants a `boost::optional<ContextHandle>`
+   plus a separate `shared_ptr<const Context>` for the current context, and
+   care that `print_trace` still has something to report against.
+
+3. **`Arguments` never reserves — 20.9M vectors grown by `emplace_back`.**
+   `Arguments::Arguments` loops `emplace_back` over the argument expressions
+   with no `reserve`, so a three-argument call reallocates twice.
+   `std::vector<Argument>::__emplace_back_slow_path` and
+   `__swap_out_circular_buffer` are both visible in the profile. One line.
+
+4. **8.9M single-variable loop contexts.** Every `for` and list-comprehension
+   iteration allocates a `Context` to hold exactly one variable
+   (`forContext`). If the previous iteration's context was not captured by a
+   closure — `use_count() == 1` after the body returns — it could be reused
+   with the variable overwritten instead of reallocated. Needs care: function
+   literals capture their defining context, and the garbage collector reasons
+   about `use_count()`, so the check has to be exact.
+
+5. **`Value::clone()` is an atomic refcount bump.** `VectorType`,
+   `ObjectType`, `FunctionType` and `RangeType` are all `shared_ptr`-backed,
+   so cloning a Value — which the evaluator does constantly, 164 samples'
+   worth — is a lock-prefixed increment, and destroying it another. A session
+   evaluates on one thread, but the process is multi-threaded, so libc++ has
+   no way to know that. Would mean a non-atomic refcount inside `Value`;
+   large, and only safe if nothing ever hands a `Value` to the geometry
+   worker.
+
+6. **`FileContext::lookup_local_function` re-resolves `usedlibs` every time**,
+   calling `SourceFileCache::instance()->lookup(m)` — a string-keyed hash —
+   for each `use`d file on every miss. Sits directly on the depth-4.62 walk in
+   lead 1. Caching the resolved `SourceFile *` on the `SourceFile` removes it.
+
+7. **Early termination for `!`** — unchanged from the original list. Still
+   ~30 lines, still the only cheap way to make `!` prune evaluation.
+
+8. **Lexical-path prune for `!`** — unchanged.
+
+9. **`Parameters`' string-keyed accessors.** `parameters["size"]` interns at
+   runtime (~0.3%). Fixing it properly means interned constants at every
+   builtin accessor site: a few hundred edits for a small win.
+
+### Beyond script evaluation
+
+The balance has shifted. At the start of this effort script evaluation was 79%
+of the total; it is now 68% (7.69s of 11.28s), and geometry evaluation is 25%
+(2.87s) — untouched so far, and the next largest block once the leads above
+are spent.
+
+## Reproducing (additions)
+
+```bash
+# Node tree size
+$BIN -o /tmp/tree.csg u-bot.scad && grep -c 'group()' /tmp/tree.csg
+
+# Event counts: temporary counters as described above, dumped from a static
+# destructor. Not committed; see the numbers in this entry.
+```
