@@ -484,6 +484,14 @@ static void NOINLINE print_trace(EvaluationException& e, const FunctionCall *val
 FunctionCall::FunctionCall(Expression *expr, AssignmentList args, const Location& loc)
   : Expression(loc), expr(expr), arguments(std::move(args))
 {
+  allPositionalArgs = true;
+  for (const auto& argument : arguments) {
+    if (!argument->getName().empty()) {
+      allPositionalArgs = false;
+      break;
+    }
+  }
+
   if (typeid(*expr) == typeid(Lookup)) {
     isLookup = true;
     const Lookup *lookup = static_cast<Lookup *>(expr);
@@ -513,6 +521,55 @@ boost::optional<CallableFunction> FunctionCall::evaluate_function_expression(
       return boost::none;
     }
   }
+}
+
+/*
+ * Bind a call's arguments straight into the context its body will run in.
+ *
+ * The general path evaluates the arguments into an Arguments vector, matches
+ * that against the parameter list into a Parameters frame, and finally moves
+ * the frame into the body context: three containers, and every value moved
+ * three times. When no argument is named, argument i is simply parameter i,
+ * and none of that machinery earns its keep.
+ *
+ * Returns false having touched nothing when the general path is still needed:
+ *
+ *  - more arguments than parameters, which has to warn;
+ *  - a parameter that is a config variable. The body context is already on the
+ *    special-variable stack, so binding a $-name into it here would let a
+ *    later default expression see it; the general path fills a frame that is
+ *    not pushed until every default has been evaluated, so it does not;
+ *  - a parameter named `this`, which builtin_object fills from the defining
+ *    context in preference to anything supplied.
+ */
+static bool bind_positional_arguments(const FunctionCall *call, const AssignmentList& parameters,
+                                      const std::shared_ptr<const Context>& context,
+                                      const std::shared_ptr<const Context>& defining_context,
+                                      ContextHandle<Context>& body_context)
+{
+  if (!call->allPositionalArgs || call->arguments.size() > parameters.size()) {
+    return false;
+  }
+  for (const auto& parameter : parameters) {
+    const Identifier& name = parameter->getName();
+    if (name.isConfigVariable() || name == Parameters::THIS_PARAMETER) {
+      return false;
+    }
+  }
+
+  const size_t supplied = call->arguments.size();
+  for (size_t i = 0; i < supplied; ++i) {
+    body_context->set_variable(parameters[i]->getName(),
+                               call->arguments[i]->getExpr()->evaluate(context));
+  }
+  for (size_t i = supplied; i < parameters.size(); ++i) {
+    const Assignment *parameter = parameters[i].get();
+    body_context->set_variable(parameter->getName(),
+                               parameter->getExpr()
+                                 ? parameter->getExpr()->evaluate(defining_context)
+                                 : Value::undefined.clone());
+  }
+  return true;
 }
 
 struct SimplifiedExpression {
@@ -597,10 +654,13 @@ static SimplificationResult simplify_function_body(const Expression *expression,
       if (inherit_config_variables) {
         body_context->apply_config_variables(*context);
       }
-      Arguments arguments{call->arguments, context};
-      Parameters parameters = Parameters::parse(std::move(arguments), call->location(),
-                                                *required_parameters, defining_context);
-      body_context->apply_variables(std::move(parameters).to_context_frame());
+      if (!bind_positional_arguments(call, *required_parameters, context, defining_context,
+                                     body_context)) {
+        Arguments arguments{call->arguments, context};
+        Parameters parameters = Parameters::parse(std::move(arguments), call->location(),
+                                                  *required_parameters, defining_context);
+        body_context->apply_variables(std::move(parameters).to_context_frame());
+      }
 
       return SimplifiedExpression{function_body, std::move(body_context), call};
     } else {
