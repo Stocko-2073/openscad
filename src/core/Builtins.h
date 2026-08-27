@@ -6,6 +6,7 @@
 
 #include "core/Assignment.h"
 #include "core/Identifier.h"
+#include "core/IdentifierMap.h"
 
 class AbstractModule;
 class BuiltinFunction;
@@ -37,10 +38,10 @@ private:
   static void initKeywordList();
 
   AssignmentList assignments;
-  // Keyed by Identifier: these are probed for every builtin call in a script,
-  // and a pointer compare beats hashing the name each time.
-  std::unordered_map<Identifier, BuiltinFunction *> functions;
-  std::unordered_map<Identifier, AbstractModule *> modules;
+  // Probed for every builtin call in a script, so these are open-addressed on
+  // the interned name's index rather than hashed.
+  IdentifierMap<BuiltinFunction *> functions;
+  IdentifierMap<AbstractModule *> modules;
 
   std::unordered_map<Identifier, std::string> deprecations;
 };

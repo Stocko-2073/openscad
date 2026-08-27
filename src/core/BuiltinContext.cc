@@ -1,6 +1,7 @@
 #include "core/BuiltinContext.h"
 
 #include <cmath>
+#include <cstdint>
 
 #include "core/AST.h"
 #include "core/Builtins.h"
@@ -12,6 +13,9 @@
 
 BuiltinContext::BuiltinContext(EvaluationSession *session) : Context(session)
 {
+  // The builtin table holds far more than 64 names, so a filter over it would
+  // be saturated anyway. Accept every name.
+  function_bits = ~uint64_t(0);
 }
 
 void BuiltinContext::init()
@@ -27,9 +31,8 @@ boost::optional<CallableFunction> BuiltinContext::lookup_local_function(const Id
                                                                         const Location& loc) const
 {
   const auto& functions = Builtins::instance()->getFunctions();
-  const auto search = functions.find(name);
-  if (search != functions.end()) {
-    BuiltinFunction *f = search->second;
+  if (BuiltinFunction *const *search = functions.find(name)) {
+    BuiltinFunction *f = *search;
     if (f->is_enabled()) {
       return CallableFunction{f};
     }
@@ -45,9 +48,8 @@ boost::optional<InstantiableModule> BuiltinContext::lookup_local_module(const Id
 {
   const Builtins *builtins = Builtins::instance();
   const auto& modules = builtins->getModules();
-  const auto search = modules.find(name);
-  if (search != modules.end()) {
-    AbstractModule *m = search->second;
+  if (AbstractModule *const *search = modules.find(name)) {
+    AbstractModule *m = *search;
     if (!m->is_enabled()) {
       LOG(message_group::Warning, loc, documentRoot(),
           "Experimental builtin module '%1$s' is not enabled", name);

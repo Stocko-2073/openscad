@@ -83,6 +83,9 @@ size_t ContextFrame::clear()
 
 bool ContextFrame::set_variable(const Identifier& name, Value&& value)
 {
+  if (value.type() == Value::Type::FUNCTION) {
+    function_bits |= name.bit();
+  }
   if (name.isConfigVariable()) {
     return config_variables.insert_or_assign(name, std::move(value)).second;
   } else {

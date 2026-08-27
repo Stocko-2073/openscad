@@ -3,6 +3,7 @@
 #include <boost/optional.hpp>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -32,6 +33,18 @@ public:
       return result->second;
     }
     return boost::none;
+  }
+
+  /*
+   * Bloom filter over the names this frame could answer lookup_local_function
+   * for. A clear bit is conclusive, so the chain walk can skip the frame
+   * outright; a set bit only means "ask". Instantiating a large model performs
+   * ~99M frame probes on the function-lookup chain, most of them against
+   * frames that hold no function at all.
+   */
+  bool may_hold_function(const Identifier& name) const
+  {
+    return (function_bits & name.bit()) != 0;
   }
 
   virtual boost::optional<CallableFunction> lookup_local_function(const Identifier& name,
@@ -65,6 +78,9 @@ protected:
   ValueMap lexical_variables;
   ValueMap config_variables;
   EvaluationSession *evaluation_session;
+  // See may_hold_function(). Only ever gains bits, so it can go stale in the
+  // safe direction when a function-valued variable is overwritten.
+  uint64_t function_bits{0};
 
 public:
 #ifdef DEBUG

@@ -1,16 +1,17 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <ostream>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "core/Assignment.h"
 #include "core/Identifier.h"
+#include "core/IdentifierMap.h"
 
 class AbstractNode;
 class Context;
@@ -39,14 +40,23 @@ public:
   template <typename T>
   std::optional<T> lookup(const Identifier& name) const;
 
+  /**
+   * @brief Union of Identifier::bit() over the functions defined here
+   *
+   * Lets a context frame reject a function lookup without probing the table.
+   * See ContextFrame::may_hold_function().
+   */
+  uint64_t functionBits() const { return function_bits; }
+
   AssignmentList assignments;
   std::vector<std::shared_ptr<ModuleInstantiation>> moduleInstantiations;
 
 private:
   // Modules and functions are stored twice; once for lookup and once for AST serialization
   // FIXME: Should we split this class into an ASTNode and a run-time support class?
-  std::unordered_map<Identifier, std::shared_ptr<UserFunction>> functions;
-  std::unordered_map<Identifier, std::shared_ptr<UserModule>> modules;
+  IdentifierMap<std::shared_ptr<UserFunction>> functions;
+  IdentifierMap<std::shared_ptr<UserModule>> modules;
+  uint64_t function_bits{0};
 
   // All below only used for printing:
   std::vector<std::pair<std::string, std::shared_ptr<UserModule>>> astModules;

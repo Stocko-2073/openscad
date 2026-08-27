@@ -23,18 +23,16 @@ void LocalScope::addModuleInst(const std::shared_ptr<ModuleInstantiation>& modin
 void LocalScope::addModule(const std::shared_ptr<class UserModule>& module)
 {
   assert(module);
-  auto it = this->modules.find(module->name);
-  if (it != this->modules.end()) it->second = module;
-  else this->modules.emplace(module->name, module);
+  this->modules.insert_or_assign(Identifier(module->name), module);
   this->astModules.emplace_back(module->name, module);
 }
 
 void LocalScope::addFunction(const std::shared_ptr<class UserFunction>& func)
 {
   assert(func);
-  auto it = this->functions.find(func->name);
-  if (it != this->functions.end()) it->second = func;
-  else this->functions.emplace(func->name, func);
+  const Identifier name(func->name);
+  this->functions.insert_or_assign(name, func);
+  this->function_bits |= name.bit();
   this->astFunctions.emplace_back(func->name, func);
 }
 
@@ -46,9 +44,8 @@ void LocalScope::addAssignment(const std::shared_ptr<Assignment>& assignment)
 template <>
 std::optional<UserFunction *> LocalScope::lookup(const Identifier& name) const
 {
-  const auto& search = this->functions.find(name);
-  if (search != this->functions.end()) {
-    return search->second.get();
+  if (const auto *search = this->functions.find(name)) {
+    return search->get();
   }
   return {};
 }
@@ -56,9 +53,8 @@ std::optional<UserFunction *> LocalScope::lookup(const Identifier& name) const
 template <>
 std::optional<UserModule *> LocalScope::lookup(const Identifier& name) const
 {
-  const auto& search = this->modules.find(name);
-  if (search != this->modules.end()) {
-    return search->second.get();
+  if (const auto *search = this->modules.find(name)) {
+    return search->get();
   }
   return {};
 }

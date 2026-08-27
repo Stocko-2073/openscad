@@ -84,6 +84,9 @@ boost::optional<CallableFunction> EvaluationSession::lookup_special_function(con
                                                                              const Location& loc) const
 {
   for (auto it = stack.crbegin(); it != stack.crend(); ++it) {
+    if (!(*it)->may_hold_function(name)) {
+      continue;
+    }
     boost::optional<CallableFunction> result = (*it)->lookup_local_function(name, loc);
     if (result) {
       return result;

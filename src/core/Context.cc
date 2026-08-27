@@ -89,6 +89,9 @@ boost::optional<CallableFunction> Context::lookup_function(const Identifier& nam
     return session()->lookup_special_function(name, loc);
   }
   for (const Context *context = this; context != nullptr; context = context->getParent().get()) {
+    if (!context->may_hold_function(name)) {
+      continue;
+    }
     boost::optional<CallableFunction> result = context->lookup_local_function(name, loc);
     if (result) {
       return result;

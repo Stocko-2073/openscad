@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <ostream>
 #include <string>
@@ -43,12 +44,30 @@ public:
    */
   bool isConfigVariable() const { return entry->is_config; }
 
+  /*
+   * One set bit, distinct for the first 64 names interned and cycling after
+   * that. Context frames OR together the bits of the names they can supply as
+   * functions, so a frame that cannot possibly answer a lookup is rejected by
+   * a single AND instead of a virtual call and a table probe.
+   */
+  uint64_t bit() const { return entry->bit; }
+
+  /*
+   * Position of this name in the intern table, counting from zero. Names are
+   * numbered as they are first seen, so a bitmap indexed by index() is dense
+   * and collision-free up to its size. LocalScope uses one to answer "no such
+   * function here" without probing its table.
+   */
+  size_t index() const { return entry->index; }
+
   size_t hash() const { return std::hash<const void *>{}(entry); }
 
 private:
   struct Entry {
     std::string name;
     bool is_config;
+    uint64_t bit;
+    size_t index;
   };
   static const Entry *intern(const std::string& name);
   static const Entry *emptyEntry();
