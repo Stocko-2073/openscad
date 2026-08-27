@@ -10,11 +10,9 @@
 #include <mimalloc.h>
 #else
   // Replace the global operator new/delete so C++ allocation goes through
-  // mimalloc. This matters most on macOS, where MI_OVERRIDE is forced OFF
-  // (submodules/CMakeLists.txt) because dyld interposition is unreliable for a
-  // statically linked main executable - without this, mimalloc is linked but
-  // only ever serves GMP, and every std::string/vector/shared_ptr in the
-  // evaluator still goes to the system allocator.
+  // mimalloc even where MI_OVERRIDE is off. Without this, mimalloc would be
+  // linked but only ever serve GMP, and every std::string/vector/shared_ptr in
+  // the evaluator would still go to the system allocator.
   // This header must be included in exactly one translation unit.
 #include <mimalloc-new-delete.h>
 #endif

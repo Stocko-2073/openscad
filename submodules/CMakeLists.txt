@@ -23,11 +23,10 @@ if(USE_MIMALLOC)
     # claimed, mimalloc honours MI_PADDING in release builds too, where it costs a
     # word per block and ~2% of OpenSCAD's script evaluation time.
     set(MI_PADDING           OFF CACHE BOOL "")
-    if(APPLE)
-      set(MI_OVERRIDE        OFF CACHE BOOL "") # Override the standard malloc interface (e.g. define entry points for malloc() etc)
-    else()
-      set(MI_OVERRIDE        ON  CACHE BOOL "")
-    endif()
+    # Override the standard malloc interface (e.g. define entry points for malloc() etc).
+    # This was forced OFF for APPLE in ff6e9bc36 (2022-01), before mimalloc 1.7.6
+    # fixed dynamic overriding on Monterey; it works here on 1.9.7.
+    set(MI_OVERRIDE          ON  CACHE BOOL "")
     set(MI_XMALLOC           OFF CACHE BOOL "") # Enable abort() call on memory allocation failure by default
     set(MI_SHOW_ERRORS       OFF CACHE BOOL "") # Show error and warning messages by default (only enabled by default in DEBUG mode)
     set(MI_USE_CXX           ON  CACHE BOOL "") # Use the C++ compiler to compile the library (instead of the C compiler)
