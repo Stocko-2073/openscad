@@ -1509,3 +1509,227 @@ first ones in this journal that can be compared with each other -- the earlier
 entries' totals are unwarmed and read a few percent high across the board.
 Geometry is still entirely untouched; it was 18% of an 11.5s render when this
 effort started.
+
+---
+
+## 2026-08-27 (night) — Lead 1 measured and dropped, and the benchmark repaired
+
+Restructured the tail-call loop's step protocol as lead 1 described, measured it
+on both instruments, and found it **exactly neutral**. Reverted. Two things came
+out of the attempt that are worth more than the change would have been: the
+benchmark had been measuring a moving target, and the loop's context locals turn
+out to sit on a 3.6×-memory destruction-order landmine that nothing in the code
+mentioned.
+
+`adf4316b9 stats: report phase times for the non-geometry export formats`
+`5532e5868 perf: note why the tail-call loop's two context locals are ordered as they are`
+
+### First: the benchmark was lying again, differently
+
+The previous entry fixed *warm-up*. It did not fix the model. `bench.sh` pointed
+at `~/prj/Make/stocko/u-bot/u-bot.scad`, which is a live working file that gets
+edited between sessions. It had been edited since the last entry, so:
+
+- the 4877ms recorded that evening does not describe the same work as today's
+  5595ms, and the two are not comparable in either direction;
+- the STL md5 `4426e8e3…` that every entry since 2026-08-27 used as its
+  correctness check had silently stopped being the right answer.
+
+There is now a frozen copy at `~/prj/Make/stocko-bench/`, which `bench.sh`
+defaults to. Reference export md5 `07d0798e16a00e726fda277a33ff1d81`.
+
+Freezing it had its own trap, worth recording because it cost a whole baseline:
+`lib/as5600.scad` does `import("AS5600.stl")`, and the first snapshot left that
+STL out. OpenSCAD does not fail or warn — it reports `Status: NoError` and
+renders less geometry. The benchmark ran happily and produced 5531ms, a number
+that describes a different model. **A frozen benchmark needs its export md5
+checked against the live original once, before its first number is believed.**
+
+### A second instrument: the echo path
+
+`doc/journals/bench-eval.sh` times script evaluation through
+`-o out.echo`, which skips geometry evaluation and the 158MB export write.
+Spread over 11 runs is **1.7%** against the STL path's **5%**, and each run takes
+about half as long.
+
+`--summary time` printed nothing at all on that path, because `printAll` sat
+inside the `export_format` chain's geometry branch — likewise for csg, ast, param
+and term. `adf4316b9` moves it past the chain (`printAll` already tolerates a
+null geometry).
+
+The caveat that makes it a second instrument rather than a replacement: the echo
+path runs with `$preview=true`, so it takes different branches through BOSL2 and
+its absolute ms (3893) are not comparable with the STL path's (5595). Fine for an
+A/B of one change; a verdict either way should still be confirmed on `bench.sh`.
+
+### Lead 1: the step protocol is not where the time is
+
+The lead read: `FunctionCall::evaluate` is 11.4%, spread evenly, and it is the
+aggregate of the `typeid` chain, the `boost::optional<CallableFunction>`, and the
+`variant<SimplifiedExpression, Value>` built and destroyed per simplification
+step. Cutting it means restructuring the step protocol.
+
+So: restructured it. `simplify_function_body` stopped returning
+`variant<SimplifiedExpression, Value>` — a 72-byte object per step, with the
+step's new context moved three times on the way to the loop's slot and its final
+value moved once more — and instead wrote through a `Simplification&` holding the
+loop's state, returning a three-valued enum saying what it did.
+
+The profile says the change did precisely what it was meant to. Flat self-time,
+same 4s window, echo path:
+
+```
+                                  base   after
+FunctionCall::evaluate             358     254     -104
+[variant destroy dispatch]         213     176      -37
+[variant move dispatch]            122     107      -15
+ContextFrameHandle::release()       32      10      -22
+                                                  ----
+                                                   -178   (~6% of the window)
+```
+
+And the wall clock says it bought nothing:
+
+```
+                     echo path            STL path
+base                 3893 median          5595 median (mean 5630)
+step protocol        3921 median          5589 median (mean 5630)
+```
+
+Both md5s identical. The −178 samples come back as +35 `operator new`, +30
+`operator delete`, +24 `Value::clone`, +19 `BinaryOp::evaluate`, +15
+`Context::lookup_variable` — functions whose work cannot have changed. That is
+sample attribution moving out of a shrinking inlined blob and into its callees,
+which is the honest reading of a −104 on a function that had "no hotspot,
+spread evenly": **the 11.4% was never protocol overhead.** clang was already
+collapsing the variant; what is left in `FunctionCall::evaluate` is the work the
+call actually has to do, and it is spread evenly because it *is* the call.
+
+`Simplification::install` did get emitted out of line, worth ~1%
+(28 samples); `always_inline` removed the symbol and recovered it. That did not
+change the verdict, and it is the one transferable detail: a small method on a
+hot loop's state struct is not automatically inlined.
+
+**Lead 1 is dropped, not deferred.** The protocol has been measured and it is
+not the cost. Reverted.
+
+### The destruction-order landmine
+
+The first version of the change ran 10% slower with **578MB peak instead of
+160MB**. Cause, once the census found it:
+
+```cpp
+struct Simplification {
+  const Expression *expression;
+  std::shared_ptr<const Context> context;                 // aliases the below
+  boost::optional<ContextHandle<Context>> owned_context;
+  ...
+};
+```
+
+Members are destroyed in reverse declaration order, so `owned_context` — the
+`ContextHandle` — went first, while `context` still pointed at the same context.
+`~ContextHandle` hands its context to `ContextMemoryManager::addContext`, which
+drops it on the spot if the handle is its sole owner and otherwise registers a
+`weak_ptr` with the garbage collector. `use_count` was therefore 2, always.
+
+Census, temporary counters in `addContext` and in both `ContextHandle` exits:
+
+```
+                          base        wrong order
+contexts to addContext    10,748,236  10,748,236   (identical, as it must be)
+  needing the collector      890,051   8,036,756   8.3% -> 74.8%
+peak weak_ptr list          147,063   1,381,911
+~ContextHandle use_count 1  9,858,185   2,711,480
+~ContextHandle use_count 2     30,547   7,172,550
+```
+
+The `operator=` path (859,483 calls, always shared) was unchanged; the whole
+regression was in the destructor.
+
+`FunctionCall::evaluate`'s existing locals get this right — but only because
+`current_context` happens to be declared *after* `expression_context`, and
+nothing said so. Any refactor that groups them into a struct, which is the
+natural thing to do, inverts it and pays 3.6× peak memory with no diagnostic.
+`5532e5868` writes the reason down next to the declarations. That commit is the
+one lasting result of the attempt.
+
+## Reproducing (additions)
+
+```bash
+# Both instruments. Confirm any verdict on bench.sh; bench-eval.sh is quieter
+# but runs with $preview=true and so is a different workload.
+doc/journals/bench-eval.sh 11 "label"      # echo path, spread ~1.7%
+doc/journals/bench.sh 7 "label"            # STL path,  spread ~5%
+
+# The frozen model. Before trusting a new snapshot, check its export against
+# the live original -- a missing import() is silent:
+diff <(md5 -q live.stl) <(md5 -q frozen.stl)
+
+# Peak memory, which catches context-lifetime regressions that timings hide:
+/usr/bin/time -l $BIN -o /tmp/m.echo u-bot.scad 2>&1 >/dev/null | grep "maximum resident"
+
+# Context-lifetime census: temporary counters in ContextMemoryManager::addContext
+# (calls, how many took the use_count>1 collector path, collections, peak list
+# size) and in both ContextHandle exits (~ContextHandle and operator=(&&)), with
+# a use_count histogram at each, dumped from a static destructor. Not committed;
+# see the numbers above. This is the instrument that finds a lifetime bug in
+# minutes where reading the diff finds nothing.
+
+# Is a hot loop's helper actually inlined?
+nm $BIN | grep Simplification      # an emitted symbol means it is not
+```
+
+## Open leads (revised again)
+
+1. **`Value` copy and destroy — ~11.8% together**, and now the largest item by a
+   wide margin: `[variant destroy dispatch]` 213 samples and
+   `[variant move dispatch]` 122, of 2838 in the echo-path window, plus
+   `Value::clone` at 126. libc++ emits one out-of-line `__dispatch<N>` per
+   alternative index and calls through a table rather than inlining a switch, so
+   destroying a `double` — the overwhelmingly common case in BOSL2 arithmetic —
+   is an indirect call into a function that does nothing.
+
+   The fix is a hand-rolled tagged union in `Value` in place of
+   `std::variant<UndefType, bool, double, str_utf8_wrapper, VectorType,
+   EmbeddedVectorType, RangePtr, FunctionPtr, ObjectType, SolutionPtr>`, with
+   destroy and move switching on the tag inline and the first three alternatives
+   falling straight through. The surface is 31 `std::get`/`get_if` sites inside
+   `Value.{h,cc}` and 11 `getVariant()`/`std::visit` sites outside it (all in
+   `ContextMemoryManager.cc` bar three) — mechanical but wide, and `Value` is the
+   most central type in the interpreter. `sizeof(Value::Variant) <= 24` is
+   asserted and must hold.
+
+   The atomics are the other half and are not touchable: geometry evaluation is
+   multi-threaded and the GUI prefetches on worker threads.
+
+2. **Variable lookup — ~6%.** `try_lookup_variable` 119 + `lookup_variable` 32 +
+   `Lookup::evaluate` 48. Unchanged as an analysis: the frames are small and the
+   file scope is indexed, so what is left is the walk. The scope-serial machinery
+   from the inline-cache entry is the guard a variable cache would need, but a
+   variable's value changes per call where a function's target does not, so the
+   cacheable thing is the frame and offset. Still wants a census first.
+
+3. **Native `is_finite` / `is_vector` behind guarded priority dispatch.** Ceiling
+   ~21% of script evaluation for this model, 0% for models that do not use BOSL2.
+   Unchanged, and with lead 1 dropped this is now the largest measured number on
+   the list. The semantics remain the risk; the 2026-08-27 entry's checklist
+   still stands.
+
+4. **`collectGarbage` — 1.4%** (41 samples). The cadence may no longer suit a
+   population half the size it was tuned for. Small, and note that the census
+   above gives a cheap way to see the population it is actually working on.
+
+5. **Deeper-scope function hits — 1.1% of lookups**, uncached. Unchanged.
+
+6. **Early termination and lexical-path prune for `!`** — unchanged.
+
+7. **`Parameters`' string-keyed accessors** — unchanged.
+
+### Beyond script evaluation
+
+On the frozen model, warm (three runs): total render 9.34/9.30/9.30s, of which
+parsing 0.14s, **script evaluation 5.62/5.57/5.56s (60%)**, geometry evaluation
+3.15/3.14/3.10s (34%), export 0.43/0.45/0.50s (5%). Geometry is still entirely
+untouched; it was 18% of an 11.5s render when this effort started, and it is now
+the larger share of what remains after the interpreter work.
