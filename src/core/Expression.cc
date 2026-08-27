@@ -522,8 +522,15 @@ struct SimplifiedExpression {
 };
 using SimplificationResult = std::variant<SimplifiedExpression, Value>;
 
+/*
+ * $inherit_config_variables is false while the caller is still evaluating in
+ * its own context rather than one this loop installed. The context built here
+ * then starts out with no config variables of its own, exactly as it did when
+ * they were copied from an empty placeholder context.
+ */
 static SimplificationResult simplify_function_body(const Expression *expression,
-                                                   const std::shared_ptr<const Context>& context)
+                                                   const std::shared_ptr<const Context>& context,
+                                                   bool inherit_config_variables)
 {
   if (!expression) {
     return Value::undefined.clone();
@@ -541,7 +548,9 @@ static SimplificationResult simplify_function_body(const Expression *expression,
     } else if (type == typeid(Let)) {
       const Let *let = static_cast<const Let *>(expression);
       ContextHandle<Context> let_context{Context::create<Context>(context)};
-      let_context->apply_config_variables(*context);
+      if (inherit_config_variables) {
+        let_context->apply_config_variables(*context);
+      }
       return SimplifiedExpression{let->evaluateStep(let_context), std::move(let_context)};
     } else if (type == typeid(FunctionCall)) {
       const auto *call = static_cast<const FunctionCall *>(expression);
@@ -577,7 +586,9 @@ static SimplificationResult simplify_function_body(const Expression *expression,
         }
       }
       ContextHandle<Context> body_context{Context::create<Context>(defining_context)};
-      body_context->apply_config_variables(*context);
+      if (inherit_config_variables) {
+        body_context->apply_config_variables(*context);
+      }
       Arguments arguments{call->arguments, context};
       Parameters parameters = Parameters::parse(std::move(arguments), call->location(),
                                                 *required_parameters, defining_context);
@@ -605,11 +616,21 @@ Value FunctionCall::evaluate(const std::shared_ptr<const Context>& context) cons
   unsigned int recursion_depth = 0;
   const FunctionCall *current_call = this;
 
-  ContextHandle<Context> expression_context{Context::create<Context>(context)};
+  /*
+   * Evaluate in the caller's context until a call body or a let produces one
+   * of its own; the handle then holds whatever the tail-call loop installed
+   * last. Creating an empty context up front instead cost one per call, and a
+   * call that reduces to a builtin never needs one: of the 38.9M contexts
+   * instantiating a large model builds, 20.9M were these.
+   */
+  boost::optional<ContextHandle<Context>> expression_context;
+  std::shared_ptr<const Context> current_context = context;
+
   const Expression *expression = this;
   while (true) {
     try {
-      auto result = simplify_function_body(expression, *expression_context);
+      auto result = simplify_function_body(expression, current_context,
+                                           expression_context.is_initialized());
       if (Value *value = std::get_if<Value>(&result)) {
         return std::move(*value);
       }
@@ -619,18 +640,24 @@ Value FunctionCall::evaluate(const std::shared_ptr<const Context>& context) cons
 
       expression = simplified_expression->expression;
       if (simplified_expression->new_context) {
-        expression_context = std::move(*simplified_expression->new_context);
+        if (expression_context) {
+          // Valid because the new context was pushed above this one.
+          *expression_context = std::move(*simplified_expression->new_context);
+        } else {
+          expression_context.emplace(std::move(*simplified_expression->new_context));
+        }
+        current_context = **expression_context;
       }
       if (simplified_expression->new_active_function_call) {
         current_call = *simplified_expression->new_active_function_call;
         if (recursion_depth++ == 1000000) {
-          LOG(message_group::Error, expression->location(), expression_context->documentRoot(),
+          LOG(message_group::Error, expression->location(), current_context->documentRoot(),
               "Recursion detected calling function '%1$s'", current_call->name);
           throw RecursionException::create("function", current_call->name, current_call->location());
         }
       }
     } catch (EvaluationException& e) {
-      print_trace(e, current_call, *expression_context);
+      print_trace(e, current_call, current_context);
       e.traceDepth--;
       throw;
     }
