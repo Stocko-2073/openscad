@@ -884,6 +884,12 @@ int openscad_main(int argc, char **argv)
   PlatformUtils::ensureStdIO();
 #endif
 
+  // Launch banner for every invocation (GUI or command line). Written straight
+  // to stderr rather than through LOG() so it never lands in an .echo export,
+  // is not silenced by --quiet, and cannot mix into a report on stdout.
+  std::cerr << "OpenSCAD for AI Agents, by Stocko.  See --help for additional AI friendly tools"
+            << std::endl;
+
 #ifndef __EMSCRIPTEN__
   const auto applicationPath =
     weakly_canonical(boost::dll::program_location()).parent_path().generic_string();
@@ -998,13 +1004,36 @@ int openscad_main(int argc, char **argv)
       "per source location, and report them after evaluation")
     ("profile-file", po::value<std::string>(),
       "write the full per-location profile to the given file as TSV (implies --profile)")
-    ("interference-check", "check every pair of top-level objects for overlapping volume and "
-      "write a JSON report (colliding parts, the primitives that overlap, and their source "
-      "chains in the input file) to stdout; the exit status stays 0 when collisions are found. "
-      "Requires the Manifold backend")
+    ("interference-check",
+      "AI-agent tool: detect parts that overlap (interfere) and report exactly which source "
+      "lines produced the overlapping material. Runs alongside any export, e.g.\n"
+      "  openscad model.scad --interference-check -o model.stl\n"
+      "How it works: every top-level object in the file (each direct child of the root, "
+      "after the ! modifier) is one 'part', numbered from 1 in source order. Parts whose "
+      "bounding boxes touch are intersected exactly (Manifold); a pair interferes when the "
+      "shared volume exceeds 1e-5, so flush mating faces do not count. % background parts, "
+      "2D objects and empty geometry are skipped and listed with a status.\n"
+      "For each interfering pair the report lists the primitives (cube, cylinder, ...) that "
+      "actually contribute material to the overlap, with the overlap volume each one adds, "
+      "and for each primitive an ancestor chain: the module calls and transforms leading from "
+      "the top-level part down to that primitive, outermost first, each with file, line and "
+      "column. The chain keeps only steps located in the input file (steps inside libraries "
+      "or other files are dropped), so every chain entry is a line the caller can edit.\n"
+      "Output: one pretty-printed JSON document on stdout (or see --interference-file). Keys: "
+      "summary.has_interference (bool), summary.collisions (count), parts[] "
+      "{number,status,name,description,location,bbox}, collisions[] {parts:[a,b], volume, "
+      "primitives[] {part,node_index,name,description,location,volume, chain[] "
+      "{node_index,name,label,location}}}. location = {file (relative to the input's "
+      "directory), path (absolute), line, column, end_line, end_column}, 1-based, or null.\n"
+      "Exit status is 0 whether or not collisions are found; non-zero means the run itself "
+      "failed. The human-readable WARNING/ECHO lines the GUI shows are still printed to "
+      "stderr. Cannot be combined with --animate, or with '-o -' / '--summary-file -' while "
+      "the report goes to stdout. Requires the Manifold backend.")
     ("interference-file", po::value<std::string>(),
-      "write the --interference-check report to the given file, using '-' outputs to stdout "
-      "(implies --interference-check)")
+      "write the --interference-check JSON report to the given file instead of stdout; '-' "
+      "means stdout. Implies --interference-check. Use this when stdout is already taken by "
+      "'-o -' or '--summary-file -', or when the report should sit next to the exported "
+      "model")
 #ifdef ENABLE_PYTHON
     ("trust-python", "Trust python")
     ("python-module", po::value<std::string>(), "=module Call pip python module")
