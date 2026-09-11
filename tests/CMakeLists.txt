@@ -855,6 +855,24 @@ if(ENABLE_PHYSICS)
   # simulated transform.
   add_cmdline_test(physics-preview OPENSCAD SUFFIX png FILES ${TEST_SCAD_DIR}/physics/physics-background.scad)
 endif()
+
+# --interference-check tests. The echo run captures the Warning/summary lines
+# the check logs (the JSON on stdout is only echoed into the test log); the
+# json run captures the machine-readable report through a wrapper that strips
+# machine-specific paths and the build version before the structural compare.
+if(ENABLE_MANIFOLD_TESTS)
+  list(APPEND INTERFERENCE_TEST_FILES
+    ${TEST_SCAD_DIR}/interference/overlap-same-file.scad
+    ${TEST_SCAD_DIR}/interference/overlap-via-use.scad
+    ${TEST_SCAD_DIR}/interference/overlap-via-mcad.scad
+    ${TEST_SCAD_DIR}/interference/flush-faces.scad
+    ${TEST_SCAD_DIR}/interference/background-part.scad
+    ${TEST_SCAD_DIR}/interference/2d-child.scad
+    ${TEST_SCAD_DIR}/interference/difference-negative.scad
+    ${TEST_SCAD_DIR}/interference/nested-module-chain.scad)
+  add_cmdline_test(interference-echo OPENSCAD SUFFIX echo FILES ${INTERFERENCE_TEST_FILES} ARGS --interference-check)
+  add_cmdline_test(interference-json SCRIPT ${CCSD}/interference_json_test.py SUFFIX json FILES ${INTERFERENCE_TEST_FILES} ARGS ${OPENSCAD_EXE_ARG})
+endif()
 # non-ASCII filenames
 add_cmdline_test(export-csg-nonascii  OPENSCAD FILES ${TEST_SCAD_DIR}/misc/sfære.scad SUFFIX csg)
 

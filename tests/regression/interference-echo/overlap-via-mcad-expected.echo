@@ -1,0 +1,4 @@
+DEPRECATED: Variable names starting with digits ("12ptStar") will be removed in future releases. in file ../../libraries/MCAD/shapes.scad, line 169
+ECHO: "<font color='red'>           DEPRECATED: 'shapes' library is now deprecated           please use 'regular_shapes' instead</font>"
+WARNING: Interference: part 1 (line 4) overlaps part 2 (line 5), overlap volume = 64 in file overlap-via-mcad.scad, line 4
+ECHO: Interference check: 2 part(s), 1 overlapping pair(s).

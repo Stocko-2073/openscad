@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "generator": {
+    "name": "openscad",
+    "version": "<version>"
+  },
+  "input": {
+    "path": "2d-child.scad",
+    "directory": "<testdir>"
+  },
+  "settings": {
+    "volume_epsilon": 1e-05,
+    "chain_filter": "current-file-only",
+    "chain_order": "outermost-first"
+  },
+  "summary": {
+    "parts_total": 2,
+    "parts_checked": 1,
+    "pairs_tested": 0,
+    "collisions": 0,
+    "has_interference": false
+  },
+  "parts": [
+    {
+      "number": 1,
+      "status": "checked",
+      "name": "cube",
+      "description": "cube(size = [10, 10, 10], center = false)",
+      "location": {
+        "file": "2d-child.scad",
+        "path": "2d-child.scad",
+        "line": 2,
+        "column": 1,
+        "end_line": 2,
+        "end_column": 9
+      },
+      "bbox": {
+        "min": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max": [
+          10.0,
+          10.0,
+          10.0
+        ]
+      }
+    },
+    {
+      "number": 2,
+      "status": "skipped-2d",
+      "name": "square",
+      "description": "square(size = [20, 20], center = false)",
+      "location": {
+        "file": "2d-child.scad",
+        "path": "2d-child.scad",
+        "line": 3,
+        "column": 1,
+        "end_line": 3,
+        "end_column": 11
+      }
+    }
+  ],
+  "collisions": []
+}

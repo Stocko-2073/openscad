@@ -1,0 +1,2 @@
+WARNING: Interference: part 1 (line 9) overlaps part 2 (line 10), overlap volume = 500 in file nested-module-chain.scad, line 9
+ECHO: Interference check: 2 part(s), 1 overlapping pair(s).

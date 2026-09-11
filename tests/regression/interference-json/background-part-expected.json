@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "generator": {
+    "name": "openscad",
+    "version": "<version>"
+  },
+  "input": {
+    "path": "background-part.scad",
+    "directory": "<testdir>"
+  },
+  "settings": {
+    "volume_epsilon": 1e-05,
+    "chain_filter": "current-file-only",
+    "chain_order": "outermost-first"
+  },
+  "summary": {
+    "parts_total": 2,
+    "parts_checked": 1,
+    "pairs_tested": 0,
+    "collisions": 0,
+    "has_interference": false
+  },
+  "parts": [
+    {
+      "number": 1,
+      "status": "checked",
+      "name": "cube",
+      "description": "cube(size = [10, 10, 10], center = false)",
+      "location": {
+        "file": "background-part.scad",
+        "path": "background-part.scad",
+        "line": 3,
+        "column": 1,
+        "end_line": 3,
+        "end_column": 9
+      },
+      "bbox": {
+        "min": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max": [
+          10.0,
+          10.0,
+          10.0
+        ]
+      }
+    },
+    {
+      "number": 2,
+      "status": "skipped-background",
+      "name": "translate",
+      "description": "multmatrix([[1, 0, 0, 5], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])",
+      "location": {
+        "file": "background-part.scad",
+        "path": "background-part.scad",
+        "line": 4,
+        "column": 2,
+        "end_line": 4,
+        "end_column": 22
+      }
+    }
+  ],
+  "collisions": []
+}

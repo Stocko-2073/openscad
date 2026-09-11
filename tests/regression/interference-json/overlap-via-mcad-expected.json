@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "generator": {
+    "name": "openscad",
+    "version": "<version>"
+  },
+  "input": {
+    "path": "overlap-via-mcad.scad",
+    "directory": "<testdir>"
+  },
+  "settings": {
+    "volume_epsilon": 1e-05,
+    "chain_filter": "current-file-only",
+    "chain_order": "outermost-first"
+  },
+  "summary": {
+    "parts_total": 2,
+    "parts_checked": 2,
+    "pairs_tested": 1,
+    "collisions": 1,
+    "has_interference": true
+  },
+  "parts": [
+    {
+      "number": 1,
+      "status": "checked",
+      "name": "cube",
+      "description": "cube(size = [10, 10, 10], center = false)",
+      "location": {
+        "file": "overlap-via-mcad.scad",
+        "path": "overlap-via-mcad.scad",
+        "line": 4,
+        "column": 1,
+        "end_line": 4,
+        "end_column": 9
+      },
+      "bbox": {
+        "min": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max": [
+          10.0,
+          10.0,
+          10.0
+        ]
+      }
+    },
+    {
+      "number": 2,
+      "status": "checked",
+      "name": "translate",
+      "description": "multmatrix([[1, 0, 0, 5], [0, 1, 0, 5], [0, 0, 1, 5], [0, 0, 0, 1]])",
+      "location": {
+        "file": "overlap-via-mcad.scad",
+        "path": "overlap-via-mcad.scad",
+        "line": 5,
+        "column": 1,
+        "end_line": 5,
+        "end_column": 21
+      },
+      "bbox": {
+        "min": [
+          3.0,
+          3.0,
+          3.0
+        ],
+        "max": [
+          7.0,
+          7.0,
+          7.0
+        ]
+      }
+    }
+  ],
+  "collisions": [
+    {
+      "parts": [
+        1,
+        2
+      ],
+      "volume": 64.0,
+      "primitives": [
+        {
+          "part": 1,
+          "node_index": 2,
+          "name": "cube",
+          "description": "cube(size = [10, 10, 10], center = false)",
+          "location": {
+            "file": "overlap-via-mcad.scad",
+            "path": "overlap-via-mcad.scad",
+            "line": 4,
+            "column": 1,
+            "end_line": 4,
+            "end_column": 9
+          },
+          "volume": 64.0,
+          "chain": [
+            {
+              "node_index": 2,
+              "name": "cube",
+              "label": "cube (overlap-via-mcad.scad:4)",
+              "location": {
+                "file": "overlap-via-mcad.scad",
+                "path": "overlap-via-mcad.scad",
+                "line": 4,
+                "column": 1,
+                "end_line": 4,
+                "end_column": 9
+              }
+            }
+          ]
+        },
+        {
+          "part": 2,
+          "node_index": 7,
+          "name": "cube",
+          "description": "cube(size = [4, 4, 4], center = true)",
+          "location": {
+            "file": "../../../../libraries/MCAD/shapes.scad",
+            "path": "shapes.scad",
+            "line": 47,
+            "column": 3,
+            "end_line": 47,
+            "end_column": 37
+          },
+          "volume": 64.0,
+          "chain": [
+            {
+              "node_index": 3,
+              "name": "translate",
+              "label": "translate (overlap-via-mcad.scad:5)",
+              "location": {
+                "file": "overlap-via-mcad.scad",
+                "path": "overlap-via-mcad.scad",
+                "line": 5,
+                "column": 1,
+                "end_line": 5,
+                "end_column": 21
+              }
+            },
+            {
+              "node_index": 4,
+              "name": "box",
+              "label": "box (overlap-via-mcad.scad:5)",
+              "location": {
+                "file": "overlap-via-mcad.scad",
+                "path": "overlap-via-mcad.scad",
+                "line": 5,
+                "column": 22,
+                "end_line": 5,
+                "end_column": 34
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
