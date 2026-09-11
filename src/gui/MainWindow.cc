@@ -158,6 +158,7 @@
 #include "geometry/cgal/cgal.h"
 #endif  // ENABLE_CGAL
 #ifdef ENABLE_MANIFOLD
+#include "geometry/InterferenceCheck.h"
 #include "geometry/manifold/ManifoldGeometry.h"
 #include "geometry/manifold/manifoldutils.h"
 #endif  // ENABLE_MANIFOLD
@@ -999,29 +1000,14 @@ void MainWindow::instantiateRoot()
    Assumes that the design has been parsed and evaluated (this->root_node is set)
  */
 #ifdef ENABLE_MANIFOLD
-// Minimum overlap volume (model units^3) for a pair to count as interfering.
-// Flush mating faces yield ~zero-volume intersections, so they stay below this.
-static constexpr double kInterferenceVolumeEps = 1e-5;
-
 // Color applied to every leaf of a part that interferes with another part.
 static const Color4f kInterferenceColor(1.0f, 0.25f, 0.25f, 1.0f);  // red
 
-// Collects the node indices of an entire subtree. CSGLeaf::index records the
-// index of the leaf primitive node, so to recolor a whole top-level part we need
-// the indices of all its descendants.
-static void collectSubtreeIndices(const std::shared_ptr<const AbstractNode>& node,
-                                  std::unordered_set<int>& out)
-{
-  if (!node) return;
-  out.insert(node->index());
-  for (const auto& child : node->getChildren()) collectSubtreeIndices(child, out);
-}
-
 // Scene-wide static interference check, run on every preview/reload from within
 // compileCSG() (before the renderers are built, so recoloring takes effect).
-// Treats each direct child of the root as one "part": culls non-touching pairs by
-// bounding box, then confirms a real overlap with an exact Manifold intersection
-// whose volume exceeds kInterferenceVolumeEps. Colliding pairs are logged to the
+// The pair test itself lives in geometry/InterferenceCheck so the command line
+// shares it; here we only need the colliding pairs, not the per-primitive
+// attribution, so that is switched off. Colliding pairs are logged to the
 // console, and every part involved in a collision is recolored in the preview.
 void MainWindow::runInterferenceCheck()
 {
@@ -1030,58 +1016,16 @@ void MainWindow::runInterferenceCheck()
 
   const RenderStatistic::ScopedPhase phase(renderStatistic, RenderStatistic::PHASE_INTERFERENCE);
 
-  GeometryEvaluator geomevaluator(this->tree);
-
-  struct Part {
-    int number;
-    Location loc{Location::NONE};
-    BoundingBox bbox;
-    std::shared_ptr<const ManifoldGeometry> manifold;
-    std::shared_ptr<const AbstractNode> node;
-  };
-  std::vector<Part> parts;
-
-  int number = 0;
-  for (const auto& child : this->rootNode->getChildren()) {
-    ++number;
-    if (!child) continue;
-    if (child->modinst && child->modinst->isBackground()) continue;  // skip % ghosts
-    auto geom = geomevaluator.evaluateGeometry(*child, true);
-    if (!geom || geom->isEmpty() || geom->getDimension() != 3) continue;
-    auto mani = ManifoldUtils::createManifoldFromGeometry(geom);
-    if (!mani || mani->isEmpty()) continue;
-    const Location loc = child->modinst ? child->modinst->location() : Location::NONE;
-    parts.push_back({number, loc, geom->getBoundingBox(), mani, child});
-  }
-
-  std::vector<bool> conflicting(parts.size(), false);
-  int collisions = 0;
-  for (size_t i = 0; i < parts.size(); ++i) {
-    for (size_t j = i + 1; j < parts.size(); ++j) {
-      if (!parts[i].bbox.intersects(parts[j].bbox)) continue;  // cheap cull
-      const ManifoldGeometry overlap = *parts[i].manifold * *parts[j].manifold;
-      const double vol = overlap.isEmpty() ? 0.0 : overlap.getManifold().Volume();
-      if (vol <= kInterferenceVolumeEps) continue;  // flush faces / numerical noise
-      ++collisions;
-      conflicting[i] = conflicting[j] = true;
-      LOG(message_group::Warning, parts[i].loc, this->tree.getDocumentPath(), "%1$s",
-          STR("Interference: part ", parts[i].number, " (line ", parts[i].loc.firstLine(),
-              ") overlaps part ", parts[j].number, " (line ", parts[j].loc.firstLine(),
-              "), overlap volume = ", vol));
-    }
-  }
-  LOG(message_group::Echo, "%1$s",
-      STR("Interference check: ", parts.size(), " part(s), ", collisions,
-          " overlapping pair(s)."));
+  interference::Options opts;
+  opts.primitives = false;
+  const interference::Report report = interference::run(this->tree, opts);
+  interference::logReport(report, this->tree);
 
   // Recolor every leaf belonging to a conflicting part so the overlap is visible
   // in the preview. The renderers bake leaf colors into their VBOs at
   // construction, so this must run before they are built.
-  if (collisions == 0 || !this->rootProduct) return;
-  std::unordered_set<int> conflictingIndices;
-  for (size_t i = 0; i < parts.size(); ++i) {
-    if (conflicting[i]) collectSubtreeIndices(parts[i].node, conflictingIndices);
-  }
+  if (report.collisions.empty() || !this->rootProduct) return;
+  const std::unordered_set<int> conflictingIndices = interference::conflictingNodeIndices(report);
   for (auto& product : this->rootProduct->products) {
     for (auto *chain : {&product.intersections, &product.subtractions}) {
       for (auto& csgobj : *chain) {

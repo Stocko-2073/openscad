@@ -1164,6 +1164,7 @@ set(CGAL_SOURCES
   )
 
 set(MANIFOLD_SOURCES
+  src/geometry/InterferenceCheck.cc
   src/geometry/manifold/ManifoldGeometry.cc
   src/geometry/manifold/manifoldutils.cc
   src/geometry/manifold/manifold-applyops.cc
