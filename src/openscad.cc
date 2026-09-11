@@ -101,6 +101,9 @@
 #include "geometry/GeometryEvaluator.h"
 #include "geometry/GeometryUtils.h"
 #include "geometry/PolySet.h"
+#ifdef ENABLE_MANIFOLD
+#include "geometry/InterferenceCheck.h"
+#endif
 #include "glview/Camera.h"
 #include "glview/ColorMap.h"
 #include "glview/OffscreenView.h"
@@ -179,6 +182,8 @@ struct CommandLine {
   const AnimateArgs animate;
   const std::vector<std::string> summaryOptions;
   const std::string summaryFile;
+  const bool interferenceCheck;
+  const std::string interferenceFile;  // "-" means stdout
 };
 
 namespace {
@@ -448,6 +453,28 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
   }
   Tree tree(root_node, fparent.string());
 
+#ifdef ENABLE_MANIFOLD
+  // Runs ahead of the export so the report is written for every format, and so
+  // it still lands on disk when --hardwarnings turns the first Warning below
+  // into an exception. The leaf geometry it evaluates stays cached for the
+  // export that follows.
+  if (cmd.interferenceCheck) {
+    const RenderStatistic::ScopedPhase phase(renderStatistic, RenderStatistic::PHASE_INTERFERENCE);
+    interference::Options opts;
+    // Same expression the parser uses for Location::fileName(), so chain steps
+    // from the main file compare equal.
+    opts.currentFile = fpath.generic_string();
+    const interference::Report report = interference::run(tree, opts);
+    const bool toStdout = cmd.interferenceFile == "-";
+    if (!with_output(toStdout, cmd.interferenceFile, [&](std::ostream& stream) {
+          interference::writeJson(report, tree, opts, stream);
+        })) {
+      return 1;
+    }
+    interference::logReport(report, tree);
+  }
+#endif
+
   if (export_format == FileFormat::CSG) {
     // https://github.com/openscad/openscad/issues/128
     // When I use the csg ouptput from the command line the paths in 'import'
@@ -586,6 +613,13 @@ int cmdline(const CommandLine& cmd)
         suffix);
       return 1;
     }
+  }
+
+  if (cmd.interferenceCheck && cmd.interferenceFile == "-" &&
+      (cmd.is_stdout || cmd.summaryFile == "-")) {
+    LOG("--interference-check writes its JSON report to stdout, which '-o -' or '--summary-file -' "
+        "already uses. Pass --interference-file <path> instead.");
+    return 1;
   }
 
   // Do some minimal checking of output directory before rendering (issue #432)
@@ -964,6 +998,13 @@ int openscad_main(int argc, char **argv)
       "per source location, and report them after evaluation")
     ("profile-file", po::value<std::string>(),
       "write the full per-location profile to the given file as TSV (implies --profile)")
+    ("interference-check", "check every pair of top-level objects for overlapping volume and "
+      "write a JSON report (colliding parts, the primitives that overlap, and their source "
+      "chains in the input file) to stdout; the exit status stays 0 when collisions are found. "
+      "Requires the Manifold backend")
+    ("interference-file", po::value<std::string>(),
+      "write the --interference-check report to the given file, using '-' outputs to stdout "
+      "(implies --interference-check)")
 #ifdef ENABLE_PYTHON
     ("trust-python", "Trust python")
     ("python-module", po::value<std::string>(), "=module Call pip python module")
@@ -1040,6 +1081,16 @@ int openscad_main(int argc, char **argv)
   if (vm.count("profile") || !ScriptProfile::reportFile.empty()) {
     ScriptProfile::enabled = true;
   }
+
+  const bool interferenceCheck = vm.count("interference-check") || vm.count("interference-file");
+  const std::string interferenceFile =
+    vm.count("interference-file") ? vm["interference-file"].as<std::string>() : "-";
+#ifndef ENABLE_MANIFOLD
+  if (interferenceCheck) {
+    LOG("--interference-check requires the Manifold backend (build with ENABLE_MANIFOLD).");
+    return 1;
+  }
+#endif
 
   if (vm.count("traceDepth")) {
     OpenSCAD::traceDepth = vm["traceDepth"].as<unsigned int>();
@@ -1180,6 +1231,10 @@ int openscad_main(int argc, char **argv)
         return 1;
       }
     }
+    if (interferenceCheck) {
+      LOG("Option --interference-check cannot be combined with --animate (one report per run).");
+      return 1;
+    }
     if (output_files.empty()) {
       output_files.emplace_back("frame.png");
     }
@@ -1221,7 +1276,9 @@ int openscad_main(int argc, char **argv)
                                 animate,
                                 vm.count("summary") ? vm["summary"].as<std::vector<std::string>>()
                                                     : std::vector<std::string>{},
-                                vm.count("summary-file") ? vm["summary-file"].as<std::string>() : ""};
+                                vm.count("summary-file") ? vm["summary-file"].as<std::string>() : "",
+                                interferenceCheck,
+                                interferenceFile};
           rc |= cmdline(cmd);
         }
       }
