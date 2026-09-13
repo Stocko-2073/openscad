@@ -1623,6 +1623,12 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
   if (event->type() == QEvent::Close) {
     if (qobject_cast<Dock *>(obj) && !static_cast<QCloseEvent *>(event)->spontaneous()) {
       saveWindowStateOnClose();
+      // Clicking a dock's close button also sends a non-spontaneous close event.
+      // Keep the snapshot while Qt closes the other windows during quit, but allow
+      // a later save if this was only a dock close (or quitting was canceled).
+      QTimer::singleShot(0, this, [this]() {
+        if (!isClosing) windowStateSaved = false;
+      });
     }
   }
 
