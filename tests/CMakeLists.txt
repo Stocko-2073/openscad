@@ -825,6 +825,8 @@ add_cmdline_test(echo         OPENSCAD SUFFIX echo FILES ${ECHO_FILES})
 # but can generate very long outputs and potentially
 # unstable outputs, when combined with recursive tests.
 add_cmdline_test(echo         OPENSCAD SUFFIX echo FILES ${TEST_SCAD_DIR}/misc/recursion-test-vector.scad ARGS --trace-usermodule-parameters=false)
+# BOSL2 is built in: include <BOSL2/std.scad> resolves with no library installed.
+add_cmdline_test(echo         OPENSCAD SUFFIX echo FILES ${TEST_SCAD_DIR}/misc/builtin-bosl2.scad)
 
 add_cmdline_test(echo-stdio    OPENSCAD SUFFIX echo FILES ${TEST_SCAD_DIR}/misc/echo-tests.scad STDIO EXPECTEDDIR echo ARGS --export-format echo)
 add_cmdline_test(echo         OPENSCAD SUFFIX echo FILES ${TEST_SCAD_DIR}/misc/builtin-invalid-range-test.scad ARGS --check-parameter-ranges=on)
