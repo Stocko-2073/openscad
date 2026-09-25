@@ -51,7 +51,6 @@
 #include "Feature.h"
 #include "FontCache.h"
 #include "core/Settings.h"
-#include "core/parsersettings.h"
 #include "geometry/Geometry.h"
 #include "gui/AppleEvents.h"
 #include "gui/input/InputDriverManager.h"
@@ -224,8 +223,6 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
   qRegisterMetaType<std::shared_ptr<const Geometry>>();
 
   FontCache::registerProgressHandler(dialogInitHandler);
-
-  parser_init();
 
   QSettingsCached settings;
   if (settings.value("advanced/localization", true).toBool()) {

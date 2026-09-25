@@ -13,6 +13,12 @@ extern int parser_error_pos;
  */
 void parser_init();
 
+/**
+ * Rebuild the library path after a BOSL2 update, keeping the OPENSCADPATH
+ * entries parser_init() resolved.
+ */
+void refresh_library_path();
+
 fs::path search_libs(const fs::path& localpath);
 fs::path find_valid_path(const fs::path& sourcepath, const fs::path& localpath,
                          const std::vector<std::string> *openfilenames = nullptr);

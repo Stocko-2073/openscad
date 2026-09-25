@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "core/BOSL2Library.h"
 #include "platform/PlatformUtils.h"
 
 namespace fs = std::filesystem;
@@ -144,8 +145,32 @@ fs::path get_library_for_path(const fs::path& localpath)
   return {};
 }
 
+// OPENSCADPATH, resolved against the launch directory once so a later
+// refresh_library_path() rebuilds the same entries.
+static std::vector<std::string> openscadpath_dirs;
+
+void refresh_library_path()
+{
+  librarypath = openscadpath_dirs;
+
+  // Built-in BOSL2 (or the newer release the GUI downloaded) ranks above the
+  // user's libraries folder so a stale hand-installed copy there cannot shadow it.
+  const fs::path bosl2 = BOSL2Library::activeRoot();
+  if (!bosl2.empty()) add_librarydir(bosl2.generic_string());
+
+  add_librarydir(PlatformUtils::userLibraryPath());
+
+  fs::path libpath = PlatformUtils::resourcePath("libraries");
+  // std::filesystem::absolute() will throw if passed empty path
+  if (libpath.empty()) {
+    libpath = fs::current_path();
+  }
+  add_librarydir(fs::absolute(libpath).string());
+}
+
 void parser_init()
 {
+  openscadpath_dirs.clear();
   // Add paths from OPENSCADPATH before adding built-in paths
   const char *openscadpaths = getenv("OPENSCADPATH");
   if (openscadpaths) {
@@ -157,16 +182,9 @@ void parser_init()
          it != string_split_iterator(); ++it) {
       auto str{boost::copy_range<std::string>(*it)};
       fs::path abspath = str.empty() ? fs::current_path() : fs::absolute(fs::path(str));
-      add_librarydir(abspath.generic_string());
+      openscadpath_dirs.push_back(abspath.generic_string());
     }
   }
 
-  add_librarydir(PlatformUtils::userLibraryPath());
-
-  fs::path libpath = PlatformUtils::resourcePath("libraries");
-  // std::filesystem::absolute() will throw if passed empty path
-  if (libpath.empty()) {
-    libpath = fs::current_path();
-  }
-  add_librarydir(fs::absolute(libpath).string());
+  refresh_library_path();
 }

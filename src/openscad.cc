@@ -83,6 +83,7 @@
 #include "LibraryInfo.h"
 #include "RenderStatistic.h"
 #include "core/AST.h"
+#include "core/BOSL2Library.h"
 #include "core/BuiltinContext.h"
 #include "core/Builtins.h"
 #include "core/CSGTreeEvaluator.h"
@@ -884,12 +885,6 @@ int openscad_main(int argc, char **argv)
   PlatformUtils::ensureStdIO();
 #endif
 
-  // Launch banner for every invocation (GUI or command line). Written straight
-  // to stderr rather than through LOG() so it never lands in an .echo export,
-  // is not silenced by --quiet, and cannot mix into a report on stdout.
-  std::cerr << "OpenSCAD for AI Agents, by Stocko.  See --help for additional AI friendly tools"
-            << std::endl;
-
 #ifndef __EMSCRIPTEN__
   const auto applicationPath =
     weakly_canonical(boost::dll::program_location()).parent_path().generic_string();
@@ -897,6 +892,14 @@ int openscad_main(int argc, char **argv)
   const auto applicationPath = boost::dll::fs::current_path();
 #endif
   PlatformUtils::registerApplicationPath(applicationPath);
+  // Before the banner, which reports the BOSL2 that include <BOSL2/...> resolves to.
+  parser_init();
+
+  // Launch banner for every invocation (GUI or command line). Written straight
+  // to stderr rather than through LOG() so it never lands in an .echo export,
+  // is not silenced by --quiet, and cannot mix into a report on stdout.
+  std::cerr << "OpenSCAD for AI Agents, by Stocko.  See --help for additional AI friendly tools\n"
+            << BOSL2Library::describe() << std::endl;
 
 #ifdef ENABLE_PYTHON
   // The original name as called, not resolving links and so on. This will
@@ -1280,7 +1283,6 @@ int openscad_main(int argc, char **argv)
   if (arg_info || cmdlinemode) {
     if (inputFiles.size() > 1) help(argv[0], desc, true);
     try {
-      parser_init();
       localization_init();
       if (arg_info) {
         rc = info();

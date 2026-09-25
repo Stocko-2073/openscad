@@ -66,6 +66,7 @@
 
 #include "Feature.h"
 #include "FontCache.h"
+#include "core/BOSL2Library.h"
 #include "platform/PlatformUtils.h"
 #include "version.h"
 
@@ -167,6 +168,8 @@ std::string LibraryInfo::info()
     << "\nUser Documents Path: " << PlatformUtils::userDocumentsPath()
     << "\nResource Path: " << PlatformUtils::resourceBasePath()
     << "\nUser Library Path: " << PlatformUtils::userLibraryPath()
+    << "\n" << BOSL2Library::describe()
+    << "\nBOSL2 Update Path: " << BOSL2Library::updateRoot().generic_string()
     << "\nUser Examples Path: " << PlatformUtils::userExamplesPath()
     << "\nUser Config Path: " << PlatformUtils::userConfigPath()
     << "\nBackup Path: " << PlatformUtils::backupPath()

@@ -22,3 +22,7 @@
 [submodule "submodules/JoltPhysics"]
 	path = submodules/JoltPhysics
 	url = https://github.com/jrouwe/JoltPhysics.git
+[submodule "builtin-libraries/BOSL2"]
+	path = builtin-libraries/BOSL2
+	url = https://github.com/BelfrySCAD/BOSL2.git
+	shallow = true
