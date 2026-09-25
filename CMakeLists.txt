@@ -1347,6 +1347,7 @@ set(GUI_SOURCES
   ${GUI_SOURCES}
   src/openscad_gui.cc
   src/gui/AutoUpdater.cc
+  src/gui/BOSL2Updater.cc
   src/gui/CGALWorker.cc
   src/gui/ViewportControl.cc
   src/gui/Console.cc
@@ -1427,6 +1428,7 @@ set(GUI_HEADERS
     src/gui/AnimateFrameTask.h
     src/gui/AppleEvents.h
     src/gui/AutoUpdater.h
+    src/gui/BOSL2Updater.h
     src/gui/CGALWorker.h
     src/gui/Console.h
     src/gui/Dock.h

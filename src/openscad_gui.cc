@@ -53,6 +53,7 @@
 #include "core/Settings.h"
 #include "geometry/Geometry.h"
 #include "gui/AppleEvents.h"
+#include "gui/BOSL2Updater.h"
 #include "gui/input/InputDriverManager.h"
 #include "version.h"
 #ifdef ENABLE_HIDAPI
@@ -318,6 +319,9 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
     inputFilesList.append(assemblePath(original_path, infile));
   }
   new MainWindow(inputFilesList);
+  // Once the console exists to report it: fetch a newer BOSL2 release if there
+  // is one. GUI tests stay offline.
+  if (gui_test == "none") (new BOSL2Updater(&app))->start();
   QObject::connect(&app, &QCoreApplication::aboutToQuit, []() {
     QSettingsCached{}.release();
 #ifdef Q_OS_MACOS
