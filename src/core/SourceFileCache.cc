@@ -9,6 +9,7 @@
 #include <fstream>
 #include <string>
 
+#include "core/DatalessFiles.h"
 #include "core/SourceFile.h"
 #include "core/StatCache.h"
 #include "openscad.h"
@@ -94,6 +95,14 @@ std::time_t SourceFileCache::process(const std::string& mainFile, const std::str
       PRINTDB("Compiling library '%s'.", filename);
     }
 #endif
+
+    // Still in iCloud: the GUI downloads it and recompiles rather than block
+    // here. Forget this pass so the next one parses it.
+    if (DatalessFiles::shouldDefer(filename)) {
+      if (found) cacheEntry.cache_id.clear();
+      else this->entries.erase(filename);
+      return 0;
+    }
 
     std::string text;
     {

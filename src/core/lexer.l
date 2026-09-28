@@ -37,6 +37,7 @@
 #include "core/Assignment.h"
 #include "parser.hxx"
 #include "core/SourceFile.h"
+#include "core/DatalessFiles.h"
 #include <assert.h>
 #include <boost/lexical_cast.hpp>
 #include <filesystem>
@@ -386,6 +387,12 @@ void includefile(const Location& loc)
   filename_stack.push_back(std::make_shared<fs::path>(fullpath));
 
   handle_dep(fullname);
+
+  // Still in iCloud: the GUI downloads it and recompiles rather than block here.
+  if (DatalessFiles::shouldDefer(fullpath)) {
+    filename_stack.pop_back();
+    return;
+  }
 
   yyin = fopen(fullname.c_str(), "r");
   if (!yyin) {
