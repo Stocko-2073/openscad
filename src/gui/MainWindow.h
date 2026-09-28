@@ -31,6 +31,7 @@
 #include <string>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -472,6 +473,17 @@ private:
   EditorInterface *renderedEditor;  // stores pointer to editor which has been most recently rendered
   time_t includesMTime{0};          // latest include mod time
   time_t depsMTime{0};              // latest dependency mod time
+
+  // include<>/use<> files the parser skipped because they are still in iCloud
+  // (see DatalessFiles): downloads them off the main thread. Returns whether
+  // any were skipped, so the design is incomplete.
+  bool downloadDeferredFiles(bool previewAfter);
+  void deferredFilesDownloaded(const std::vector<std::string>& failed);
+  void previewDownloadedFiles();
+  bool downloadingDeferredFiles{false};
+  bool previewAfterDownload{false};
+  std::unordered_set<std::string> failedDownloads;  // not retried until the next F5/F6
+
   std::unordered_map<QString, QString> exportPaths;  // for each file type, where it was exported to last
   QString exportPath(
     const QString& suffix);    // look up the last export path and generate one if not found

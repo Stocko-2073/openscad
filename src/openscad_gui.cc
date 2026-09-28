@@ -50,6 +50,7 @@
 
 #include "Feature.h"
 #include "FontCache.h"
+#include "core/DatalessFiles.h"
 #include "core/Settings.h"
 #include "geometry/Geometry.h"
 #include "gui/AppleEvents.h"
@@ -224,6 +225,10 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
   qRegisterMetaType<std::shared_ptr<const Geometry>>();
 
   FontCache::registerProgressHandler(dialogInitHandler);
+
+  // Compiles run on the main thread: skip include<>/use<> files still in iCloud
+  // instead of freezing the window until they download (see MainWindow).
+  DatalessFiles::setDeferReads(true);
 
   QSettingsCached settings;
   if (settings.value("advanced/localization", true).toBool()) {

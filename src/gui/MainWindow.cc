@@ -40,6 +40,7 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QFontMetrics>
+#include <QFutureWatcher>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QKeySequence>
@@ -70,6 +71,7 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QtConcurrentRun>
 #include <QByteArray>
 #include <QDataStream>
 #include <QDebug>
@@ -97,6 +99,7 @@
 #include "core/Builtins.h"
 #include "core/CSGNode.h"
 #include "core/Context.h"
+#include "core/DatalessFiles.h"
 #include "core/EvaluationSession.h"
 #include "core/Expression.h"
 #include "core/RenderVariables.h"
@@ -793,6 +796,13 @@ void MainWindow::compile(bool reload, bool forcedone)
       }
     }
 
+    // Rather than evaluate the design without a file still in iCloud, wait for
+    // it to download; that previews again.
+    if (downloadDeferredFiles(true)) {
+      compileDone(false);
+      return;
+    }
+
     // Had any errors in the parse that would have caused exceptions via PRINT.
     if (would_have_thrown()) throw HardWarningException("");
     // If we're auto-reloading, listen for a cascade of changes by starting a timer
@@ -813,6 +823,56 @@ void MainWindow::compile(bool reload, bool forcedone)
   } catch (...) {
     UnknownExceptionCleanup();
   }
+}
+
+bool MainWindow::downloadDeferredFiles(bool previewAfter)
+{
+  const auto deferred = DatalessFiles::takeDeferred();
+  if (deferred.empty()) return false;
+
+  std::vector<std::string> fetch;
+  for (const auto& file : deferred) {
+    if (!this->failedDownloads.count(file)) fetch.push_back(file);
+  }
+  if (fetch.empty()) return true;  // already reported
+  if (previewAfter) this->previewAfterDownload = true;
+  if (this->downloadingDeferredFiles) return true;  // previews again when done, skipping any new ones
+  this->downloadingDeferredFiles = true;
+
+  for (const auto& file : fetch) {
+    LOG("Waiting for '%1$s' to download from the cloud...", file);
+  }
+  auto *watcher = new QFutureWatcher<std::vector<std::string>>(this);
+  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
+    watcher->deleteLater();
+    this->downloadingDeferredFiles = false;
+    deferredFilesDownloaded(watcher->result());
+  });
+  watcher->setFuture(QtConcurrent::run([fetch]() { return DatalessFiles::materializeAll(fetch); }));
+  return true;
+}
+
+void MainWindow::deferredFilesDownloaded(const std::vector<std::string>& failed)
+{
+  auto guard = scopedSetCurrentOutput();
+  for (const auto& file : failed) {
+    this->failedDownloads.insert(file);
+    LOG(message_group::Warning,
+        "Could not download '%1$s' from the cloud. Check the connection, then preview again.", file);
+  }
+  if (!failed.empty()) this->previewAfterDownload = false;
+  if (this->previewAfterDownload) previewDownloadedFiles();
+}
+
+void MainWindow::previewDownloadedFiles()
+{
+  // A render or export still running: preview once it is done.
+  if (GuiLocker::isLocked()) {
+    QTimer::singleShot(autoReloadPollingPeriodMS, this, &MainWindow::previewDownloadedFiles);
+    return;
+  }
+  this->previewAfterDownload = false;
+  actionRenderPreview();
 }
 
 void MainWindow::waitAfterReload()
@@ -1884,6 +1944,7 @@ void MainWindow::csgReloadRender()
 
 void MainWindow::prepareCompile(const char *afterCompileSlot, bool procevents, bool preview)
 {
+  this->failedDownloads.clear();  // try downloading them again
   setCurrentOutput();
   autoReloadTimer->stop();
   LOG(" ");
@@ -3242,6 +3303,9 @@ void MainWindow::onTabManagerEditorContentReloaded(EditorInterface *reloadedEdit
     // when a new editor is created, it is important to compile the initial geometry
     // so the customizer panels are ok.
     parseDocument(reloadedEditor);
+    // The customizer only reads the file itself, so a skipped include does not
+    // matter here; fetch it now so the first preview has it.
+    downloadDeferredFiles(false);
   } catch (const HardWarningException&) {
     exceptionCleanup();
   } catch (const std::exception& ex) {
