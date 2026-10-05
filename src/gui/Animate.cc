@@ -320,8 +320,9 @@ void Animate::rebuildFrameCacheSource()
                                 mainWindow->activeEditor->filepath.toStdString())
                                 .parent_path()
                                 .string();
+  // Frames are drawn as previews, so $preview is true whatever the last compile was.
   frameCache_->setSource(mainWindow->rootFile, docPath, this->animNumSteps,
-                         mainWindow->qglview->cam, mainWindow->isPreview);
+                         mainWindow->qglview->cam, true);
   cachedSource_ = mainWindow->rootFile;
   frameCache_->prefetchWindow(this->animStep, frameCache_->workerCount());
 }
