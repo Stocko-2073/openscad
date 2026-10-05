@@ -1027,6 +1027,7 @@ set(CORE_SOURCES
   src/core/NodeVisitor.cc
   src/core/OffsetNode.cc
   src/core/Parameters.cc
+  src/core/PickAttribution.cc
   src/core/ProjectionNode.cc
   src/core/RenderNode.cc
   src/core/RenderVariables.cc

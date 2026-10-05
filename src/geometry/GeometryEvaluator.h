@@ -26,6 +26,8 @@ public:
   GeometryEvaluator(const Tree& tree);
 
   std::shared_ptr<const Geometry> evaluateGeometry(const AbstractNode& node, bool allownef);
+  // True when node's geometry is in the geometry or CGAL cache, so evaluating it is only a lookup.
+  bool isSmartCached(const AbstractNode& node);
 
   Response visit(State& state, const AbstractNode& node) override;
   Response visit(State& state, const ColorNode& node) override;
@@ -109,7 +111,6 @@ private:
 
   void smartCacheInsert(const AbstractNode& node, const std::shared_ptr<const Geometry>& geom);
   std::shared_ptr<const Geometry> smartCacheGet(const AbstractNode& node, bool preferNef);
-  bool isSmartCached(const AbstractNode& node);
   bool isValidDim(const Geometry::GeometryItem& item, unsigned int& dim) const;
   std::vector<std::shared_ptr<const Polygon2d>> collectChildren2D(const AbstractNode& node);
   Geometry::Geometries collectChildren3D(const AbstractNode& node);
