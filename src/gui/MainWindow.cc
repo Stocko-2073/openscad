@@ -800,7 +800,7 @@ void MainWindow::compile(bool reload, bool forcedone)
     }
 
     // Rather than evaluate the design without a file still in iCloud, wait for
-    // it to download; that previews again.
+    // it to download; then this preview or render runs again.
     if (downloadDeferredFiles(true)) {
       compileDone(false);
       return;
@@ -828,7 +828,7 @@ void MainWindow::compile(bool reload, bool forcedone)
   }
 }
 
-bool MainWindow::downloadDeferredFiles(bool previewAfter)
+bool MainWindow::downloadDeferredFiles(bool recompileAfter)
 {
   const auto deferred = DatalessFiles::takeDeferred();
   if (deferred.empty()) return false;
@@ -838,8 +838,11 @@ bool MainWindow::downloadDeferredFiles(bool previewAfter)
     if (!this->failedDownloads.count(file)) fetch.push_back(file);
   }
   if (fetch.empty()) return true;  // already reported
-  if (previewAfter) this->previewAfterDownload = true;
-  if (this->downloadingDeferredFiles) return true;  // previews again when done, skipping any new ones
+  if (recompileAfter) {
+    this->recompileAfterDownload = true;
+    this->renderAfterDownload = !this->isPreview;
+  }
+  if (this->downloadingDeferredFiles) return true;  // compiles again when done, skipping any new ones
   this->downloadingDeferredFiles = true;
 
   for (const auto& file : fetch) {
@@ -863,19 +866,20 @@ void MainWindow::deferredFilesDownloaded(const std::vector<std::string>& failed)
     LOG(message_group::Warning,
         "Could not download '%1$s' from the cloud. Check the connection, then preview again.", file);
   }
-  if (!failed.empty()) this->previewAfterDownload = false;
-  if (this->previewAfterDownload) previewDownloadedFiles();
+  if (!failed.empty()) this->recompileAfterDownload = false;
+  if (this->recompileAfterDownload) recompileDownloadedFiles();
 }
 
-void MainWindow::previewDownloadedFiles()
+void MainWindow::recompileDownloadedFiles()
 {
-  // A render or export still running: preview once it is done.
+  // A render or export still running: compile once it is done.
   if (GuiLocker::isLocked()) {
-    QTimer::singleShot(autoReloadPollingPeriodMS, this, &MainWindow::previewDownloadedFiles);
+    QTimer::singleShot(autoReloadPollingPeriodMS, this, &MainWindow::recompileDownloadedFiles);
     return;
   }
-  this->previewAfterDownload = false;
-  actionRenderPreview();
+  this->recompileAfterDownload = false;
+  if (this->renderAfterDownload) on_designActionRender_triggered();
+  else actionRenderPreview();
 }
 
 void MainWindow::waitAfterReload()

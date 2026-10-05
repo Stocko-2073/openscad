@@ -493,11 +493,12 @@ private:
   // include<>/use<> files the parser skipped because they are still in iCloud
   // (see DatalessFiles): downloads them off the main thread. Returns whether
   // any were skipped, so the design is incomplete.
-  bool downloadDeferredFiles(bool previewAfter);
+  bool downloadDeferredFiles(bool recompileAfter);
   void deferredFilesDownloaded(const std::vector<std::string>& failed);
-  void previewDownloadedFiles();
+  void recompileDownloadedFiles();
   bool downloadingDeferredFiles{false};
-  bool previewAfterDownload{false};
+  bool recompileAfterDownload{false};
+  bool renderAfterDownload{false};  // the compile waiting for the download was a render (F6)
   std::unordered_set<std::string> failedDownloads;  // not retried until the next F5/F6
 
   std::unordered_map<QString, QString> exportPaths;  // for each file type, where it was exported to last
