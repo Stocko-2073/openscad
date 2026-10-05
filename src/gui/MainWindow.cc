@@ -2275,76 +2275,7 @@ void MainWindow::rightClick(QPoint position)
   if (result) {
     // Create context menu with the backtrace
     QMenu tracemenu(this);
-    std::stringstream ss;
-    const bool currentFileOnly = Settings::Settings::pickMenuCurrentFileOnly.value();
-    for (auto& step : path) {
-      // Skip certain node types
-      if (step->name() == "root") {
-        continue;
-      }
-      const bool hasSourceRef = step->modinst && !step->modinst->location().isNone();
-      if (currentFileOnly) {
-        if (!hasSourceRef) continue;
-        const auto& fileName = step->modinst->location().fileName();
-        if (!get_library_for_path(step->modinst->location().filePath()).empty()) continue;
-        if (renderedEditor->filepath.toStdString() != fileName) continue;
-      }
-      if (!hasSourceRef) {
-        // Show an entry so the backtrace stays complete; no jump/highlight (no "id", no hover)
-        std::string name;
-        if (step->modinst) {
-          const std::string vname = step->verbose_name();
-          const int first_position = (vname.find("module") == std::string::npos) ? 0 : 7;
-          name = vname.empty() ? step->modinst->name().str() : vname.substr(first_position);
-        } else {
-          const std::string vname = step->verbose_name();
-          const int first_position = (vname.find("module") == std::string::npos) ? 0 : 7;
-          name = vname.empty() ? "?" : vname.substr(first_position);
-        }
-        ss.str("");
-        ss << name << " (no source reference)";
-        tracemenu.addAction(QString::fromStdString(ss.str()));
-        continue;
-      }
-      auto location = step->modinst->location();
-      ss.str("");
-
-      // Remove the "module" prefix if any as it induce confusion between the module declaration and
-      // instanciation
-      const int first_position = (step->verbose_name().find("module") == std::string::npos) ? 0 : 7;
-      std::string name = step->verbose_name().substr(first_position);
-
-      // It happens that the verbose_name is empty (eg: in for loops), when this happens instead of
-      // letting empty entry in the menu we prefer using the name in the modinstanciation.
-      if (step->verbose_name().empty()) name = step->modinst->name();
-
-      // Check if the path is contained in a library (using parsersettings.h)
-      const fs::path libpath = get_library_for_path(location.filePath());
-      if (!libpath.empty()) {
-        // Display the library (without making the window too wide!)
-        ss << name << " (library " << location.fileName().substr(libpath.string().length() + 1) << ":"
-           << location.firstLine() << ")";
-      } else if (renderedEditor->filepath.toStdString() == location.fileName()) {
-        // removes the "module" prefix if any as it makes it not clear if it is module declaration or
-        // call.
-        ss << name << " (" << location.filePath().filename().string() << ":" << location.firstLine()
-           << ")";
-      } else {
-        auto relative_filename =
-          fs_uncomplete(location.filePath(),
-                        fs::path(renderedEditor->filepath.toStdString()).parent_path())
-            .generic_string();
-
-        // Set the displayed name relative to the active editor window
-        ss << name << " (" << relative_filename << ":" << location.firstLine() << ")";
-      }
-      // Prepare the action to be sent
-      auto action = tracemenu.addAction(QString::fromStdString(ss.str()));
-      if (editorDock->isVisible()) {
-        action->setProperty("id", step->idx);
-        connect(action, &QAction::hovered, this, &MainWindow::onHoveredObjectInSelectionMenu);
-      }
-    }
+    addPickerMenuSteps(tracemenu, path);
 
     // Before starting we need to lock the GUI to avoid interferance with reload/update
     // triggered by other part of the application (eg: changing the renderedEditor)
@@ -2361,6 +2292,84 @@ void MainWindow::rightClick(QPoint position)
     tracemenu.exec(this->qglview->mapToGlobal(position));
   } else {
     clearAllSelectionIndicators();
+  }
+}
+
+/**
+ * Adds one entry per step of a getNodeByID() path, primitive first, to a picker menu.
+ */
+void MainWindow::addPickerMenuSteps(QMenu& menu,
+                                    const std::deque<std::shared_ptr<const AbstractNode>>& path)
+{
+  std::stringstream ss;
+  const bool currentFileOnly = Settings::Settings::pickMenuCurrentFileOnly.value();
+  for (const auto& step : path) {
+    // Skip certain node types
+    if (step->name() == "root") {
+      continue;
+    }
+    const bool hasSourceRef = step->modinst && !step->modinst->location().isNone();
+    if (currentFileOnly) {
+      if (!hasSourceRef) continue;
+      const auto& fileName = step->modinst->location().fileName();
+      if (!get_library_for_path(step->modinst->location().filePath()).empty()) continue;
+      if (renderedEditor->filepath.toStdString() != fileName) continue;
+    }
+    if (!hasSourceRef) {
+      // Show an entry so the backtrace stays complete; no jump/highlight (no "id", no hover)
+      std::string name;
+      if (step->modinst) {
+        const std::string vname = step->verbose_name();
+        const int first_position = (vname.find("module") == std::string::npos) ? 0 : 7;
+        name = vname.empty() ? step->modinst->name().str() : vname.substr(first_position);
+      } else {
+        const std::string vname = step->verbose_name();
+        const int first_position = (vname.find("module") == std::string::npos) ? 0 : 7;
+        name = vname.empty() ? "?" : vname.substr(first_position);
+      }
+      ss.str("");
+      ss << name << " (no source reference)";
+      menu.addAction(QString::fromStdString(ss.str()));
+      continue;
+    }
+    auto location = step->modinst->location();
+    ss.str("");
+
+    // Remove the "module" prefix if any as it induce confusion between the module declaration and
+    // instanciation
+    const int first_position = (step->verbose_name().find("module") == std::string::npos) ? 0 : 7;
+    std::string name = step->verbose_name().substr(first_position);
+
+    // It happens that the verbose_name is empty (eg: in for loops), when this happens instead of
+    // letting empty entry in the menu we prefer using the name in the modinstanciation.
+    if (step->verbose_name().empty()) name = step->modinst->name();
+
+    // Check if the path is contained in a library (using parsersettings.h)
+    const fs::path libpath = get_library_for_path(location.filePath());
+    if (!libpath.empty()) {
+      // Display the library (without making the window too wide!)
+      ss << name << " (library " << location.fileName().substr(libpath.string().length() + 1) << ":"
+         << location.firstLine() << ")";
+    } else if (renderedEditor->filepath.toStdString() == location.fileName()) {
+      // removes the "module" prefix if any as it makes it not clear if it is module declaration or
+      // call.
+      ss << name << " (" << location.filePath().filename().string() << ":" << location.firstLine()
+         << ")";
+    } else {
+      auto relative_filename =
+        fs_uncomplete(location.filePath(),
+                      fs::path(renderedEditor->filepath.toStdString()).parent_path())
+          .generic_string();
+
+      // Set the displayed name relative to the active editor window
+      ss << name << " (" << relative_filename << ":" << location.firstLine() << ")";
+    }
+    // Prepare the action to be sent
+    auto action = menu.addAction(QString::fromStdString(ss.str()));
+    if (editorDock->isVisible()) {
+      action->setProperty("id", step->idx);
+      connect(action, &QAction::hovered, this, &MainWindow::onHoveredObjectInSelectionMenu);
+    }
   }
 }
 

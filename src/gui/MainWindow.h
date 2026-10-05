@@ -27,6 +27,7 @@
 #include <QUrl>
 #include <QWidget>
 #include <ctime>
+#include <deque>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -463,6 +464,7 @@ private:
   std::shared_ptr<CSGProducts> highlightsProducts;
   std::shared_ptr<CSGProducts> backgroundProducts;
   int currentlySelectedObject{-1};
+  void addPickerMenuSteps(QMenu& menu, const std::deque<std::shared_ptr<const AbstractNode>>& path);
 
   char const *afterCompileSlot;
   bool procevents{false};
