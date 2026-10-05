@@ -142,8 +142,9 @@ int MouseSelector::select(const Renderer *renderer, int x, int y)
 
   // Grab the color from the framebuffer and convert it back to an identifier
   GLubyte color[3] = {0};
-  // Qt position is originated top-left, so flip y to get GL coordinates.
-  GL_CHECKD(glReadPixels(x, height - y, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, color));
+  // Qt counts rows from the top, GL from the bottom.
+  const int row = height - 1 - y;
+  GL_CHECKD(glReadPixels(x, row, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, color));
 
   const int index = (uint32_t)color[0] | ((uint32_t)color[1] << 8) | ((uint32_t)color[2] << 16);
 
