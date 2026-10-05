@@ -1431,7 +1431,7 @@
     <bool>true</bool>
    </property>
    <property name="text">
-    <string>&amp;Automatic Reload and Preview</string>
+    <string>&amp;Automatic Reload and Render</string>
    </property>
   </action>
   <action name="fileActionExportImage">

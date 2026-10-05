@@ -402,6 +402,7 @@ public:
 
 public slots:
   void actionReloadRenderPreview();
+  void actionReloadRender();
   void on_designActionReloadAndPreview_triggered();
   void on_toolButtonCompileResultClose_clicked();
   void processEvents();

@@ -1884,7 +1884,7 @@ void MainWindow::parseTopLevelDocument()
 void MainWindow::checkAutoReload()
 {
   if (!activeEditor->filepath.isEmpty()) {
-    actionReloadRenderPreview();
+    actionReloadRender();
   }
 }
 
@@ -1928,6 +1928,23 @@ void MainWindow::actionReloadRenderPreview()
   this->afterCompileSlot = "csgReloadRender";
   this->procevents = true;
   this->isPreview = true;
+  compile(true);
+}
+
+/*!
+   Like actionReloadRenderPreview(), but renders (F6). compile() only reaches cgalRender()
+   when the file or one of its dependencies changed.
+ */
+void MainWindow::actionReloadRender()
+{
+  if (GuiLocker::isLocked()) return;
+  GuiLocker::lock();
+  autoReloadTimer->stop();
+  setCurrentOutput();
+
+  this->afterCompileSlot = "cgalRender";
+  this->procevents = true;
+  this->isPreview = false;
   compile(true);
 }
 
