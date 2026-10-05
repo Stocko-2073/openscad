@@ -29,6 +29,7 @@
 #include <ctime>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -57,6 +58,7 @@ class ThrownTogetherRenderer;
 namespace OpenScad::Animate { struct FrameResult; }
 
 #include "RenderStatistic.h"
+#include "core/PickAttribution.h"
 #include "core/Tree.h"
 #include "geometry/Geometry.h"
 #include "gui/Editor.h"
@@ -465,6 +467,17 @@ private:
   std::shared_ptr<CSGProducts> backgroundProducts;
   int currentlySelectedObject{-1};
   void addPickerMenuSteps(QMenu& menu, const std::deque<std::shared_ptr<const AbstractNode>>& path);
+
+  // Right-click attribution (core/PickAttribution.h), built on first use and dropped with the tree
+  // or rootGeom it came from.
+  std::unordered_map<int, std::vector<pick::Leaf>> pickRenderLeaves;  // preview, by render() index
+  std::optional<std::vector<pick::Leaf>> pickRootLeaves;              // F6 view
+  std::optional<std::vector<pick::PlacedMesh>> pickRootSurface;       // F6 view
+  // rootProduct holds an Animate frame's products, whose node indices don't match rootNode.
+  bool animationFrameShown{false};
+  void resetPickMemo();
+  std::vector<int> pickPrimitives(const QGLView::PickResult& picked, bool renderView);
+  void addPickerAlsoHere(QMenu& menu, const std::vector<int>& primitives);
 
   char const *afterCompileSlot;
   bool procevents{false};

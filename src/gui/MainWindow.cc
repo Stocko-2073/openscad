@@ -56,6 +56,7 @@
 #include <QProcess>
 #include <QProgressDialog>
 #include <QScreen>
+#include <QSet>
 #include <QSettings>  //Include QSettings for direct operations on settings arrays
 #include <QSignalMapper>
 #include <QSoundEffect>
@@ -102,6 +103,8 @@
 #include "core/DatalessFiles.h"
 #include "core/EvaluationSession.h"
 #include "core/Expression.h"
+#include "core/PickAttribution.h"
+#include "core/RenderNode.h"
 #include "core/RenderVariables.h"
 #include "core/ScopeContext.h"
 #include "core/Settings.h"
@@ -996,6 +999,9 @@ void MainWindow::instantiateRoot()
   this->csgRoot.reset();
   this->normalizedRoot.reset();
   this->rootProduct.reset();
+  // Picker attribution refers to the old tree's node indices.
+  resetPickMemo();
+  this->animationFrameShown = false;
 
   this->rootNode.reset();
   this->tree.setRoot(nullptr);
@@ -2019,6 +2025,9 @@ void MainWindow::showAnimationFrame(std::shared_ptr<OpenScad::Animate::FrameResu
   this->rootProduct = frame->root_products;
   this->highlightsProducts = frame->highlights_products;
   this->backgroundProducts = frame->background_products;
+  // The frame's node indices don't match rootNode, so the picker can't look inside its render()s.
+  resetPickMemo();
+  this->animationFrameShown = true;
 
 #ifdef ENABLE_OPENCSG
   if (this->rootProduct
@@ -2125,6 +2134,7 @@ void MainWindow::cgalRender()
   this->qglview->setRenderer(nullptr);
   this->geomRenderer = nullptr;
   rootGeom.reset();
+  resetPickMemo();  // the F6 surface comes from rootGeom
 
   LOG("Rendering Polygon Mesh using %1$s...",
       renderBackend3DToString(RenderSettings::inst()->backend3D).c_str());
@@ -2259,16 +2269,22 @@ void MainWindow::leftClick(QPoint mouse)
 void MainWindow::rightClick(QPoint position)
 {
   // selecting without a renderer?!
-  if (!this->qglview->renderer) {
+  if (!this->qglview->renderer || !this->rootNode) {
     return;
   }
+  // The F6 view draws no ID colors; its picks are attributed geometrically.
+  const bool renderView = this->qglview->renderer == this->geomRenderer;
   // Nothing to select
-  if (!this->rootProduct) {
+  if (renderView ? !this->rootGeom : !this->rootProduct) {
     return;
   }
 
   // Select the object at mouse coordinates
-  const int index = this->qglview->pickObject(position).index;
+  const QGLView::PickResult picked = this->qglview->pickObject(position);
+  // Inside a render() or the F6 result, name the primitive under the cursor.
+  const std::vector<int> primitives = pickPrimitives(picked, renderView);
+  int index = renderView ? -1 : picked.index;
+  if (!primitives.empty()) index = primitives.front();
   std::deque<std::shared_ptr<const AbstractNode>> path;
   const std::shared_ptr<const AbstractNode> result = this->rootNode->getNodeByID(index, path);
 
@@ -2276,6 +2292,7 @@ void MainWindow::rightClick(QPoint position)
     // Create context menu with the backtrace
     QMenu tracemenu(this);
     addPickerMenuSteps(tracemenu, path);
+    addPickerAlsoHere(tracemenu, primitives);
 
     // Before starting we need to lock the GUI to avoid interferance with reload/update
     // triggered by other part of the application (eg: changing the renderedEditor)
@@ -2371,6 +2388,102 @@ void MainWindow::addPickerMenuSteps(QMenu& menu,
       connect(action, &QAction::hovered, this, &MainWindow::onHoveredObjectInSelectionMenu);
     }
   }
+}
+
+/**
+ * Adds a submenu for each further primitive whose face is at the clicked point (coincident faces)
+ * after the first one's chain.
+ */
+void MainWindow::addPickerAlsoHere(QMenu& menu, const std::vector<int>& primitives)
+{
+  constexpr int maxSubmenus = 8;
+  int added = 0;
+  // Skip chains that show the same first entry as one already in the menu: "current file only"
+  // can reduce two primitives to the same module call.
+  QSet<QString> shown;
+  if (!menu.actions().isEmpty()) shown.insert(menu.actions().front()->text());
+  for (size_t i = 1; i < primitives.size() && added < maxSubmenus; ++i) {
+    std::deque<std::shared_ptr<const AbstractNode>> path;
+    if (!this->rootNode->getNodeByID(primitives[i], path)) continue;
+    auto *submenu = new QMenu(&menu);
+    addPickerMenuSteps(*submenu, path);
+    if (submenu->actions().isEmpty() || shown.contains(submenu->actions().front()->text())) {
+      delete submenu;
+      continue;
+    }
+    const QAction *first = submenu->actions().front();
+    shown.insert(first->text());
+    submenu->setTitle(QString(_("Also here: %1")).arg(first->text()));
+    // Hovering the submenu's title highlights its primitive, like its first entry would.
+    if (first->property("id").isValid()) {
+      submenu->menuAction()->setProperty("id", first->property("id"));
+      connect(submenu->menuAction(), &QAction::hovered, this,
+              &MainWindow::onHoveredObjectInSelectionMenu);
+    }
+    if (added == 0 && !menu.actions().isEmpty()) menu.addSeparator();
+    menu.addMenu(submenu);
+    ++added;
+  }
+}
+
+/**
+ * Names the primitives under the cursor when the picked mesh hides them: a render() in preview,
+ * or the whole result in the F6 view. Empty when there is nothing to add to the ID pass's answer.
+ */
+std::vector<int> MainWindow::pickPrimitives(const QGLView::PickResult& picked, bool renderView)
+{
+  // This runs geometry code on the GUI thread: never during a compile or render. An animation
+  // frame's products don't belong to rootNode.
+  if (!picked.depthT || GuiLocker::isLocked() || this->animationFrameShown) return {};
+  const pick::Ray ray{picked.rayOrigin, picked.rayDirection};
+  try {
+    if (renderView) {
+      if (!this->pickRootLeaves) {
+        QApplication::setOverrideCursor(Qt::WaitCursor);
+        auto restoreCursor = sg::make_scope_guard([]() { QApplication::restoreOverrideCursor(); });
+        // Marked as attempted first, so a failure isn't retried on every click.
+        this->pickRootLeaves.emplace();
+        this->pickRootSurface = pick::surfaceOf(this->rootGeom);
+        if (!this->pickRootSurface->empty()) {
+          *this->pickRootLeaves =
+            pick::collectLeaves(this->tree, *this->rootNode, Transform3d::Identity());
+        }
+      }
+      if (!this->pickRootSurface) return {};
+      // The F6 view draws exactly this surface, so the first crossing is the one shown.
+      return pick::attribute(*this->pickRootSurface, *this->pickRootLeaves, ray, std::nullopt);
+    }
+
+    // In preview only a render() hides primitives; anything else the ID pass names already is one.
+    std::deque<std::shared_ptr<const AbstractNode>> path;
+    const auto node = this->rootNode->getNodeByID(picked.index, path);
+    if (!std::dynamic_pointer_cast<const RenderNode>(node)) return {};
+    std::shared_ptr<CSGLeaf> leaf;
+    for (const auto& products :
+         {this->rootProduct, this->highlightsProducts, this->backgroundProducts}) {
+      if (products && (leaf = pick::findLeaf(*products, picked.index))) break;
+    }
+    if (!leaf || !leaf->polyset || leaf->polyset->getDimension() != 3) return {};
+    auto it = this->pickRenderLeaves.find(picked.index);
+    if (it == this->pickRenderLeaves.end()) {
+      QApplication::setOverrideCursor(Qt::WaitCursor);
+      auto restoreCursor = sg::make_scope_guard([]() { QApplication::restoreOverrideCursor(); });
+      it = this->pickRenderLeaves.emplace(picked.index, std::vector<pick::Leaf>{}).first;
+      it->second = pick::collectLeaves(this->tree, *node, leaf->matrix);
+    }
+    // The depth picks the crossing drawn: a subtracted render() shows its far side.
+    return pick::attribute({{leaf->polyset, leaf->matrix}}, it->second, ray, picked.depthT);
+  } catch (...) {
+    // Best effort: keep what the ID pass found.
+    return {};
+  }
+}
+
+void MainWindow::resetPickMemo()
+{
+  this->pickRenderLeaves.clear();
+  this->pickRootLeaves.reset();
+  this->pickRootSurface.reset();
 }
 
 void MainWindow::measureFinished()
@@ -3299,6 +3412,8 @@ void MainWindow::onTabManagerAboutToCloseEditor(EditorInterface *closingEditor)
     this->csgRoot.reset();
     this->normalizedRoot.reset();
     this->rootProduct.reset();
+    resetPickMemo();
+    this->animationFrameShown = false;
 
     this->rootNode.reset();
     this->tree.setRoot(nullptr);
