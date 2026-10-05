@@ -90,10 +90,12 @@ void MouseSelector::setupFramebuffer(int width, int height)
  * The renderer has to support rendering with ID colors (using the shader we provide),
  * otherwise the selection won't work.
  *
- * returns index of picked node (AbstractNode::idx) or -1 if no object was found.
+ * returns index of picked node (AbstractNode::idx), 0 over the background, or -1 if (x, y) is
+ * outside the view. `depth`, when given, receives the window depth drawn there (1 where nothing was).
  */
-int MouseSelector::select(const Renderer *renderer, int x, int y)
+int MouseSelector::select(const Renderer *renderer, int x, int y, float *depth)
 {
+  if (depth) *depth = 1.0f;
   if (!this->framebuffer) return -1;
 
   // This function should render a frame, as usual, with the following changes:
@@ -147,6 +149,11 @@ int MouseSelector::select(const Renderer *renderer, int x, int y)
   GL_CHECKD(glReadPixels(x, row, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, color));
 
   const int index = (uint32_t)color[0] | ((uint32_t)color[1] << 8) | ((uint32_t)color[2] << 16);
+
+  // Before unbinding: the depth lives in this framebuffer, not the widget's.
+  if (depth) {
+    GL_CHECKD(glReadPixels(x, row, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, depth));
+  }
 
   // Switch the active framebuffer back to the default
   this->framebuffer->unbind();

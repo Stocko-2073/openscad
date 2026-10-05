@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <array>
+#include <optional>
 #include <QImage>
 #include <QMouseEvent>
 #include <QPoint>
@@ -53,7 +54,16 @@ public:
   std::vector<SelectedObject> findObject(int x, int y);
   int measure_state;
 
-  int pickObject(QPoint position);
+  // What a right-click hit in the 3D view.
+  struct PickResult {
+    int index = -1;  // AbstractNode::idx from the ID pass (meaningless in the F6 view)
+    // Set only when the pixel shows geometry: the world-space ray through the pixel's center, from
+    // the near clipping plane (t = 0) to the far plane (t = 1), and the t of the surface drawn there.
+    std::optional<double> depthT;
+    Vector3d rayOrigin = Vector3d::Zero();
+    Vector3d rayDirection = Vector3d::Zero();
+  };
+  PickResult pickObject(QPoint position);
 
 public slots:
   void ZoomIn();

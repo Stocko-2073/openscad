@@ -645,18 +645,41 @@ void QGLView::selectPoint(int mouse_x, int mouse_y)
   }
 }
 
-int QGLView::pickObject(QPoint position)
+QGLView::PickResult QGLView::pickObject(QPoint position)
 {
-  if (!isValid()) return -1;
+  PickResult result;
+  if (!isValid() || !this->getRenderer()) return result;
 
-  if (this->getRenderer()) {
-    this->makeCurrent();
-    auto guard = sg::make_scope_guard([this]() { this->doneCurrent(); });
+  this->makeCurrent();
+  auto guard = sg::make_scope_guard([this]() { this->doneCurrent(); });
 
-    // Update the selector with the right image size
-    this->selector->reset(this);
+  // Update the selector with the right image size
+  this->selector->reset(this);
 
-    return this->selector->select(this->getRenderer(), position.x(), position.y());
+  float depth = 1.0f;
+  result.index = this->selector->select(this->getRenderer(), position.x(), position.y(), &depth);
+  if (result.index < 0 || depth >= 1.0f) return result;  // outside the view, or background
+
+  // select() drew with this->modelview and this->projection (its setupCamera() refreshed them) into
+  // a framebuffer of cam.pixel_width x cam.pixel_height logical pixels, the units of `position`.
+  const auto width = static_cast<GLint>(this->cam.pixel_width);
+  const auto height = static_cast<GLint>(this->cam.pixel_height);
+  const GLint viewport[4] = {0, 0, width, height};
+  const double winX = position.x() + 0.5;
+  const double winY = height - 1 - position.y() + 0.5;
+  const auto unproject = [&](double winZ, Vector3d& out) {
+    return gluUnProject(winX, winY, winZ, this->modelview, this->projection, viewport, &out.x(),
+                        &out.y(), &out.z()) == GL_TRUE;
+  };
+  Vector3d nearPoint, farPoint, surfacePoint;
+  if (!unproject(0, nearPoint) || !unproject(1, farPoint) || !unproject(depth, surfacePoint)) {
+    return result;
   }
-  return -1;
+  const Vector3d direction = farPoint - nearPoint;
+  if (!(direction.squaredNorm() > 0)) return result;
+  result.rayOrigin = nearPoint;
+  result.rayDirection = direction;
+  // Window depth is not linear in perspective, so measure along the ray instead.
+  result.depthT = (surfacePoint - nearPoint).dot(direction) / direction.squaredNorm();
+  return result;
 }

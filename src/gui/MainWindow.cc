@@ -2268,7 +2268,7 @@ void MainWindow::rightClick(QPoint position)
   }
 
   // Select the object at mouse coordinates
-  const int index = this->qglview->pickObject(position);
+  const int index = this->qglview->pickObject(position).index;
   std::deque<std::shared_ptr<const AbstractNode>> path;
   const std::shared_ptr<const AbstractNode> result = this->rootNode->getNodeByID(index, path);
 

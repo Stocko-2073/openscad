@@ -18,7 +18,8 @@ public:
   /// Resize the renderbuffer
   void reset(GLView *view);
 
-  int select(const Renderer *renderer, int x, int y);
+  // `depth`, when given, receives the window depth drawn at (x, y): 1 where nothing was drawn.
+  int select(const Renderer *renderer, int x, int y, float *depth = nullptr);
 
   ShaderUtils::ShaderInfo shaderinfo;
 
