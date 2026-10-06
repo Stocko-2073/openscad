@@ -13,47 +13,27 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <typeinfo>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "Feature.h"
 #include "core/Arguments.h"
-#include "core/CgalAdvNode.h"
-#include "core/ColorNode.h"
 #include "core/Context.h"
-#include "core/CsgOpNode.h"
 #include "core/EvaluationSession.h"
 #include "core/Expression.h"
-#include "core/ImportNode.h"
-#include "core/LinearExtrudeNode.h"
 #include "core/LocalScope.h"
 #include "core/ModuleInstantiation.h"
-#include "core/OffsetNode.h"
-#include "core/ProjectionNode.h"
-#include "core/RenderNode.h"
-#include "core/RotateExtrudeNode.h"
 #include "core/ScopeContext.h"
 #include "core/SourceFile.h"
 #include "core/SourceFileCache.h"
-#include "core/SurfaceNode.h"
-#include "core/TextNode.h"
-#include "core/TransformNode.h"
 #include "core/UserModule.h"
 #include "core/Value.h"
 #include "core/function.h"
 #include "core/node.h"
 #include "core/parsersettings.h"
-#include "core/primitives.h"
 #include "utils/compiler_specific.h"
 #include "utils/printutils.h"
-#ifdef ENABLE_PHYSICS
-#include "core/PhysicsNode.h"
-#endif
-#if defined(ENABLE_EXPERIMENTAL) && defined(ENABLE_CGAL)
-#include "core/RoofNode.h"
-#endif
 
 namespace fs = std::filesystem;
 
@@ -116,43 +96,6 @@ const SourceFile *usedFileDefining(const SourceFile& file, const Identifier& nam
                                   : used->scope->lookup<UserFunction *>(name).has_value();
     if (defined) return used;
   }
-  return nullptr;
-}
-
-std::shared_ptr<AbstractNode> copyNode(const AbstractNode& node)
-{
-  const std::type_info& type = typeid(node);
-#define MEMO_COPY_NODE(T) \
-  if (type == typeid(T)) return std::make_shared<T>(static_cast<const T&>(node));
-  MEMO_COPY_NODE(GroupNode)
-  MEMO_COPY_NODE(TransformNode)
-  MEMO_COPY_NODE(ColorNode)
-  MEMO_COPY_NODE(CsgOpNode)
-  MEMO_COPY_NODE(ListNode)
-  MEMO_COPY_NODE(RenderNode)
-  MEMO_COPY_NODE(CgalAdvNode)
-  MEMO_COPY_NODE(CubeNode)
-  MEMO_COPY_NODE(SphereNode)
-  MEMO_COPY_NODE(CylinderNode)
-  MEMO_COPY_NODE(PolyhedronNode)
-  MEMO_COPY_NODE(SquareNode)
-  MEMO_COPY_NODE(CircleNode)
-  MEMO_COPY_NODE(PolygonNode)
-  MEMO_COPY_NODE(LinearExtrudeNode)
-  MEMO_COPY_NODE(RotateExtrudeNode)
-  MEMO_COPY_NODE(OffsetNode)
-  MEMO_COPY_NODE(ProjectionNode)
-  MEMO_COPY_NODE(TextNode)
-  MEMO_COPY_NODE(ImportNode)
-  MEMO_COPY_NODE(SurfaceNode)
-  MEMO_COPY_NODE(AbstractIntersectionNode)
-#ifdef ENABLE_PHYSICS
-  MEMO_COPY_NODE(PhysicsNode)
-#endif
-#if defined(ENABLE_EXPERIMENTAL) && defined(ENABLE_CGAL)
-  MEMO_COPY_NODE(RoofNode)
-#endif
-#undef MEMO_COPY_NODE
   return nullptr;
 }
 
@@ -925,10 +868,8 @@ void EvalMemoSession::replayReads(EvaluationSession& session, const Entry& entry
 
 std::shared_ptr<AbstractNode> EvalMemoSession::cloneTree(const AbstractNode& node, size_t& count)
 {
-  std::shared_ptr<AbstractNode> copy = copyNode(node);
+  std::shared_ptr<AbstractNode> copy = node.copy();
   if (!copy) return nullptr;
-  copy->idx = AbstractNode::takeIndex();
-  copy->children.clear();
   copy->children.reserve(node.children.size());
   for (const auto& child : node.children) {
     auto childCopy = cloneTree(*child, count);

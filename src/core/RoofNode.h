@@ -22,6 +22,7 @@ public:
   }
   std::string toString() const override;
   std::string name() const override { return "roof"; }
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
 
   CurveDiscretizer discretizer;
   int convexity = 1;

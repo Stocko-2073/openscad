@@ -33,6 +33,7 @@ public:
   }
   std::string toString() const override;
   std::string name() const override;
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
 
   ImportType type;
   Filename filename;

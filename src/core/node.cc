@@ -46,6 +46,29 @@ AbstractNode::AbstractNode(const ModuleInstantiation *mi)
 {
 }
 
+// Indices must be unique within a tree, and a copy usually joins the tree of
+// the node it copies.
+AbstractNode::AbstractNode(const AbstractNode& other)
+  : BaseVisitable(other),
+    std::enable_shared_from_this<AbstractNode>(other),
+    modinst(other.modinst),
+    idx(static_cast<int>(idx_counter.fetch_add(1, std::memory_order_relaxed)))
+{
+}
+
+std::shared_ptr<AbstractNode> AbstractNode::clone() const
+{
+  auto copy = this->copy();
+  if (!copy) return nullptr;
+  copy->children.reserve(this->children.size());
+  for (const auto& child : this->children) {
+    auto child_copy = child->clone();
+    if (!child_copy) return nullptr;
+    copy->children.push_back(std::move(child_copy));
+  }
+  return copy;
+}
+
 std::string AbstractNode::toString() const
 {
   return this->name() + "()";
@@ -144,6 +167,13 @@ std::string ListNode::name() const
 std::string RootNode::name() const
 {
   return "root";
+}
+
+std::shared_ptr<AbstractNode> RootNode::copy() const
+{
+  if (typeid(*this) != typeid(RootNode)) return nullptr;
+  // Nothing to carry over: a fresh root has its own mi and no children.
+  return std::make_shared<RootNode>();
 }
 
 std::string AbstractIntersectionNode::toString() const

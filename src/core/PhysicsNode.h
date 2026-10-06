@@ -15,6 +15,7 @@ public:
   PhysicsNode(const ModuleInstantiation *mi) : AbstractNode(mi) {}
   std::string toString() const override;
   std::string name() const override { return "physics"; }
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
 
   double density{1.0};
   double friction{0.5};

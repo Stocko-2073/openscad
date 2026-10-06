@@ -19,6 +19,7 @@ public:
   }
   std::string toString() const override;
   std::string name() const override { return "linear_extrude"; }
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
 
   Vector3d height = Vector3d(0, 0, 1);
   CurveDiscretizer discretizer;

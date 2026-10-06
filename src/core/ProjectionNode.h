@@ -12,6 +12,7 @@ public:
   ProjectionNode(const ModuleInstantiation *mi) : AbstractPolyNode(mi) {}
   std::string toString() const override;
   std::string name() const override { return "projection"; }
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
 
   int convexity{1};
   bool cut_mode{false};

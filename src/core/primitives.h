@@ -50,6 +50,7 @@ public:
     return stream.str();
   }
   std::string name() const override { return "cube"; }
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
   std::unique_ptr<const Geometry> createGeometry() const override;
 
   double x = 1, y = 1, z = 1;
@@ -65,6 +66,7 @@ public:
   }
   std::string toString() const override;
   std::string name() const override { return "sphere"; }
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
   std::unique_ptr<const Geometry> createGeometry() const override;
 
   CurveDiscretizer discretizer;
@@ -80,6 +82,7 @@ public:
   }
   std::string toString() const override;
   std::string name() const override { return "cylinder"; }
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
   std::unique_ptr<const Geometry> createGeometry() const override;
 
   CurveDiscretizer discretizer;
@@ -93,6 +96,7 @@ public:
   PolyhedronNode(const ModuleInstantiation *mi) : LeafNode(mi) {}
   std::string toString() const override;
   std::string name() const override { return "polyhedron"; }
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
   std::unique_ptr<const Geometry> createGeometry() const override;
 
   std::vector<Vector3d> points;
@@ -112,6 +116,7 @@ public:
     return stream.str();
   }
   std::string name() const override { return "square"; }
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
   std::unique_ptr<const Geometry> createGeometry() const override;
 
   double x = 1, y = 1;
@@ -127,6 +132,7 @@ public:
   }
   std::string toString() const override;
   std::string name() const override { return "circle"; }
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
   std::unique_ptr<const Geometry> createGeometry() const override;
 
   CurveDiscretizer discretizer;
@@ -139,6 +145,7 @@ public:
   PolygonNode(const ModuleInstantiation *mi) : LeafNode(mi) {}
   std::string toString() const override;
   std::string name() const override { return "polygon"; }
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
   std::unique_ptr<const Geometry> createGeometry() const override;
 
   std::vector<Vector2d> points;

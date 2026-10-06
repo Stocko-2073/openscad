@@ -20,6 +20,7 @@ public:
 
   std::string toString() const override;
   std::string name() const override { return "offset"; }
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
 
   bool chamfer{false};
   CurveDiscretizer discretizer;

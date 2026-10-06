@@ -23,6 +23,7 @@ public:
 
   std::string toString() const override;
   std::string name() const override { return "text"; }
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
 
   std::vector<std::shared_ptr<const Polygon2d>> createPolygonList() const;
 

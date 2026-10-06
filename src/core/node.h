@@ -6,6 +6,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <typeinfo>
 #include <utility>
 #include <vector>
 
@@ -55,8 +56,6 @@ public:
   int index() const { return this->idx; }
 
   static void resetIndexCounter() { idx_counter.store(1, std::memory_order_relaxed); }
-  // A fresh index, for nodes copied rather than constructed. See core/EvalMemo.h.
-  static int takeIndex() { return static_cast<int>(idx_counter.fetch_add(1, std::memory_order_relaxed)); }
 
   // FIXME: Make protected
   std::vector<std::shared_ptr<AbstractNode>> children;
@@ -80,7 +79,27 @@ public:
   void findNodesWithSameMod(const std::shared_ptr<const AbstractNode>& node_mod,
                             std::vector<std::shared_ptr<const AbstractNode>>& nodes) const;
 
-  std::shared_ptr<AbstractNode> clone(void);
+  /*
+   * A copy of this node without its children, under a fresh index, or null
+   * if the node's class has no copy() of its own. Every concrete class
+   * implements it as copyAs(*this); one that forgets inherits its base's,
+   * which refuses rather than slicing the node to the base class.
+   */
+  [[nodiscard]] virtual std::shared_ptr<AbstractNode> copy() const = 0;
+  // A deep copy of this subtree under fresh indices, or null if some node in it cannot be copied.
+  [[nodiscard]] std::shared_ptr<AbstractNode> clone() const;
+
+protected:
+  // What copy() copies: everything but the children and the index.
+  AbstractNode(const AbstractNode& other);
+  AbstractNode& operator=(const AbstractNode&) = delete;
+
+  template <class T>
+  static std::shared_ptr<AbstractNode> copyAs(const T& node)
+  {
+    if (typeid(node) != typeid(T)) return nullptr;
+    return std::make_shared<T>(node);
+  }
 };
 
 class AbstractIntersectionNode : public AbstractNode
@@ -90,6 +109,7 @@ public:
   AbstractIntersectionNode(const ModuleInstantiation *mi) : AbstractNode(mi) {}
   std::string toString() const override;
   std::string name() const override;
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
 };
 
 class AbstractPolyNode : public AbstractNode
@@ -110,6 +130,7 @@ public:
   VISITABLE();
   ListNode(const ModuleInstantiation *mi) : AbstractNode(mi) {}
   std::string name() const override;
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
 };
 
 /*!
@@ -126,6 +147,7 @@ public:
   }
   std::string name() const override;
   std::string verbose_name() const override;
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
 
 private:
   const std::string _name;
@@ -139,7 +161,10 @@ class RootNode : public GroupNode
 public:
   VISITABLE();
   RootNode() : GroupNode(&mi), mi("group") {}
+  // A copy would point at the original's mi.
+  RootNode(const RootNode&) = delete;
   std::string name() const override;
+  std::shared_ptr<AbstractNode> copy() const override;
 
 private:
   ModuleInstantiation mi;

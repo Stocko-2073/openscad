@@ -25,6 +25,7 @@ public:
 
   std::string toString() const override;
   std::string name() const override { return "rotate_extrude"; }
+  std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
 
   int convexity;
   CurveDiscretizer discretizer;
