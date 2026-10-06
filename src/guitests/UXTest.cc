@@ -19,5 +19,5 @@ void UXTest::restoreWindowInitialState()
     window->tabManager->closeCurrentTab();
   }
 
-  window->designActionAutoReload->setChecked(true);  // Enable auto-reload  & preview
+  window->designActionAutoReload->setChecked(true);  // Enable auto-reload  & render
 }

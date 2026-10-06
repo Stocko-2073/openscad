@@ -89,8 +89,6 @@ public:
 
   QTimer *consoleUpdater;
 
-  bool isPreview;
-
   QTimer *autoReloadTimer;
   QTimer *waitAfterReloadTimer;
   RenderStatistic renderStatistic;
@@ -242,7 +240,7 @@ private:
 
   void loadViewSettings();
   void loadDesignSettings();
-  void prepareCompile(const char *afterCompileSlot, bool procevents, bool preview);
+  void prepareCompile(const char *afterCompileSlot, bool procevents);
   void saveBackup();
   void writeBackup(QFile *file);
   void show_examples();
@@ -353,8 +351,6 @@ protected:
 
 public slots:
   void actionRender();
-  void actionRenderPreview();
-  void on_designActionPreview_triggered();
 private slots:
   void csgRender();
   void csgReloadRender();
@@ -403,9 +399,8 @@ public:
   std::unordered_map<FileFormat, QAction *> exportMap;
 
 public slots:
-  void actionReloadRenderPreview();
   void actionReloadRender();
-  void on_designActionReloadAndPreview_triggered();
+  void on_designActionReloadAndRender_triggered();
   void on_toolButtonCompileResultClose_clicked();
   void processEvents();
   void jumpToLine(int, int);
@@ -492,7 +487,7 @@ private:
   ProgressWidget *progresswidget{nullptr};
   CGALWorker *cgalworker;
   QMutex consolemutex;
-  EditorInterface *renderedEditor;  // stores pointer to editor which has been most recently rendered
+  EditorInterface *renderedEditor{nullptr};  // the editor most recently rendered
   time_t includesMTime{0};          // latest include mod time
   time_t depsMTime{0};              // latest dependency mod time
 
@@ -504,8 +499,7 @@ private:
   void recompileDownloadedFiles();
   bool downloadingDeferredFiles{false};
   bool recompileAfterDownload{false};
-  bool renderAfterDownload{false};  // the compile waiting for the download was a render (F6)
-  std::unordered_set<std::string> failedDownloads;  // not retried until the next F5/F6
+  std::unordered_set<std::string> failedDownloads;  // not retried until the next render
 
   std::unordered_map<QString, QString> exportPaths;  // for each file type, where it was exported to last
   QString exportPath(

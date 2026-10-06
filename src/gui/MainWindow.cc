@@ -838,10 +838,7 @@ bool MainWindow::downloadDeferredFiles(bool recompileAfter)
     if (!this->failedDownloads.count(file)) fetch.push_back(file);
   }
   if (fetch.empty()) return true;  // already reported
-  if (recompileAfter) {
-    this->recompileAfterDownload = true;
-    this->renderAfterDownload = !this->isPreview;
-  }
+  if (recompileAfter) this->recompileAfterDownload = true;
   if (this->downloadingDeferredFiles) return true;  // compiles again when done, skipping any new ones
   this->downloadingDeferredFiles = true;
 
@@ -864,7 +861,7 @@ void MainWindow::deferredFilesDownloaded(const std::vector<std::string>& failed)
   for (const auto& file : failed) {
     this->failedDownloads.insert(file);
     LOG(message_group::Warning,
-        "Could not download '%1$s' from the cloud. Check the connection, then preview again.", file);
+        "Could not download '%1$s' from the cloud. Check the connection, then render again.", file);
   }
   if (!failed.empty()) this->recompileAfterDownload = false;
   if (this->recompileAfterDownload) recompileDownloadedFiles();
@@ -878,8 +875,7 @@ void MainWindow::recompileDownloadedFiles()
     return;
   }
   this->recompileAfterDownload = false;
-  if (this->renderAfterDownload) on_designActionRender_triggered();
-  else actionRenderPreview();
+  actionRender();
 }
 
 void MainWindow::waitAfterReload()
@@ -1686,7 +1682,7 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
 void MainWindow::setRenderVariables(ContextHandle<BuiltinContext>& context)
 {
   const RenderVariables r = {
-    .preview = this->isPreview,
+    .preview = false,
     .time = this->animateWidget->getAnimTval(),
     .camera = qglview->cam,
   };
@@ -1875,27 +1871,14 @@ bool MainWindow::checkEditorModified()
   return true;
 }
 
-void MainWindow::on_designActionReloadAndPreview_triggered()
+void MainWindow::on_designActionReloadAndRender_triggered()
 {
-  actionReloadRenderPreview();
-}
-
-void MainWindow::actionReloadRenderPreview()
-{
-  if (GuiLocker::isLocked()) return;
-  GuiLocker::lock();
-  autoReloadTimer->stop();
-  setCurrentOutput();
-
-  this->afterCompileSlot = "csgReloadRender";
-  this->procevents = true;
-  this->isPreview = true;
-  compile(true);
+  actionReloadRender();
 }
 
 /*!
-   Like actionReloadRenderPreview(), but renders (F6). compile() only reaches cgalRender()
-   when the file or one of its dependencies changed.
+   Renders (F6) if the file or one of its dependencies changed: compile() only reaches
+   cgalRender() then.
  */
 void MainWindow::actionReloadRender()
 {
@@ -1906,7 +1889,6 @@ void MainWindow::actionReloadRender()
 
   this->afterCompileSlot = "cgalRender";
   this->procevents = true;
-  this->isPreview = false;
   compile(true);
 }
 
@@ -1927,7 +1909,7 @@ void MainWindow::csgReloadRender()
   compileEnded();
 }
 
-void MainWindow::prepareCompile(const char *afterCompileSlot, bool procevents, bool preview)
+void MainWindow::prepareCompile(const char *afterCompileSlot, bool procevents)
 {
   this->failedDownloads.clear();  // try downloading them again
   setCurrentOutput();
@@ -1937,36 +1919,6 @@ void MainWindow::prepareCompile(const char *afterCompileSlot, bool procevents, b
   this->processEvents();
   this->afterCompileSlot = afterCompileSlot;
   this->procevents = procevents;
-  this->isPreview = preview;
-}
-
-void MainWindow::on_designActionPreview_triggered()
-{
-  actionRenderPreview();
-}
-
-void MainWindow::actionRenderPreview()
-{
-  static bool preview_requested;
-  preview_requested = true;
-
-  if (GuiLocker::isLocked()) return;
-
-  GuiLocker::lock();
-  preview_requested = false;
-
-  resetMeasurementsState(false, "Render (not preview) to enable measurements");
-
-  prepareCompile("csgRender", !animateDock->isVisible(), true);
-  compile(false, false);
-
-  if (preview_requested) {
-    // if the action was called when the gui was locked, we must request it one more time
-    // however, it's not possible to call it directly NOR make the loop
-    // it must be called from the mainloop
-    QTimer::singleShot(0, this, &MainWindow::actionRenderPreview);
-    return;
-  }
 }
 
 void MainWindow::csgRender()
@@ -2083,7 +2035,7 @@ void MainWindow::actionRender()
   this->renderRequested = false;
   GuiLocker::lock();
 
-  prepareCompile("cgalRender", true, false);
+  prepareCompile("cgalRender", true);
   compile(false);
 }
 
@@ -3470,10 +3422,10 @@ void MainWindow::onTabManagerEditorChanged(EditorInterface *newEditor)
   colorListDock->setNameSuffix(name);
   viewportControlDock->setNameSuffix(name);
 
-  // If there is no renderedEditor we request for a new preview if the
+  // If there is no renderedEditor we request for a new render if the
   // auto-reload is enabled.
   if (renderedEditor == nullptr && designActionAutoReload->isChecked() && !MainWindow::isEmpty()) {
-    actionRenderPreview();
+    actionRender();
   }
 }
 
@@ -4128,6 +4080,10 @@ void MainWindow::setupMenusAndActions()
   updateRecentFileActions();
 
   show_examples();
+  // F5 used to preview. It renders, as F6 does.
+  auto renderShortcuts = this->designActionRender->shortcuts();
+  renderShortcuts.push_back(QKeySequence(Qt::Key_F5));
+  this->designActionRender->setShortcuts(renderShortcuts);
 #ifndef __APPLE__
   auto shortcuts = this->fileActionReload->shortcuts();
   shortcuts.push_back(QKeySequence(Qt::Key_F3));

@@ -21,7 +21,7 @@ OSErr eventHandler(const AppleEvent *, AppleEvent *, SRefCon)
     if (mainwin) break;
   }
   if (mainwin) {
-    mainwin->actionReloadRenderPreview();
+    mainwin->actionReloadRender();
   }
   return noErr;
 }

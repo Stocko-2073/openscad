@@ -49,7 +49,7 @@ private:
   std::map<ParameterObject *, std::vector<ParameterVirtualWidget *>> widgets;
 
   QString invalidJsonFile;  // set if a json file was read that could not be parsed
-  QTimer autoPreviewTimer;
+  QTimer autoRenderTimer;
   bool modified = false;
 
 public:
@@ -67,7 +67,7 @@ public slots:
   void setFontFamilySize(const QString& fontfamily, uint fontsize);
 
 protected slots:
-  void autoPreview(bool immediate = false);
+  void autoRender(bool immediate = false);
   void emitParametersChanged();
   void on_comboBoxPreset_activated(int index);
   void onSetNameChanged();
@@ -80,7 +80,7 @@ protected slots:
   void createSet(const QString& name);
   void updateSetEditability();
   void rebuildWidgets();
-  void on_checkBoxAutoPreview_toggled(bool);
+  void on_checkBoxAutoRender_toggled(bool);
   void on_comboBoxDetails_currentIndexChanged(int);
 
 signals:

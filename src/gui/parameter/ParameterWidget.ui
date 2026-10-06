@@ -32,9 +32,9 @@
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout">
      <item>
-      <widget class="QCheckBox" name="checkBoxAutoPreview">
+      <widget class="QCheckBox" name="checkBoxAutoRender">
        <property name="text">
-        <string>Automatic Preview</string>
+        <string>Automatic Render</string>
        </property>
        <property name="checked">
         <bool>true</bool>
@@ -231,7 +231,7 @@
   </layout>
  </widget>
  <tabstops>
-  <tabstop>checkBoxAutoPreview</tabstop>
+  <tabstop>checkBoxAutoRender</tabstop>
   <tabstop>comboBoxDetails</tabstop>
   <tabstop>comboBoxPreset</tabstop>
   <tabstop>addButton</tabstop>

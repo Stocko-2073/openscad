@@ -60,10 +60,10 @@ ParameterWidget::ParameterWidget(QWidget *parent) : QWidget(parent)
   setupUi(this);
   scrollAreaWidgetContents->layout()->setAlignment(Qt::AlignTop);
 
-  autoPreviewTimer.setInterval(1000);
-  autoPreviewTimer.setSingleShot(true);
+  autoRenderTimer.setInterval(1000);
+  autoRenderTimer.setSingleShot(true);
 
-  connect(&autoPreviewTimer, &QTimer::timeout, this, &ParameterWidget::emitParametersChanged);
+  connect(&autoRenderTimer, &QTimer::timeout, this, &ParameterWidget::emitParametersChanged);
   // connect(comboBoxPreset, &QComboBox::editTextChanged, this, &ParameterWidget::onSetNameChanged);
 
   auto *customizer_menu = new QMenu(this);
@@ -185,21 +185,21 @@ void ParameterWidget::emitParametersChanged()
   emit parametersChanged();
 }
 
-void ParameterWidget::autoPreview(bool immediate)
+void ParameterWidget::autoRender(bool immediate)
 {
-  autoPreviewTimer.stop();
-  if (checkBoxAutoPreview->isChecked()) {
+  autoRenderTimer.stop();
+  if (checkBoxAutoRender->isChecked()) {
     if (immediate) {
       emitParametersChanged();
     } else {
-      autoPreviewTimer.start();
+      autoRenderTimer.start();
     }
   }
 }
 
-void ParameterWidget::on_checkBoxAutoPreview_toggled(bool)
+void ParameterWidget::on_checkBoxAutoRender_toggled(bool)
 {
-  autoPreview(true);
+  autoRender(true);
 }
 
 void ParameterWidget::on_comboBoxDetails_currentIndexChanged(int)
@@ -210,7 +210,7 @@ void ParameterWidget::on_comboBoxDetails_currentIndexChanged(int)
 void ParameterWidget::on_comboBoxPreset_activated(int index)
 {
   loadSet(index);
-  autoPreview(true);
+  autoRender(true);
 }
 
 void ParameterWidget::onSetNameChanged()
@@ -250,7 +250,7 @@ void ParameterWidget::on_deleteButton_clicked()
   comboBoxPreset->removeItem(index);
   sets.erase(sets.begin() + (index - 1));
   setModified();
-  autoPreview(true);
+  autoRender(true);
 }
 
 void ParameterWidget::onCollapseAll()
@@ -301,7 +301,7 @@ void ParameterWidget::parameterModified(bool immediate)
   }
 
   setModified();
-  autoPreview(immediate);
+  autoRender(immediate);
 }
 
 void ParameterWidget::loadSet(size_t index)

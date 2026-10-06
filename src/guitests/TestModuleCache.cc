@@ -1,5 +1,6 @@
 #include "TestModuleCache.h"
 
+#include <QSignalSpy>
 #include <QString>
 #include <QStringList>
 #include <QTest>
@@ -21,6 +22,14 @@ void touchFile(const QString& filename)
   }
 }
 
+// F4: renders if the file changed, on a worker thread, so wait for the compile to end.
+void reloadAndRender(MainWindow *window)
+{
+  QSignalSpy done(window, &MainWindow::compilationDone);
+  window->actionReloadRender();
+  if (done.isEmpty()) QVERIFY2(done.wait(30000), "The render should finish.");
+}
+
 void TestModuleCache::testBasicCache()
 {
   restoreWindowInitialState();
@@ -31,20 +40,20 @@ void TestModuleCache::testBasicCache()
   connect(window, &MainWindow::compilationDone,
           [&currentFile](SourceFile *file) { currentFile = file; });
 
-  window->designActionAutoReload->setChecked(false);  // Disable auto-reload  & preview
+  window->designActionAutoReload->setChecked(false);  // Disable auto-reload  & render
   window->tabManager->open(filename);                 // Open use.scad
-  window->actionReloadRenderPreview();                // F5
+  reloadAndRender(window);
 
   QVERIFY2(currentFile != nullptr, "The file 'test-tmp.scad' should be loaded.");
   previousFile = currentFile;  // save the loaded Source from the
 
-  window->actionReloadRenderPreview();
+  reloadAndRender(window);
   QVERIFY2(previousFile == currentFile,
            "The file should be the same as the file cache should have done its work.");
   sleep(1);
 
   touchFile(filename);
-  window->actionReloadRenderPreview();
+  reloadAndRender(window);
   QVERIFY2(
     previousFile != currentFile,
     "The file should *not* be the same as the file cache should have detected the timestamp change.");
@@ -63,8 +72,8 @@ void TestModuleCache::testMCAD()
 
   QString filename =
     QString::fromStdString(PlatformUtils::resourceBasePath()) + "/tests/modulecache-tests/use-mcad.scad";
-  window->tabManager->open(filename);   // Open use-mcad.scad
-  window->actionReloadRenderPreview();  // F5
+  window->tabManager->open(filename);  // Open use-mcad.scad
+  reloadAndRender(window);
 
   auto node = window->instantiateRootFromSource(window->rootFile.get());
   QVERIFY2(node->verbose_name().empty(), "Root node name must be empty");

@@ -1161,7 +1161,7 @@ bool ScintillaEditor::handleKeyEventBlockCopy(QKeyEvent *keyEvent)
 
 bool ScintillaEditor::handleKeyEventNavigateNumber(QKeyEvent *keyEvent)
 {
-  static bool previewAfterUndo = false;
+  static bool renderAfterUndo = false;
 
 #ifdef Q_OS_MACOS
   unsigned int navigateOnNumberModifiers = Qt::AltModifier | Qt::ShiftModifier | Qt::KeypadModifier;
@@ -1181,20 +1181,20 @@ bool ScintillaEditor::handleKeyEventNavigateNumber(QKeyEvent *keyEvent)
     case Qt::Key_Down:
       if (keyEvent->type() == QEvent::KeyPress) {
         if (modifyNumber(keyEvent->key())) {
-          previewAfterUndo = true;
+          renderAfterUndo = true;
         }
       }
       return true;
     }
   }
-  if (previewAfterUndo && keyEvent->type() == QEvent::KeyPress) {
+  if (renderAfterUndo && keyEvent->type() == QEvent::KeyPress) {
     int k = keyEvent->key() | keyEvent->modifiers();
     auto *cmd = qsci->standardCommands()->boundTo(k);
     if (cmd && (cmd->command() == QsciCommand::Undo || cmd->command() == QsciCommand::Redo))
-      QTimer::singleShot(0, this, &ScintillaEditor::previewRequest);
+      QTimer::singleShot(0, this, &ScintillaEditor::renderRequest);
     else if (cmd || !keyEvent->text().isEmpty()) {
-      // any insert or command (but not undo/redo) cancels the preview after undo
-      previewAfterUndo = false;
+      // any insert or command (but not undo/redo) cancels the render after undo
+      renderAfterUndo = false;
     }
   }
   return false;
@@ -1204,7 +1204,7 @@ bool ScintillaEditor::handleWheelEventNavigateNumber(QWheelEvent *wheelEvent)
 {
   const auto& modifierNumberScrollWheel = Settings::Settings::modifierNumberScrollWheel.value();
   bool modifier;
-  static bool previewAfterUndo = false;
+  static bool renderAfterUndo = false;
 
   if (modifierNumberScrollWheel == "Alt") {
     modifier = wheelEvent->modifiers() & Qt::AltModifier;
@@ -1220,26 +1220,26 @@ bool ScintillaEditor::handleWheelEventNavigateNumber(QWheelEvent *wheelEvent)
 
     if (delta < 0) {
       if (modifyNumber(Qt::Key_Down)) {
-        previewAfterUndo = true;
+        renderAfterUndo = true;
       }
     } else {
       // delta > 0
       if (modifyNumber(Qt::Key_Up)) {
-        previewAfterUndo = true;
+        renderAfterUndo = true;
       }
     }
 
     return true;
   }
 
-  if (previewAfterUndo) {
+  if (renderAfterUndo) {
     int k = wheelEvent->buttons() & Qt::LeftButton;
     auto *cmd = qsci->standardCommands()->boundTo(k);
     if (cmd && (cmd->command() == QsciCommand::Undo || cmd->command() == QsciCommand::Redo))
-      QTimer::singleShot(0, this, &ScintillaEditor::previewRequest);
+      QTimer::singleShot(0, this, &ScintillaEditor::renderRequest);
     else if (cmd || wheelEvent->angleDelta().y()) {
-      // any insert or command (but not undo/redo) cancels the preview after undo
-      previewAfterUndo = false;
+      // any insert or command (but not undo/redo) cancels the render after undo
+      renderAfterUndo = false;
     }
   }
   return false;
@@ -1339,7 +1339,7 @@ bool ScintillaEditor::modifyNumber(int key)
   }
   qsci->setCursorPosition(line, begin + newnr.length() - tail);
   qsci->endUndoAction();
-  emit previewRequest();
+  emit renderRequest();
   return true;
 }
 

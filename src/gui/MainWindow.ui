@@ -166,7 +166,6 @@
        </item>
        <item>
         <widget class="QToolBar" name="viewerToolBar">
-         <addaction name="designActionPreview"/>
          <addaction name="designActionRender"/>
          <addaction name="separator"/>
          <addaction name="viewActionViewAll"/>
@@ -320,8 +319,7 @@
      <string>&amp;Design</string>
     </property>
     <addaction name="designActionAutoReload"/>
-    <addaction name="designActionReloadAndPreview"/>
-    <addaction name="designActionPreview"/>
+    <addaction name="designActionReloadAndRender"/>
     <addaction name="designActionRender"/>
     <addaction name="designAction3DPrint"/>
     <addaction name="designActionMeasureDist"/>
@@ -428,7 +426,6 @@
        <addaction name="editActionUnindent"/>
        <addaction name="editActionIndent"/>
        <addaction name="separator"/>
-       <addaction name="designActionPreview"/>
        <addaction name="designActionRender"/>
        <addaction name="separator"/>
        <addaction name="designAction3DPrint"/>
@@ -969,23 +966,12 @@
     <string>Ctrl+-</string>
    </property>
   </action>
-  <action name="designActionReloadAndPreview">
+  <action name="designActionReloadAndRender">
    <property name="text">
-    <string>&amp;Reload and Preview</string>
+    <string>&amp;Reload and Render</string>
    </property>
    <property name="shortcut">
     <string>F4</string>
-   </property>
-  </action>
-  <action name="designActionPreview">
-   <property name="icon">
-    <iconset theme="chokusen-preview"/>
-   </property>
-   <property name="text">
-    <string>&amp;Preview</string>
-   </property>
-   <property name="shortcut">
-    <string>F5</string>
    </property>
   </action>
   <action name="designActionRender">

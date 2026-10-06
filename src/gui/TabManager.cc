@@ -174,7 +174,7 @@ void TabManager::createTab(const QString& filename)
   parent->activeEditor = editor;
   editor->parameterWidget = new ParameterWidget(parent->parameterDock);
   connect(editor->parameterWidget, &ParameterWidget::parametersChanged, parent,
-          &MainWindow::actionRenderPreview);
+          &MainWindow::actionRender);
   parent->parameterDock->setWidget(editor->parameterWidget);
 
   // clearing default mapping of keyboard shortcut for font size
@@ -192,7 +192,7 @@ void TabManager::createTab(const QString& filename)
 #endif
 
   connect(scintillaEditor, &ScintillaEditor::uriDropped, parent, &MainWindow::handleFileDrop);
-  connect(scintillaEditor, &ScintillaEditor::previewRequest, parent, &MainWindow::actionRenderPreview);
+  connect(scintillaEditor, &ScintillaEditor::renderRequest, parent, &MainWindow::actionRender);
   connect(editor, &EditorInterface::showContextMenuEvent, this, &TabManager::showContextMenuEvent);
   connect(editor, &EditorInterface::focusIn, this, [this]() { parent->setLastFocus(editor); });
 

@@ -27,14 +27,14 @@ public:
   ParameterVirtualWidget(QWidget *parent, ParameterObject *parameter);
   ParameterObject *getParameter() const { return parameter; }
   virtual void setValue() = 0;
-  // Parent container (ParameterWidget) notifies when preview is updated,
+  // Parent container (ParameterWidget) notifies when the view is updated,
   // so that widgets with immediate AND delayed changes can keep track
   // and avoid emitting excess changed() signals.
   virtual void valueApplied() {}
   // Widgets which are immediate only (combobox and checkbox) don't need to keep track.
 
 signals:
-  // immediate tells customizer auto preview to skip timeout
+  // immediate tells customizer auto render to skip timeout
   void changed(bool immediate);
 
 private:
