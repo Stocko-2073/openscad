@@ -57,15 +57,6 @@ eigen_sysver()
   eigen_sysver_result="$eswrld.$esmaj.$esmin"
 }
 
-opencsg_sysver()
-{
-  debug opencsg_sysver
-  if [ ! -e $1/include/opencsg.h ]; then return; fi
-  ocsgver=`grep -a "define  *OPENCSG_VERSION_STRING *[0-9x]*" $1/include/opencsg.h`
-  ocsgver=`echo $ocsgver | awk '{print $4}' | sed s/'"'//g | sed s/[^0-9.]//g`
-  opencsg_sysver_result=$ocsgver
-}
-
 catch2_sysver()
 {
   catch2path=$1/include/catch2/catch_version_macros.hpp
@@ -615,14 +606,14 @@ check_old_local()
 {
   warnon=
   if [ "`uname | grep -i linux`" ]; then
-    header_list="opencsg.h CGAL boost GL/glew.h gmp.h mpfr.h eigen3"
+    header_list="CGAL boost GL/glew.h gmp.h mpfr.h eigen3"
     for i in $header_list; do
       if [ -e /usr/local/include/$i ]; then
         echo "Warning: you have a copy of "$i" under /usr/local/include"
         warnon=1
       fi
     done
-    liblist="libboost_system libboost_system-mt libopencsg libCGAL libglew"
+    liblist="libboost_system libboost_system-mt libCGAL libglew"
     for i in $liblist; do
       if [ -e /usr/local/lib/$i.so ]; then
         echo "Warning: you have a copy of "$i" under /usr/local/lib"
@@ -673,7 +664,7 @@ checkargs()
 
 main()
 {
-  deps="qt qscintilla2 cmake catch2 cgal gmp mpfr boost opencsg glew eigen glib2 fontconfig freetype2 harfbuzz libzip bison flex make double-conversion"
+  deps="qt qscintilla2 cmake catch2 cgal gmp mpfr boost glew eigen glib2 fontconfig freetype2 harfbuzz libzip bison flex make double-conversion"
   #deps="$deps curl git" # not technically necessary for build
   #deps="$deps python imagemagick" # only needed for tests
   #deps="cgal"

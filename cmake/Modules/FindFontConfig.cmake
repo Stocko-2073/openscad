@@ -48,15 +48,21 @@ else (FONTCONFIG_LIBRARIES AND FONTCONFIG_INCLUDE_DIR)
     set(FONTCONFIG_DEFINITIONS ${PC_FONTCONFIG_CFLAGS_OTHER})
   endif (NOT WIN32)
 
+  # Prefer what pkg-config reports. macOS can have an old copy in a framework (e.g.
+  # Mono.framework/Headers/fontconfig), and frameworks are searched first by default.
+  set(_FONTCONFIG_FIND_FRAMEWORK ${CMAKE_FIND_FRAMEWORK})
+  set(CMAKE_FIND_FRAMEWORK LAST)
   find_path(FONTCONFIG_INCLUDE_DIR fontconfig/fontconfig.h
-    PATHS
+    HINTS
     ${PC_FONTCONFIG_INCLUDEDIR}
     ${PC_FONTCONFIG_INCLUDE_DIRS}
+    PATHS
     /usr/X11/include
   )
+  set(CMAKE_FIND_FRAMEWORK ${_FONTCONFIG_FIND_FRAMEWORK})
 
   find_library(FONTCONFIG_LIBRARIES NAMES fontconfig
-    PATHS
+    HINTS
     ${PC_FONTCONFIG_LIBDIR}
     ${PC_FONTCONFIG_LIBRARY_DIRS}
   )

@@ -10,7 +10,6 @@
     "harfbuzz",
     "fontconfig",
     "double-conversion",
-    "opencsg",
     "libxml2",
     "libzip",
     "glib",

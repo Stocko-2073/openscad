@@ -94,9 +94,6 @@ PACKAGES=(
     # https://download.qt.io/official_releases/qt/6.8/
     "qt6 6.8.3"
 
-    # https://opencsg.org/news.html
-    "opencsg 1.8.2"
-
     # https://riverbankcomputing.com/software/qscintilla/download
     "qscintilla 2.14.1"
 
@@ -412,23 +409,6 @@ build_onetbb()
   cd build  
   cmake .. -DCMAKE_INSTALL_PREFIX=$DEPLOYDIR -DCMAKE_BUILD_TYPE=Release -DTBB_TEST=OFF -DTBB_DISABLE_HWLOC_AUTOMATIC_SEARCH=ON -DCMAKE_OSX_DEPLOYMENT_TARGET="$MAC_OSX_VERSION_MIN" -DCMAKE_OSX_ARCHITECTURES="$ARCHS_COMBINED"
   make -j"$NUMCPU" install
-}
-
-build_opencsg()
-{
-  version=$1
-  cd $BASEDIR/src
-  rm -rf OpenCSG-$version
-  if [ ! -f OpenCSG-$version.tar.gz ]; then
-    curl -O http://www.opencsg.org/OpenCSG-$version.tar.gz
-  fi
-  tar xzf OpenCSG-$version.tar.gz
-  cd OpenCSG-$version
-  mkdir build
-  cd build
-  cmake -DCMAKE_INSTALL_PREFIX=$DEPLOYDIR -DBUILD_EXAMPLE=OFF -DCMAKE_OSX_DEPLOYMENT_TARGET="$MAC_OSX_VERSION_MIN" -DCMAKE_OSX_ARCHITECTURES="$ARCHS_COMBINED" ..
-  make install
-  install_name_tool -id @rpath/libopencsg.dylib $DEPLOYDIR/lib/libopencsg.dylib
 }
 
 build_eigen()

@@ -513,79 +513,6 @@ build_glew()
   GLEW_DEST=$DEPLOYDIR $MAKER install
 }
 
-build_opencsg()
-{
-  if [ -e $DEPLOYDIR/lib/libopencsg.so ]; then
-    echo "OpenCSG already installed. not building"
-    return
-  fi
-  version=$1
-  echo "Building OpenCSG" $version "..."
-  cd $BASEDIR/src
-  rm -rf OpenCSG-$version
-  if [ ! -f OpenCSG-$version.tar.gz ]; then
-    curl --insecure -O http://www.opencsg.org/OpenCSG-$version.tar.gz
-  fi
-  tar xzf OpenCSG-$version.tar.gz
-  cd OpenCSG-$version
-
-  # modify the .pro file for qmake, then use qmake to
-  # manually rebuild the src/Makefile (some systems don't auto-rebuild it)
-
-  cp opencsg.pro opencsg.pro.bak
-  cat opencsg.pro.bak | sed s/example// > opencsg.pro
-
-  detect_glu
-  GLU_INCLUDE=$detect_glu_include
-  if [ ! $detect_glu_result ]; then
-    build_glu 9.0.0
-  fi
-
-  if [ "`command -v qmake-qt5`" ]; then
-    OPENCSG_QMAKE=qmake-qt5
-  elif [ "`command -v qmake5`" ]; then
-    OPENCSG_QMAKE=qmake5
-  elif [ "`command -v qmake`" ]; then
-    OPENCSG_QMAKE=qmake
-  else
-    echo qmake not found... using standard OpenCSG makefiles
-    OPENCSG_QMAKE=make
-    cp Makefile Makefile.bak
-    cp src/Makefile src/Makefile.bak
-
-    cat Makefile.bak | sed s/example// |sed s/glew// > Makefile
-    cat src/Makefile.bak | sed s@^INCPATH.*@INCPATH\ =\ -I$BASEDIR/include\ -I../include\ -I..\ -I$GLU_INCLUDE\ -I.@ > src/Makefile
-    cp src/Makefile src/Makefile.bak2
-    cat src/Makefile.bak2 | sed s@^LIBS.*@LIBS\ =\ -L$BASEDIR/lib\ -L/usr/X11R6/lib\ -lGLU\ -lGL@ > src/Makefile
-    tmp=$version
-    version=$tmp
-  fi
-
-  if [ ! $OPENCSG_QMAKE = "make" ]; then
-    OPENCSG_QMAKE=$OPENCSG_QMAKE' "QMAKE_CXXFLAGS+=-I'$GLU_INCLUDE'"'
-  fi
-  echo OPENCSG_QMAKE: $OPENCSG_QMAKE
-
-  cd $BASEDIR/src/OpenCSG-$version/src
-  $OPENCSG_QMAKE
-
-  cd $BASEDIR/src/OpenCSG-$version
-  $OPENCSG_QMAKE
-
-  make
-
-  ls lib/* include/*
-  if [ -e lib/.libs ]; then ls lib/.libs/*; fi # netbsd
-  echo "installing to -->" $DEPLOYDIR
-  mkdir -p $DEPLOYDIR/lib
-  mkdir -p $DEPLOYDIR/include
-  install lib/* $DEPLOYDIR/lib
-  install include/* $DEPLOYDIR/include
-  if [ -e lib/.libs ]; then install lib/.libs/* $DEPLOYDIR/lib; fi #netbsd
-
-  cd $BASEDIR
-}
-
 build_eigen()
 {
   version=$1
@@ -785,10 +712,6 @@ if [ $1 ]; then
     build_cgal ${CGAL_VERSION:-5.5.1} use-sys-libs
     exit $?
   fi
-  if [ $1 = "opencsg" ]; then
-    build_opencsg 1.4.2
-    exit $?
-  fi
   if [ $1 = "qt5scintilla2" ]; then
     build_qt5scintilla2 2.10.8
     exit $?
@@ -840,7 +763,6 @@ build_boost 1.81.0
 # NB! For CGAL, also update the actual download URL in the function
 build_cgal 5.5.1
 build_glew 1.9.0
-build_opencsg 1.4.2
 build_gettext 0.18.3.1
 build_glib2 2.75.0
 

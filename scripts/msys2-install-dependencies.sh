@@ -45,7 +45,6 @@ PACKAGE_LIST=(
     "cgal:p"
     "eigen3:p"
     "glew:p"
-    "opencsg:p"
     "lib3mf:p"
     "libzip:p"
     "mimalloc:p"

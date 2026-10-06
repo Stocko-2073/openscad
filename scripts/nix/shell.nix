@@ -29,7 +29,6 @@ pkgs.mkShell {
     libzip
     manifold
     mpfr
-    opencsg
     python3
     python3Packages.numpy
     tbb

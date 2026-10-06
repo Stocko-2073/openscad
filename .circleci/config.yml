@@ -188,7 +188,6 @@ jobs:
                   -DCMAKE_BUILD_TYPE=Release \
                   -DCMAKE_C_COMPILER_LAUNCHER=sccache \
                   -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
-                  -DUSE_BUILTIN_OPENCSG=ON \
                   -DMANIFOLD_PYBIND=OFF \
                   -DMANIFOLD_TEST=OFF \
                   -DENABLE_PYTHON=ON \

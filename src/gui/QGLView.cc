@@ -36,7 +36,7 @@
 #include "glview/Renderer.h"
 #include "utils/degree_trig.h"
 #include "utils/scope_guard.hpp"
-#if defined(USE_GLEW) || defined(OPENCSG_GLEW)
+#ifdef USE_GLEW
 #include "glview/glew-utils.h"
 #endif
 
@@ -120,8 +120,8 @@ void QGLView::viewAll()
 
 void QGLView::initializeGL()
 {
-#if defined(USE_GLEW) || defined(OPENCSG_GLEW)
-  // Since OpenCSG requires glew, we need to initialize it.
+#ifdef USE_GLEW
+  // GLEW needs initializing.
   // ..in a separate compilation unit to avoid duplicate symbols with x.
   initializeGlew();
 #endif

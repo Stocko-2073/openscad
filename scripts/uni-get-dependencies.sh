@@ -13,7 +13,7 @@ get_fedora_deps()
  dnf -y install qt5-qtbase-devel bison flex eigen3-devel harfbuzz-devel \
   fontconfig-devel freetype-devel \
   boost-devel mpfr-devel gmp-devel glew-devel catch2-devel CGAL-devel gcc gcc-c++ pkgconfig \
-  opencsg-devel git libXmu-devel curl ImageMagick glib2-devel make \
+  git libXmu-devel curl ImageMagick glib2-devel make \
   xorg-x11-server-Xvfb gettext qscintilla-qt5-devel \
   mesa-dri-drivers libzip-devel ccache qt5-qtmultimedia-devel qt5-qtsvg-devel \
   double-conversion-devel tbb-devel
@@ -41,14 +41,14 @@ get_freebsd_deps()
  pkg_add -r bison boost-libs catch2 cmake git bash eigen3 flex gmake gmp mpfr \
   xorg libGLU libXmu libXi xorg-vfbserver glew \
   qt5-core qt5-gui qt5-buildtools qt5-opengl qt5-qmake \
-  opencsg cgal curl imagemagick glib2-devel gettext libdouble-conversion-3.0.0 \
+  cgal curl imagemagick glib2-devel gettext libdouble-conversion-3.0.0 \
   devel/onetbb
 }
 
 get_netbsd_deps()
 {
  pkgin install bison boost catch2 cmake git bash eigen3 flex gmake gmp mpfr \
-  qt5 glew cgal opencsg python27 curl \
+  qt5 glew cgal python27 curl \
   ImageMagick glib2 gettext threadingbuildingblocks
 }
 
@@ -68,15 +68,6 @@ get_opensuse_deps()
  zypper install ImageMagick || zypper install imagemagick
 
  zypper install catch2-devel || zypper install Catch2-devel
-
- install_opencsg_and_repo() {
-  pver=$(grep -i pretty_name /etc/os-release | sed 's/PRETTY_NAME=//g; s/"//g; s/ /_/g')
-  echo "attempting to add graphics repository for opencsg..."
-  zypper ar -f "http://download.opensuse.org/repositories/graphics/${pver}" graphics
-  zypper install opencsg-devel
- }
-
- zypper install opencsg-devel || install_opencsg_and_repo
 }
 
 get_mageia_deps()
@@ -98,7 +89,7 @@ get_debian_deps()
   libboost-regex-dev libboost-system-dev libcairo2-dev libcgal-dev \
   libdouble-conversion-dev libeigen3-dev libffi-dev libfontconfig-dev \
   libfreetype-dev libgl1-mesa-dev libglew-dev libglib2.0-dev libgmp-dev \
-  libharfbuzz-dev libmimalloc-dev libmpfr-dev libopencsg-dev \
+  libharfbuzz-dev libmimalloc-dev libmpfr-dev \
   libtbb-dev libxi-dev libxml2-dev libxmu-dev \
   libzip-dev nettle-dev ninja-build nodejs pkg-config python3-dev \
   python3-setuptools python3-venv ragel xvfb
@@ -133,7 +124,7 @@ get_arch_deps()
 	base-devel boost cairo catch2 cgal cmake double-conversion eigen fontconfig \
   freetype2 gcc-libs ghostscript glew glib2 glibc glu gmp harfbuzz \
   hicolor-icon-theme hidapi imagemagick lib3mf libglvnd libspnav libx11 \
-  libxml2 libzip mimalloc mpfr nettle opencsg procps-ng python python-pip \
+  libxml2 libzip mimalloc mpfr nettle procps-ng python python-pip \
   python-setuptools qscintilla-qt5 qt5-base qt5-multimedia qt5-svg tbb \
   xorg-server-xvfb
 }
@@ -143,7 +134,7 @@ get_solus_deps()
   eopkg -y it -c system.devel
   eopkg -y install catch2 qt5-base-devel qt5-multimedia-devel qt5-svg-devel qscintilla-devel \
 	CGAL-devel gmp-devel mpfr-devel glib2-devel libboost-devel \
-	opencsg-devel glew-devel eigen3 \
+	glew-devel eigen3 \
 	fontconfig-devel freetype2-devel harfbuzz-devel libzip-devel \
 	double-conversion-devel \
 	bison flex intel-tbb-devel

@@ -14,7 +14,7 @@
 #include "utils/printutils.h"
 #include "glview/OffscreenContextFactory.h"
 #include "glview/fbo.h"
-#if defined(USE_GLEW) || defined(OPENCSG_GLEW)
+#ifdef USE_GLEW
 #include "glview/glew-utils.h"
 #endif
 
@@ -54,7 +54,7 @@ OffscreenView::OffscreenView(uint32_t width, uint32_t height)
   // ..so if we're using GLEW, default to creating a GLX context.
   // FIXME: It's possible that GLEW was built using EGL, in which case this
   // logic isn't correct, but we don't have a good way of determining how GLEW was built.
-#if defined(USE_GLEW) || defined(OPENCSG_GLEW)
+#ifdef USE_GLEW
   provider = !strcmp(provider, "egl") ? "glx" : provider;
 #endif
   this->ctx = OffscreenContextFactory::create(provider, attrib);
@@ -70,7 +70,7 @@ OffscreenView::OffscreenView(uint32_t width, uint32_t height)
   if (!this->ctx->makeCurrent()) throw OffscreenViewException("Unable to make GL context current");
 
 #ifndef NULLGL
-#if defined(USE_GLEW) || defined(OPENCSG_GLEW)
+#ifdef USE_GLEW
   if (!initializeGlew()) {
     throw OffscreenViewException("Unable to initialize Glew");
   }

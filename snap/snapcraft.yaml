@@ -103,7 +103,6 @@ parts:
             -DOPENSCAD_COMMIT="${OPENSCAD_COMMIT}" \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DCMAKE_BUILD_TYPE=Release \
-            -DUSE_BUILTIN_OPENCSG=ON \
             -DMANIFOLD_PYBIND=OFF \
             -DMANIFOLD_TEST=OFF \
             -DENABLE_PYTHON=ON \
