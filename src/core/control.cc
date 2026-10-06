@@ -147,7 +147,7 @@ static std::shared_ptr<AbstractNode> builtin_echo(const ModuleInstantiation *ins
   LOG(message_group::Echo, "%1$s", STR(arguments));
 
   auto node = children.instantiate(lazyUnionNode(inst));
-  // echo without child geometries should not count as valid CSGNode
+  // echo without child geometries should not count as valid geometry
   if (node->children.empty()) {
     return {};
   }
@@ -160,7 +160,7 @@ static std::shared_ptr<AbstractNode> builtin_assert(const ModuleInstantiation *i
   Assert::performAssert(inst->arguments, inst->location(), context);
 
   auto node = Children(inst->scope, context).instantiate(lazyUnionNode(inst));
-  // assert without child geometries should not count as valid CSGNode
+  // assert without child geometries should not count as valid geometry
   if (node->children.empty()) {
     return {};
   }
@@ -215,7 +215,7 @@ static std::shared_ptr<AbstractNode> builtin_if(const ModuleInstantiation *inst,
   } else if (ifelse->getElseScope()) {
     return Children(ifelse->getElseScope(), context).instantiate(lazyUnionNode(inst));
   } else {
-    // "if" with failed condition, and no "else" should not count as valid CSGNode
+    // "if" with failed condition, and no "else" should not count as valid geometry
     return nullptr;
   }
 }

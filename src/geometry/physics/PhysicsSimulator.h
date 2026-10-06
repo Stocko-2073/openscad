@@ -46,9 +46,8 @@ PhysicsResult simulatePhysics(const PhysicsInput& in);
 
 // Side cache of simulated transforms, keyed by the node's cache id string
 // (Tree::getIdString). GeometryEvaluator publishes the transform here so the
-// overlays (core/ModifierOverlays) and the CSG (preview) evaluator can position
-// background (%) and highlight (#) ghosts in the child hierarchy to follow the
-// settled pose. Entries are tiny
+// overlays (core/ModifierOverlays) can position background (%) and highlight
+// (#) ghosts in the child hierarchy to follow the settled pose. Entries are tiny
 // and live for the process lifetime, mirroring the geometry caches.
 // Thread-safe (parallel animate evaluates frames concurrently).
 void physicsTransformCacheStore(const std::string& key, const Transform3d& transform);

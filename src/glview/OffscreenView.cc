@@ -101,13 +101,6 @@ OffscreenView::~OffscreenView()
   fbo.reset();
 }
 
-#ifdef ENABLE_OPENCSG
-void OffscreenView::display_opencsg_warning()
-{
-  LOG("OpenSCAD recommended OpenGL version is 2.0.");
-}
-#endif
-
 bool OffscreenView::save(const char *filename) const
 {
   std::ofstream fstream(filename, std::ios::out | std::ios::binary);

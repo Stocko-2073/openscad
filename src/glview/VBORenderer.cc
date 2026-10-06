@@ -29,7 +29,6 @@
 #include "geometry/linalg.h"
 #include "geometry/Polygon2d.h"
 #include "geometry/PolySet.h"
-#include "core/CSGNode.h"
 #include "utils/printutils.h"
 #include "utils/hash.h"  // IWYU pragma: keep
 
@@ -63,36 +62,6 @@ void shader_attribs_disable(const ShaderUtils::ShaderInfo& shaderinfo)
 
 VBORenderer::VBORenderer() : Renderer()
 {
-}
-
-size_t VBORenderer::calcNumVertices(const std::shared_ptr<CSGProducts>& products,
-                                    bool unique_geometry) const
-{
-  size_t buffer_size = 0;
-  if (unique_geometry) this->geom_visit_mark_.clear();
-
-  for (const auto& product : products->products) {
-    for (const auto& csgobj : product.intersections) {
-      buffer_size += calcNumVertices(csgobj);
-    }
-    for (const auto& csgobj : product.subtractions) {
-      buffer_size += calcNumVertices(csgobj);
-    }
-  }
-  return buffer_size;
-}
-
-size_t VBORenderer::calcNumVertices(const CSGChainObject& csgobj, bool unique_geometry) const
-{
-  size_t buffer_size = 0;
-  if (unique_geometry &&
-      this->geom_visit_mark_[std::make_pair(csgobj.leaf->polyset.get(), &csgobj.leaf->matrix)]++ > 0)
-    return 0;
-
-  if (csgobj.leaf->polyset) {
-    buffer_size += calcNumVertices(*csgobj.leaf->polyset);
-  }
-  return buffer_size;
 }
 
 size_t VBORenderer::calcNumVertices(const PolySet& polyset) const

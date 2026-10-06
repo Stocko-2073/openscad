@@ -96,7 +96,6 @@ public:
   VISITABLE();
   AbstractPolyNode(const ModuleInstantiation *mi) : AbstractNode(mi) {}
 
-  enum class render_mode_e { RENDER_CGAL, RENDER_OPENCSG };
 };
 
 /*!

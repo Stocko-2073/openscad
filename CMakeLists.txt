@@ -999,8 +999,6 @@ set(CORE_SOURCES
   src/core/BOSL2Library.cc
   src/core/BuiltinContext.cc
   src/core/Builtins.cc
-  src/core/CSGNode.cc
-  src/core/CSGTreeEvaluator.cc
   src/core/CgalAdvNode.cc
   src/core/Children.cc
   src/core/ColorNode.cc
@@ -1086,7 +1084,6 @@ set(CORE_SOURCES
   src/glview/ColorMap.cc
   src/glview/OffscreenContextFactory.cc
   src/glview/RenderSettings.cc
-  src/glview/preview/CSGTreeNormalizer.cc
   src/handle_dep.cc
   src/io/DxfData.cc
   src/io/dxfdim.cc
@@ -1323,8 +1320,6 @@ else()
     src/glview/hershey.cc
     src/glview/OffscreenView.cc
     src/glview/PolySetRenderer.cc
-    src/glview/preview/OpenCSGRenderer.cc
-    src/glview/preview/ThrownTogetherRenderer.cc
     src/io/export_png.cc
     src/io/imageutils.cc
     ${GLEW_SOURCES})
@@ -1555,7 +1550,6 @@ set_source_files_properties(
   src/glview/RenderSettings.cc
   src/glview/Camera.cc
   src/glview/ColorMap.cc
-  src/glview/preview/CSGTreeNormalizer.cc
   src/gui/QGLView.cc
   src/gui/QGLView2.cc
   # spnv.h references Xlib.h

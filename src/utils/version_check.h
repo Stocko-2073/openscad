@@ -55,31 +55,12 @@
 #endif  // ENABLE_CGAL
 #else
 
-#if defined(ENABLE_OPENCSG) && defined(OPENCSG_GLEW)
-#include <GL/glew.h>
-// kludge - GLEW doesn't have compiler-accessible version numbering
-#ifndef GLEW_ARB_occlusion_query2
-#error GLEW library missing or version too old. See README.md. To force compile, run qmake CONFIG+=skip-version-check
-#else
-
-#include <opencsg.h>
-// 1.4.2 -> 0x0142
-#if OPENCSG_VERSION < 0x0142
-#error OPENCSG library missing or version too old. See README.md. To force compile, run qmake CONFIG+=skip-version-check
-#else
-#endif  // ENABLE_OPENCSG
-
 #ifndef OPENSCAD_NOGUI
 #include <QtCore/qglobal.h>
 #if QT_VERSION < QT_VERSION_CHECK(5, 12, 0)
 #error QT library missing or version too old. See README.md. To force compile, run qmake CONFIG+=skip-version-check
 #endif  // QT
 #endif
-
-#ifdef ENABLE_OPENCSG
-#endif  // OpenCSG
-#endif  // GLEW
-#endif  // ENABLE_OPENCSG
 
 #ifdef ENABLE_CGAL
 #endif  // CGAL error

@@ -81,13 +81,6 @@ public:
   std::vector<SelectedObject> selected_obj;
   std::vector<SelectedObject> shown_obj;
 
-#ifdef ENABLE_OPENCSG
-  bool is_opencsg_capable;
-  bool has_shaders;
-  void enable_opencsg_shaders();
-  virtual void display_opencsg_warning() = 0;
-  int opencsg_id;
-#endif
   void showObject(const SelectedObject& pt, const Vector3d& eyedir);
 
 private:

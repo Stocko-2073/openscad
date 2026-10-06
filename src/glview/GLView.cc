@@ -16,10 +16,6 @@
 #include <cstdio>
 #include <string>
 
-#ifdef ENABLE_OPENCSG
-#include <opencsg.h>
-#endif
-
 GLView::GLView()
 {
   aspectratio = 1;
@@ -30,12 +26,6 @@ GLView::GLView()
   colorscheme = &ColorMap::inst()->defaultColorScheme();
   cam = Camera();
   far_far_away = RenderSettings::inst()->far_gl_clip_limit;
-#ifdef ENABLE_OPENCSG
-  is_opencsg_capable = false;
-  has_shaders = false;
-  static int sId = 0;
-  this->opencsg_id = sId++;
-#endif
 }
 
 GLView::~GLView()
@@ -205,10 +195,6 @@ void GLView::paintGL()
   glColor3d(1.0, 0.0, 0.0);
 
   if (this->renderer) {
-#if defined(ENABLE_OPENCSG)
-    // FIXME: This belongs in the OpenCSG renderer, but it doesn't know about this ID yet
-    OpenCSG::setContext(this->opencsg_id);
-#endif
     this->renderer->prepare(edge_shader.get());
     this->renderer->draw(showedges, edge_shader.get());
   }
@@ -243,37 +229,6 @@ void GLView::paintGL()
   glColorMask(mask[0], mask[1], mask[2], mask[3]);
 }
 
-#ifdef ENABLE_OPENCSG
-
-void glCompileCheck(GLuint shader)
-{
-  GLint status;
-  glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
-  if (status == GL_FALSE) {
-    int loglen;
-    char logbuffer[1000];
-    glGetShaderInfoLog(shader, sizeof(logbuffer), &loglen, logbuffer);
-    PRINTDB("OpenGL Shader Program Compile Error:\n%s", logbuffer);
-  }
-}
-
-void GLView::enable_opencsg_shaders()
-{
-  // All OpenGL 2 contexts are OpenCSG capable
-#ifdef USE_GLEW
-  const bool hasOpenGL2_0 = GLEW_VERSION_2_0;
-#endif
-#ifdef USE_GLAD
-  const bool hasOpenGL2_0 = GLAD_GL_VERSION_2_0;
-#endif
-  if (hasOpenGL2_0) {
-    this->is_opencsg_capable = true;
-    this->has_shaders = true;
-  } else {
-    display_opencsg_warning();
-  }
-}
-#endif  // ifdef ENABLE_OPENCSG
 
 #ifdef DEBUG
 // Requires OpenGL 4.3+
@@ -323,9 +278,6 @@ void GLView::initializeGL()
   // The following line is reported to fix issue #71
   glMateriali(GL_FRONT_AND_BACK, GL_SHININESS, 64);
   glEnable(GL_COLOR_MATERIAL);
-#ifdef ENABLE_OPENCSG
-  enable_opencsg_shaders();
-#endif
 }
 
 void GLView::showSmallaxes(const Color4f& col)

@@ -83,7 +83,7 @@ public:
                               GLX_ALPHA_SIZE,
                               8,
                               GLX_DEPTH_SIZE,
-                              24,  // depth-stencil for OpenCSG
+                              24,  // depth-stencil
                               GLX_STENCIL_SIZE,
                               8,
                               None};

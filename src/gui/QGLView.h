@@ -111,9 +111,6 @@ private:
   void paintGL() override;
   void normalizeAngle(GLdouble& angle);
 
-#ifdef ENABLE_OPENCSG
-  void display_opencsg_warning() override {}  // the view doesn't use OpenCSG
-#endif
   std::unique_ptr<MouseSelector> selector;
 
 signals:

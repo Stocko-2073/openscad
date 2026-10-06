@@ -43,15 +43,6 @@
 #define LIBZIP_VERSION "<not enabled>"
 #endif
 
-#ifdef ENABLE_OPENCSG
-#include <opencsg.h>
-#ifndef OPENCSG_VERSION_STRING
-#define OPENCSG_VERSION_STRING "unknown, < 1.3.2"
-#endif
-#else
-#define OPENCSG_VERSION_STRING "<not enabled>"
-#endif
-
 #define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)
 
@@ -148,7 +139,7 @@ std::string LibraryInfo::info()
 #ifdef ENABLE_PYTHON
     << "\nPython Version: " << python_version()
 #endif
-    << "\nOpenCSG version: " << OPENCSG_VERSION_STRING << "\nClipper2 version: " << CLIPPER2_VERSION
+    << "\nClipper2 version: " << CLIPPER2_VERSION
     << "\nManifold version: " << MANIFOLD_VERSION_STRING << "\nQt version: " << qtVersion
 #ifndef OPENSCAD_NOGUI
     << "\nQScintilla version: " << QSCINTILLA_VERSION_STR

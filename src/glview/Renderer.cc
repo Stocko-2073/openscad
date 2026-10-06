@@ -156,8 +156,8 @@ bool Renderer::getShaderColor(Renderer::ColorMode colormode, const Color4f& obje
 
 /* fill colormap_ with matching entries from the colorscheme. note
    this does not change Highlight or Background colors as they are not
-   represented in the colorscheme (yet). Also edgecolors are currently the
-   same for CGAL & OpenCSG */
+   represented in the colorscheme (yet). The face colors keep their old
+   opencsg-face-* names in the color schemes. */
 void Renderer::setColorScheme(const ColorScheme& cs)
 {
   PRINTD("setColorScheme");

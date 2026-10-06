@@ -29,7 +29,4 @@ public:
   // overrides
   bool save(const char *filename) const override;
   [[nodiscard]] std::string getRendererInfo() const override;
-#ifdef ENABLE_OPENCSG
-  void display_opencsg_warning() override;
-#endif
 };

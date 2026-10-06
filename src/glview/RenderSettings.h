@@ -20,7 +20,6 @@ public:
   static RenderSettings *inst(bool erase = false);
 
   RenderBackend3D backend3D;
-  unsigned int openCSGTermLimit;
   double far_gl_clip_limit;
   std::string colorscheme;
 

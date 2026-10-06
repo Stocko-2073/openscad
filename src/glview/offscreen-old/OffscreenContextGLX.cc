@@ -120,7 +120,7 @@ static int XCreateWindow_error(Display *dpy, XErrorEvent *event)
 bool create_glx_dummy_window(OffscreenContextGLX& ctx)
 {
   int attributes[] = {GLX_DRAWABLE_TYPE,
-                      GLX_WINDOW_BIT | GLX_PIXMAP_BIT | GLX_PBUFFER_BIT,  // support all 3, for OpenCSG
+                      GLX_WINDOW_BIT | GLX_PIXMAP_BIT | GLX_PBUFFER_BIT,  // support all 3
                       GLX_RENDER_TYPE,
                       GLX_RGBA_BIT,
                       GLX_RED_SIZE,
@@ -132,7 +132,7 @@ bool create_glx_dummy_window(OffscreenContextGLX& ctx)
                       GLX_ALPHA_SIZE,
                       8,
                       GLX_DEPTH_SIZE,
-                      24,  // depth-stencil for OpenCSG
+                      24,  // depth-stencil
                       GLX_STENCIL_SIZE,
                       8,
                       GLX_DOUBLEBUFFER,
