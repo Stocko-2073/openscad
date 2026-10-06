@@ -59,6 +59,7 @@ void CGALWorker::work()
   try {
     GeometryEvaluator evaluator(*this->tree);
     result->geometry = evaluator.evaluateGeometry(*this->tree->root(), true);
+    result->digest = this->tree->digest(*this->tree->root());
 
 #ifdef ENABLE_MANIFOLD
     if (auto manifold = std::dynamic_pointer_cast<const ManifoldGeometry>(result->geometry)) {

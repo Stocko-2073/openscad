@@ -455,6 +455,17 @@ private:
   // A renderer for F6 geometry with the overlays drawn over it; null when there is nothing to draw.
   std::shared_ptr<Renderer> createGeometryRenderer(const std::shared_ptr<const Geometry>& geom,
                                                    const std::vector<overlay::Mesh>& overlays);
+  // The renderer for a render's result: the one on screen if that shows the same, which keeps
+  // the meshes and buffers it made, else a new one.
+  std::shared_ptr<Renderer> resultRenderer(const RenderResult& result);
+  // What the renderer that the last render made shows, by digest (core/NodeDigest.h).
+  struct ShownResult {
+    std::weak_ptr<Renderer> renderer;
+    Hash128 digest;
+    std::vector<Hash128> overlays;
+    int backend;
+  };
+  std::optional<ShownResult> shownResult;
   std::vector<int> pickPrimitives(const QGLView::PickResult& picked);
   void addPickerAlsoHere(QMenu& menu, const std::vector<int>& primitives);
 

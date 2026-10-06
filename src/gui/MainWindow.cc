@@ -1982,6 +1982,30 @@ std::shared_ptr<Renderer> MainWindow::createGeometryRenderer(
   return renderer;
 }
 
+std::shared_ptr<Renderer> MainWindow::resultRenderer(const RenderResult& result)
+{
+  ShownResult shown{{}, {}, {}, static_cast<int>(RenderSettings::inst()->backend3D)};
+  bool same = result.digest.has_value() && this->geomRenderer && this->shownResult &&
+              this->shownResult->renderer.lock() == this->geomRenderer;
+  if (result.digest) shown.digest = *result.digest;
+  for (const auto& mesh : result.overlays) {
+    // An overlay made otherwise, as interference is, is new every time.
+    if (mesh.identity == Hash128{}) same = false;
+    shown.overlays.push_back(mesh.identity);
+  }
+  if (same && this->shownResult->digest == shown.digest && this->shownResult->overlays == shown.overlays &&
+      this->shownResult->backend == shown.backend) {
+    return this->geomRenderer;
+  }
+  auto renderer = createGeometryRenderer(result.geometry, result.overlays);
+  this->shownResult.reset();
+  if (renderer && result.digest) {
+    shown.renderer = renderer;
+    this->shownResult = std::move(shown);
+  }
+  return renderer;
+}
+
 void MainWindow::actionRenderDone(const std::shared_ptr<const RenderResult>& result)
 {
   // Timed on the worker, since the statistic is only touched on this thread.
@@ -2012,7 +2036,7 @@ void MainWindow::actionRenderDone(const std::shared_ptr<const RenderResult>& res
     LOG("Rendering finished.");
 
     this->rootGeom = root_geom;
-    this->geomRenderer = createGeometryRenderer(this->rootGeom, result->overlays);
+    this->geomRenderer = resultRenderer(*result);
 
     // Go to CGAL view mode
     viewModeRender();
@@ -2021,7 +2045,7 @@ void MainWindow::actionRenderDone(const std::shared_ptr<const RenderResult>& res
     resetMeasurementsState(false, "No top level geometry; render something to enable measurements");
     LOG(message_group::UI_Warning, "No top level geometry to render");
     // A design of only % subtrees still shows them.
-    this->geomRenderer = createGeometryRenderer(nullptr, result->overlays);
+    this->geomRenderer = resultRenderer(*result);
     viewModeRender();
   }
 
@@ -3365,6 +3389,8 @@ void MainWindow::setColorScheme(const QString& scheme)
   RenderSettings::inst()->colorscheme = scheme.toStdString();
   this->qglview->setColorScheme(scheme.toStdString());
   this->qglview->update();
+  // The renderer's buffers have the colors of the old scheme: the next render makes new ones.
+  this->shownResult.reset();
 }
 
 void MainWindow::setFont(const QString& family, uint size)

@@ -22,6 +22,7 @@
 #include "core/Settings.h"
 #include "core/node.h"
 #include "geometry/GeometryCache.h"
+#include "glview/RenderSettings.h"
 #include "gui/Preferences.h"
 #ifdef ENABLE_CGAL
 #include "geometry/cgal/CGALCache.h"
@@ -258,6 +259,34 @@ void TestEvalMemo::animationTimeIsADependency()
   QVERIFY(setTime(window, "0.5"));
   QVERIFY(matchesFreshEvaluation(window));
   QVERIFY(setTime(window, ""));
+
+  window->tabManager->closeCurrentTab();
+}
+
+void TestEvalMemo::keepsTheRendererOfAnUnchangedResult()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath("kept.scad");
+  save(path, kParts + "pair();\n#part(3);\n");
+  window->tabManager->createTab(path);
+
+  // The same geometry and overlays: the view keeps its renderer, and the buffers it made.
+  QVERIFY(render(window));
+  const auto first = window->geomRenderer;
+  QVERIFY(first);
+  QVERIFY(render(window));
+  QVERIFY(window->geomRenderer == first);
+
+  // A change makes a new one, as does a change of color scheme, which the buffers hold.
+  save(path, kParts + "pair();\n#part(4);\n");
+  QVERIFY(render(window, true));
+  const auto second = window->geomRenderer;
+  QVERIFY(second && second != first);
+  emit GlobalPreferences::inst()->colorSchemeChanged(
+    QString::fromStdString(RenderSettings::inst()->colorscheme));
+  QVERIFY(render(window));
+  QVERIFY(window->geomRenderer && window->geomRenderer != second);
 
   window->tabManager->closeCurrentTab();
 }

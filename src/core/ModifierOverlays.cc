@@ -1,5 +1,6 @@
 #include "core/ModifierOverlays.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -21,6 +22,7 @@
 #include "geometry/PolySetUtils.h"
 #include "geometry/Polygon2d.h"
 #include "geometry/linalg.h"
+#include "utils/Hash128.h"
 
 namespace overlay {
 
@@ -119,11 +121,17 @@ private:
 };
 
 void appendMeshes(const std::shared_ptr<const Geometry>& geom, Kind kind, const Transform3d& matrix,
-                  std::vector<Mesh>& out)
+                  const Hash128& identity, std::vector<Mesh>& out)
 {
   if (!geom || geom->isEmpty()) return;
   if (const auto list = std::dynamic_pointer_cast<const GeometryList>(geom)) {
-    for (const auto& item : list->getChildren()) appendMeshes(item.second, kind, matrix, out);
+    uint64_t index = 0;
+    for (const auto& item : list->getChildren()) {
+      Hasher128 h;
+      h.h(identity);
+      h.u64(index++);
+      appendMeshes(item.second, kind, matrix, h.finish(), out);
+    }
     return;
   }
   std::unique_ptr<PolySet> ps;
@@ -134,7 +142,7 @@ void appendMeshes(const std::shared_ptr<const Geometry>& geom, Kind kind, const 
   }
   if (!ps || ps->isEmpty()) return;
   ps->transform(matrix);
-  out.push_back({kind, std::move(ps)});
+  out.push_back({kind, std::move(ps), identity});
 }
 
 void appendTarget(GeometryEvaluator& evaluator, const AbstractNode& node, Kind kind,
@@ -148,7 +156,13 @@ void appendTarget(GeometryEvaluator& evaluator, const AbstractNode& node, Kind k
     }
     return;
   }
-  appendMeshes(evaluator.evaluateGeometry(node, false), kind, matrix, out);
+  Hasher128 h;
+  h.u64(static_cast<uint64_t>(kind));
+  h.h(evaluator.getTree().digest(node));
+  for (int row = 0; row < 4; ++row) {
+    for (int col = 0; col < 4; ++col) h.f64(matrix(row, col));
+  }
+  appendMeshes(evaluator.evaluateGeometry(node, false), kind, matrix, h.finish(), out);
 }
 
 }  // namespace

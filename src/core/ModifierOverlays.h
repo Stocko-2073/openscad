@@ -10,6 +10,8 @@
 #include <memory>
 #include <vector>
 
+#include "utils/Hash128.h"
+
 class AbstractNode;
 class PolySet;
 class Tree;
@@ -26,6 +28,9 @@ struct Mesh {
   Kind kind;
   // In world space, with triangular faces. A 2D shape is flat, in the plane its placement puts it.
   std::shared_ptr<const PolySet> polyset;
+  // What the mesh is made of: the subtree's geometry digest, its placement and its kind. Meshes
+  // with equal identities are equal; zero is none.
+  Hash128 identity;
 };
 
 // The `#` and `%` subtrees of `root`, evaluated and placed in the world. Children of transforms,

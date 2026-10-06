@@ -3,9 +3,11 @@
 #include <QObject>
 #include <chrono>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "core/ModifierOverlays.h"
+#include "utils/Hash128.h"
 
 class Geometry;
 class Tree;
@@ -16,6 +18,7 @@ struct Report;
 // What a render hands the 3D view.
 struct RenderResult {
   std::shared_ptr<const Geometry> geometry;  // null if there is none or the render failed
+  std::optional<Hash128> digest;             // the root's (core/NodeDigest.h), unless it failed
   std::vector<overlay::Mesh> overlays;
   std::chrono::steady_clock::duration geometryTime{};        // evaluating the geometry and the overlays
   std::shared_ptr<const interference::Report> interference;  // when the check ran
