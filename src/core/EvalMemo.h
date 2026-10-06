@@ -64,6 +64,7 @@
 #include <vector>
 
 #include "core/Identifier.h"
+#include "utils/Hash128.h"
 #include "utils/printutils.h"
 
 class AbstractNode;
@@ -84,63 +85,14 @@ using AssignmentList = std::vector<std::shared_ptr<Assignment>>;
 
 namespace memo {
 
-struct Hash128 {
-  uint64_t a{0};
-  uint64_t b{0};
-  bool operator==(const Hash128& o) const { return a == o.a && b == o.b; }
-  bool operator!=(const Hash128& o) const { return !(*this == o); }
-  bool operator<(const Hash128& o) const { return a < o.a || (a == o.a && b < o.b); }
-};
+using Hash128 = ::Hash128;
+using Hash128Hash = ::Hash128Hash;
 
-struct Hash128Hash {
-  size_t operator()(const Hash128& h) const noexcept { return static_cast<size_t>(h.a ^ (h.b << 1)); }
-};
-
-// Order-sensitive 128-bit hash of a word sequence. Not cryptographic; two
-// lanes of murmur3's finalizer, which is a bijection per word.
-class Hasher
+class Hasher : public Hasher128
 {
 public:
-  void u64(uint64_t w)
-  {
-    s0 = fmix(s0 ^ w) + 0x9E3779B97F4A7C15ULL;
-    s1 = fmix(s1 + (w ^ 0xC2B2AE3D27D4EB4FULL)) ^ (s0 >> 17);
-    ++n;
-  }
-  void f64(double d)
-  {
-    uint64_t w;
-    std::memcpy(&w, &d, sizeof w);
-    u64(w);
-  }
-  void bytes(const void *data, size_t size);
-  void str(std::string_view s)
-  {
-    u64(s.size());
-    bytes(s.data(), s.size());
-  }
   // Interned names never move within a process, and the table never outlives one.
   void id(const Identifier& name) { u64(name.index() + 1); }
-  void h(const Hash128& x)
-  {
-    u64(x.a);
-    u64(x.b);
-  }
-  [[nodiscard]] Hash128 finish() const;
-
-private:
-  static uint64_t fmix(uint64_t k)
-  {
-    k ^= k >> 33;
-    k *= 0xff51afd7ed558ccdULL;
-    k ^= k >> 33;
-    k *= 0xc4ceb9fe1a85ec53ULL;
-    k ^= k >> 33;
-    return k;
-  }
-  uint64_t s0{0x243F6A8885A308D3ULL};
-  uint64_t s1{0x13198A2E03707344ULL};
-  uint64_t n{0};
 };
 
 /*

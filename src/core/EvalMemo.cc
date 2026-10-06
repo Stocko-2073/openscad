@@ -102,31 +102,6 @@ const SourceFile *usedFileDefining(const SourceFile& file, const Identifier& nam
 
 }  // namespace
 
-void Hasher::bytes(const void *data, size_t size)
-{
-  const auto *p = static_cast<const unsigned char *>(data);
-  while (size >= 8) {
-    uint64_t w;
-    std::memcpy(&w, p, 8);
-    u64(w);
-    p += 8;
-    size -= 8;
-  }
-  if (size) {
-    uint64_t w = 0;
-    std::memcpy(&w, p, size);
-    u64(w ^ (uint64_t(size) << 56));
-  }
-}
-
-Hash128 Hasher::finish() const
-{
-  Hash128 r;
-  r.a = fmix(s0 ^ fmix(n + 0x632BE59BD9B4E019ULL));
-  r.b = fmix(s1 ^ (n * 0x94D049BB133111EBULL) ^ r.a);
-  return r;
-}
-
 constexpr int kMaxDepth = 200;
 
 bool ValueHashCache::hash(Hasher& h, const Value& value)
