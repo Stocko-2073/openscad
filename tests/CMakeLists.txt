@@ -721,6 +721,15 @@ remove_test_config(Bugs FILES
   render-manifold_issue1455
 )
 
+# Fixed by keying geometry by node digests (core/NodeDigest.h): to the text keys before them, an
+# empty group was no operand at all, so difference() { group(); cube(); } got the geometry of
+# difference() cube();
+remove_test_config(Bugs FILES
+  render-cgal_issue6456
+  render-manifold_issue6456
+  render-csg-cgal_issue6456
+)
+
 # Examples
 if(EXAMPLES_DIR)
   set_test_config(Examples FILES ${EXAMPLE_FILES} PREFIXES
