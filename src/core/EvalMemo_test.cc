@@ -166,6 +166,31 @@ part(3);
   CHECK(second.messages == fresh.messages);
 }
 
+TEST_CASE("Calls are counted as a fresh evaluation makes them, reused or not", "[memo]")
+{
+  // p() takes a value too deep to hash, so it is never stored, but the b()
+  // inside it is.
+  const auto file = parseScript(R"(
+function nest(n) = n == 0 ? 0 : [nest(n - 1)];
+module a() cube(1);
+module b() { a(); a(); }
+module p(v) b();
+b();
+p(nest(300));
+)");
+  memo::MemoTable table;
+  const Run first = evaluate(*file, &table);
+  // b() a() a() p() b() a() a(): the second a() and, in p(), b() with its
+  // two are reused from earlier in the same evaluation.
+  CHECK(first.stats.userCalls == 7);
+  CHECK(first.stats.userCallsReused == 4);
+
+  const Run second = evaluate(*file, &table);
+  CHECK(second.stats.boundaries == 3);
+  CHECK(second.stats.userCalls == 7);
+  CHECK(second.stats.userCallsReused == 6);
+}
+
 TEST_CASE("A $ variable a call reads must still have its value", "[memo]")
 {
   const auto script = [](const std::string& value) {

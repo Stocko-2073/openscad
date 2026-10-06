@@ -198,6 +198,8 @@ void Stats::add(const Stats& o)
 {
   calls += o.calls;
   boundaries += o.boundaries;
+  userCalls += o.userCalls;
+  userCallsReused += o.userCallsReused;
   hits += o.hits;
   misses += o.misses;
   stored += o.stored;
@@ -399,6 +401,8 @@ public:
   uint64_t childrenKey[3] = {0, 0, 0};
   const ModuleInstantiation *inst = nullptr;
   const Context *context = nullptr;
+  // Stats::userCalls before it: what it adds is its Entry::calls.
+  size_t callsBefore = 0;
   // Results of the boundaries inside it that were stored or reused.
   std::vector<EvalMemoSession::NestedResult> nested;
 
@@ -943,7 +947,10 @@ NOINLINE Call EvalMemoSession::enter(const UserModule& module,
   uint64_t childrenKey[3] = {0, 0, 0};
   const bool eligible = computeKey(module, *definingFile, inst, context, arguments, key, childrenKey);
   stats_.keyTime += std::chrono::steady_clock::now() - start;
-  if (!eligible) return Call::Plain;
+  if (!eligible) {
+    ++stats_.userCalls;
+    return Call::Plain;
+  }
 
   if (auto *variants = table.find(key)) {
     bool matched = false;
@@ -975,6 +982,7 @@ NOINLINE Call EvalMemoSession::enter(const UserModule& module,
   std::copy(childrenKey, childrenKey + 3, recorder.childrenKey);
   recorder.inst = inst;
   recorder.context = context.get();
+  recorder.callsBefore = stats_.userCalls++;
   return Call::Recording;
 }
 
@@ -1022,6 +1030,8 @@ NOINLINE std::shared_ptr<AbstractNode> EvalMemoSession::reuse(
   }
   ++stats_.hits;
   stats_.nodesCloned += entry.nodes;
+  stats_.userCalls += entry.calls;
+  stats_.userCallsReused += entry.calls;
   replayReads(session, entry);
   replay(entry.messages);
   return copy;
@@ -1064,6 +1074,7 @@ NOINLINE void EvalMemoSession::store(const std::shared_ptr<AbstractNode>& node, 
   entry->readsModuleStack = recorder.readsModuleStack;
   if (entry->readsModuleStack) entry->moduleStack = moduleStackHash();
   entry->root = node;
+  entry->calls = stats_.userCalls - recorder.callsBefore;
   entry->lastUsed = generation;
   table.store(recorder.key, entry);
   ++stats_.stored;

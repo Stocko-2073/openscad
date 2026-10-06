@@ -211,6 +211,10 @@ private:
 struct Stats {
   size_t calls = 0;       // user-module instantiations seen while memo was on
   size_t boundaries = 0;  // of those, at a user call site of a file-scope module
+  // The boundaries a fresh evaluation would reach, those inside reused calls
+  // included, and how many of them the reused calls stood for.
+  size_t userCalls = 0;
+  size_t userCallsReused = 0;
   size_t hits = 0;
   size_t misses = 0;
   size_t stored = 0;
@@ -286,6 +290,7 @@ struct Entry {
   bool readsModuleStack = false;
   Hash128 moduleStack;
   size_t nodes = 0;       // in the subtree, the root included
+  size_t calls = 0;       // boundaries its evaluation reaches, its own call included
   uint64_t lastUsed = 0;  // generation
 
   // Where the nodes' statements are. The root's is the call site; nodeCodes
