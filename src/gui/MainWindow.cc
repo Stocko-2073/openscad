@@ -89,6 +89,7 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -99,6 +100,7 @@
 #include "core/Builtins.h"
 #include "core/Context.h"
 #include "core/DatalessFiles.h"
+#include "core/EvalMemo.h"
 #include "core/EvaluationSession.h"
 #include "core/Expression.h"
 #include "core/PickAttribution.h"
@@ -948,6 +950,7 @@ void MainWindow::compileDone(bool didchange)
 
 void MainWindow::compileEnded()
 {
+  trimMemo();
   clearCurrentOutput();
   GuiLocker::unlock();
   if (this->renderRequested) QTimer::singleShot(0, this, &MainWindow::renderWhenUnlocked);
@@ -970,6 +973,31 @@ std::shared_ptr<AbstractNode> MainWindow::instantiateRootFromSource(SourceFile *
   return node;
 }
 #endif  // ifdef ENABLE_GUI_TESTS
+
+namespace {
+
+/*
+ * Renders that an unused entry of a document's memo table survives (MemoTable::evict()): enough
+ * to undo an edit or two, or to bring back a part disabled meanwhile, without evaluating it
+ * again. Each costs up to a tree: an edit leaves behind the results of the calls it changed, the
+ * top-level call's among them, which hold the whole old tree.
+ */
+constexpr uint64_t kMemoKeepRenders = 2;
+
+}  // namespace
+
+void MainWindow::dropMemoTables()
+{
+  // An evaluation running meanwhile, as printing processes events, holds on to its table.
+  for (auto *editor : tabManager->editorList) editor->memoTable.reset();
+}
+
+void MainWindow::trimMemo()
+{
+  this->memoReplaced.clear();
+  if (const auto table = this->memoToTrim.lock()) table->evict(kMemoKeepRenders);
+  this->memoToTrim.reset();
+}
 
 void MainWindow::instantiateRoot()
 {
@@ -999,9 +1027,24 @@ void MainWindow::instantiateRoot()
 
     AbstractNode::resetIndexCounter();
 
+    // Reuse what the document's last renders evaluated (core/EvalMemo.h). Printing processes
+    // events, so Flush Caches or closing the tab may drop the editor's table while this
+    // evaluation uses it: hold on to it here too.
+    if (!activeEditor->memoTable) activeEditor->memoTable = std::make_shared<memo::MemoTable>();
+    const std::shared_ptr<memo::MemoTable> memoTable = activeEditor->memoTable;
+
     EvaluationSession session{doc.parent_path().string()};
     ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(&session)};
     setRenderVariables(builtin_context);
+
+    // Detached and destroyed before the session, whose values it holds, also when the
+    // evaluation throws; the table stays consistent then.
+    std::optional<memo::EvalMemoSession> memo;
+    if (memoTable) {
+      memo.emplace(*memoTable, *this->rootFile);
+      session.setMemo(&*memo);
+    }
+    const auto detach = sg::make_scope_guard([&session]() noexcept { session.setMemo(nullptr); });
 
     std::shared_ptr<const FileContext> file_context;
 #ifdef ENABLE_PYTHON
@@ -1009,6 +1052,19 @@ void MainWindow::instantiateRoot()
     else
 #endif
       this->absoluteRootNode = this->rootFile->instantiate(*builtin_context, &file_context);
+    if (memo) {
+      session.setMemo(nullptr);
+      const auto& stats = memo->stats();
+      if (stats.userCalls > 0) {
+        renderStatistic.setPhaseNote(RenderStatistic::PHASE_EVALUATION,
+                                     "reused " + std::to_string(stats.userCallsReused) + " of " +
+                                       std::to_string(stats.userCalls) + " module calls");
+      }
+      // Freeing the trees the reused calls held, and evicting, can wait until this is shown.
+      this->memoReplaced = memo->takeReplaced();
+      this->memoToTrim = memoTable;
+      memo.reset();
+    }
     if (file_context) {
       this->qglview->cam.updateView(file_context, false);
       viewportControlWidget->cameraChanged();
@@ -2674,6 +2730,7 @@ void MainWindow::on_designActionFlushCaches_triggered()
   dxf_dim_cache.clear();
   dxf_cross_cache.clear();
   SourceFileCache::instance()->clear();
+  for (auto *window : scadApp->windowManager.getWindows()) window->dropMemoTables();
 
   LOG("Caches Flushed");
 }

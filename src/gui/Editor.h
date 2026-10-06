@@ -6,11 +6,16 @@
 #include <QStringList>
 #include <QTextEdit>
 #include <QWidget>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "core/IndicatorData.h"
 #include "gui/parameter/ParameterWidget.h"
+
+namespace memo {
+class MemoTable;
+}
 
 enum class EditorSelectionIndicatorStatus { SELECTED, IMPACTED };
 
@@ -103,4 +108,7 @@ public:
   std::string autoReloadId;
   std::vector<IndicatorData> indicatorData;
   ParameterWidget *parameterWidget;
+  // What this document's renders evaluated, for the next ones to reuse (core/EvalMemo.h):
+  // made by its first render, dropped by Flush Caches.
+  std::shared_ptr<memo::MemoTable> memoTable;
 };

@@ -48,6 +48,7 @@ Q_IMPORT_PLUGIN(QSvgPlugin)
 
 class BuiltinContext;
 class CGALWorker;
+namespace memo { class MemoTable; }
 class FontListDialog;
 class LibraryInfoDialog;
 class Preferences;
@@ -201,6 +202,9 @@ public:
   static void noOutputErrorLog(const Message&, void *) {}  // /dev/null
 
   bool fileChangedOnDisk();
+
+  // Forgets what the renders of this window's documents evaluated (core/EvalMemo.h).
+  void dropMemoTables();
 
   // Parse the document contained in the editor, update the editors's parameters and returns a SourceFile
   // object if parsing suceeded. Nullptr otherwise.
@@ -453,6 +457,12 @@ private:
                                                    const std::vector<overlay::Mesh>& overlays);
   std::vector<int> pickPrimitives(const QGLView::PickResult& picked);
   void addPickerAlsoHere(QMenu& menu, const std::vector<int>& primitives);
+
+  // What the last evaluation took out of its memo table, freed once its result is on screen,
+  // and the table, trimmed then; see trimMemo().
+  std::vector<std::shared_ptr<AbstractNode>> memoReplaced;
+  std::weak_ptr<memo::MemoTable> memoToTrim;
+  void trimMemo();
 
   char const *afterCompileSlot;
   bool procevents{false};

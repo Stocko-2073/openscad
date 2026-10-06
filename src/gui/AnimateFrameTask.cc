@@ -85,6 +85,8 @@ void FrameTask::run()
   bool ok = false;
 
   try {
+    // Never with a memo (core/EvalMemo.h): a table serves one evaluation at a time, and the GUI
+    // thread's renders use the document's. Workers share only the parse, read-only.
     EvaluationSession session{document_path_};
     ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(&session)};
 
