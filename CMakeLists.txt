@@ -1558,6 +1558,7 @@ endif()
 if(ENABLE_GUI_TESTS)
   set(GUITESTS_HEADERS
     src/guitests/guitests.h
+    src/guitests/TestEvalMemo.h
     src/guitests/TestModuleCache.h
     src/guitests/TestTabManager.h
     src/guitests/TestMainWindow.h
@@ -1566,6 +1567,7 @@ if(ENABLE_GUI_TESTS)
 
   set(GUITESTS_SOURCES
     src/guitests/guitests.cc
+    src/guitests/TestEvalMemo.cc
     src/guitests/TestModuleCache.cc
     src/guitests/TestTabManager.cc
     src/guitests/TestMainWindow.cc

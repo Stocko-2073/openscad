@@ -1,6 +1,7 @@
 #include <QTest>
 #include <iostream>
 
+#include "TestEvalMemo.h"
 #include "TestMainWindow.h"
 #include "TestModuleCache.h"
 #include "TestTabManager.h"
@@ -22,6 +23,7 @@ int runAllTest(MainWindow *window)
   totalTestFailures += runTests<TestTabManager>(window);
   totalTestFailures += runTests<TestMainWindow>(window);
   totalTestFailures += runTests<TestModuleCache>(window);
+  totalTestFailures += runTests<TestEvalMemo>(window);
   std::cout << "********************************** RESULTS *********************************"
             << std::endl;
   std::cout << "Failures: " << totalTestFailures << std::endl;
