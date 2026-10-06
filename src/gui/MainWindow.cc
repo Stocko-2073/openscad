@@ -1875,15 +1875,16 @@ void MainWindow::renderWhenUnlocked()
 
 void MainWindow::cgalRender()
 {
+  rootGeom.reset();
+  resetPickMemo();  // the F6 surface comes from rootGeom
   if (!this->rootFile || !this->rootNode) {
+    // Nothing to render, as after a parse error: show nothing rather than the last result.
+    this->geomRenderer = nullptr;
+    viewModeRender();
     compileEnded();
     return;
   }
-
-  this->qglview->setRenderer(nullptr);
-  this->geomRenderer = nullptr;
-  rootGeom.reset();
-  resetPickMemo();  // the F6 surface comes from rootGeom
+  // The view keeps showing the last result until this one is done.
 
   LOG("Rendering Polygon Mesh using %1$s...",
       renderBackend3DToString(RenderSettings::inst()->backend3D).c_str());
@@ -1962,10 +1963,8 @@ void MainWindow::actionRenderDone(const std::shared_ptr<const RenderResult>& res
     resetMeasurementsState(false, "No top level geometry; render something to enable measurements");
     LOG(message_group::UI_Warning, "No top level geometry to render");
     // A design of only % subtrees still shows them.
-    if (!result->overlays.empty()) {
-      this->geomRenderer = createGeometryRenderer(nullptr, result->overlays);
-      viewModeRender();
-    }
+    this->geomRenderer = createGeometryRenderer(nullptr, result->overlays);
+    viewModeRender();
   }
 
   updateStatusBar(nullptr);
