@@ -514,7 +514,7 @@ Geometry is now 90% of an unchanged refresh.
   545/545.
 - GUI tests: all four classes pass.
 
-### Known gaps
+### Known gaps (as of Phase 2; superseded in Phase 3)
 
 - **Accumulator reads and warnings**, **calls to modules defined inside
   module bodies**, **`import()`/`surface()` path resolution**, the **128-bit
@@ -530,17 +530,245 @@ Geometry is now 90% of an unchanged refresh.
   renders.
 - The `QSignalSpy` abort in the GUI tests is unexplained.
 
+## 2026-10-06 — Phase 3: geometry keys
+
+The geometry stage now costs what changed. A save of u-bot that changes
+nothing refreshes in 80 ms instead of 1.3 s, a part edit in 0.4–0.55 s
+instead of 1.65–1.95 s, and the first render takes 6.3 s instead of 7.7 s.
+
+### Where the time went
+
+Measured with temporary timers on the 13-step sequence (`--memo-replay
+--memo-geometry`, caches at 5,000 MB) and through the window
+(`benchmarkEditSequence`):
+
+| | unchanged | part edit | `$slop` | first render |
+|---|---|---|---|---|
+| geometry (harness) | 0.99 s | 1.46 s | 1.73 s | 1.95 s |
+| key text: the NodeDumper pass | 0.99 s | 0.99 s | 0.98 s | 0.96 s |
+| key text: copies | – | 35 ms, 0.7 GB | 39 ms, 1.0 GB | 47 ms, 1.2 GB |
+| key text: hashed by lookups | – | 105 ms, 1.5 GB | 140 ms, 2.0 GB | 173 ms, 2.5 GB |
+| booleans recomputed | – | 0.31 s | 0.49 s | 0.59 s |
+| PolySet → Manifold conversions | – | 4 ms (3) | 22 ms (93) | 68 ms (378) |
+| overlay::collect (window only) | 0.24 s | 0.24 s | 0.24 s | 0.24 s |
+
+The part edit is the `drive_gear()` literal. Every refresh redid the
+NodeDumper pass over all 470k nodes, since `Tree::setRoot()` drops it; each
+key was cut out of that dump as a copy (the root's is 6 MB), hashed again by
+each lookup in each of the two caches, and kept by its cache entry. The
+booleans ran inside `memsize()`, whose vertex count forces Manifold's lazy
+evaluation when a result enters the cache, so `Status()` at the root found
+nothing left to do. `overlay::collect()` walked the whole tree for u-bot's
+seven `#`/`%` targets. On the GUI thread after the result: 4 ms to convert
+the root Manifold for the renderer, 60 ms to build its buffers at the next
+paint, on every render.
+
+So: keys first, then the overlay walk, then the renderer. Caching
+PolySet → Manifold conversions would save 4–22 ms on a refresh; not done.
+
+### What changed, and why
+
+**Digests** (`eb9b873ff`, `ef2f5e44b`; `core/NodeDigest.h`). A node's
+digest is a 128-bit hash, the memo's (now `utils/Hash128.h`), of its own
+data and its operands' digests and modifiers. Every node class hashes its
+own data in `hashContent()`, next to its `toString()` and covering what that
+writes, with numbers exact; it is pure virtual, and a subclass that does not
+implement its own is refused, as `copy()` refuses one, and gets a digest no
+other node shares. Operands are what GeometryEvaluator combines: the
+children, a list standing for its own. Where the text keys made subtrees
+equal, digests do too when it was sound: a group of one unmodified operand
+keys like it (most of BOSL2's 420k groups collapse onto what they hold),
+empty groups are no operands of what unions its operands, modifiers on
+such a group are its operand's, lists flatten into their parent. Where the
+text keys gave different geometry one key, digests differ: an empty group
+among the operands of `difference()` or `intersection()` (upstream issue
+6456, whose three "failing" render tests now pass and run by default,
+`cf8bdb70e`), a group of one `%`-operand, a group holding a list of several
+operands, and the root against a group with several. The header lists each
+case. On u-bot the digests partition the 470k nodes exactly as the text keys
+did, into 4,104 keys.
+
+Computing is iterative (trees are deeper than worker stacks allow) and
+takes 30 ms for all of u-bot; a digest is kept on its node in atomics, so
+the picker may ask while the render thread computes, and
+`hasModifierBelow()` comes with it. `import()` and `surface()` hash their
+file's time as the text did; those digests and the ones above them are
+kept by the `Tree`, which drops them with its root, so each refresh reads
+the time again (one `stat` per import, as before).
+
+**Reused nodes keep theirs** (`b2818daff`, `b3061351d`). The memo's
+copies and `clone()` take the original's digest once their children are in
+place; a node's own modifiers are not part of its digest (they are its
+parent's business), so a reused call whose call site gained a `#` keeps it.
+Lists are the exception: their own modifiers count, and a stored node's
+statement may not be read (its parse may be gone), so a copied list
+computes its digest again from its children's. After an unchanged refresh
+only the new root and a few hundred nodes lack one: 0.1 ms. A part edit
+computes 1,400 (0.4 ms), `$slop` 173k (12 ms).
+
+**The caches use them** (`45a0d5c49`). GeometryEvaluator, the caches
+(16-byte keys, `Cache<Key, T, Hash>`), physics poses and overlays.
+`Tree::getIdString()` stays for debugging; nothing calls it now, and `-o
+.csg` is unchanged (byte-identical on u-bot).
+
+**Overlays** (`0881d2151`). The walk goes only where `hasModifierBelow()`
+says a `#` or `%` is: 0.5 ms instead of 240 ms.
+
+**Renderer** (`4f241b585`). The worker passes on the root's digest and
+each overlay mesh records what it is made of (its subtree's digest,
+placement and kind). When those and the backend match what the renderer
+on screen was made from, the window keeps it and its buffers: an
+unchanged refresh no longer converts or uploads anything. A change of color
+scheme, whose colors the buffers hold, and overlays from the interference
+check make a new one.
+
+**The `QSignalSpy` abort explained** (`064e21f6b`). `TestModuleCache`
+left a lambda connected to `compilationDone` that stores through a
+reference to one of its locals; every later render wrote a `SourceFile`
+pointer into the GUI thread's stack wherever that local had been: most
+likely what aborted QSignalSpy in Phase 2, and here a callee-saved
+register of a new test, which crashed (AddressSanitizer:
+stack-use-after-return). It is disconnected when the test ends.
+
+**Harness** (`ae606ec5d`). `--memo-replay --memo-geometry` ends with what
+the caches hold: entries, what they count, and what emptying them gives
+back.
+
+### Decisions
+
+- **Exact numbers.** The text printed six significant digits, so nodes
+  differing beyond them shared an entry, and an edit in the seventh digit
+  got the stale geometry. Digests hash bit patterns. On u-bot this changes
+  no sharing at all (the partitions are identical, and so is the STL). Over
+  the 550 corpus scripts, with `--enable=all` too, every text key that
+  digests split was a structural case above (the root, a group and a list
+  holding the same operands; issue 6456) or one file imported by two
+  spellings of its path; none differed in a number. Two nodes now share an
+  entry only if their numbers are equal, so a model whose near-equal values
+  met in the cache computes each.
+- **What a digest ignores.** Modifiers of the node itself (except a list's,
+  which say whether a list evaluated as the root has geometry), and the
+  `%`/`#` that the text wrote on every node below a `%`- or `#`-list: only
+  the list's own operands take them. A group holding an empty list and one
+  operand keys like the operand, where the text did not. None of these
+  changes geometry. A file's path is hashed as stored (absolute) rather
+  than as the text printed it, relative to the current directory: two
+  documents' `part.stl` in different directories no longer meet.
+- **Global settings**: lazy union is part of the root's digest (it makes
+  the root a list); `$fe` is hashed even where the text left it out, since
+  the segment counts use it. A backend switch is still not part of any key,
+  as before.
+
+### Results
+
+The 13-step sequence (`--memo-replay --memo-geometry --memo-keep 2`):
+
+| step | geometry before | after |
+|---|---|---|
+| first render | 1,924 ms | 728 ms |
+| unchanged / comment / undo (×7) | 969–1,018 ms | 0 ms |
+| literal in `drive_gear()` | 1,425 ms | 280 ms |
+| feature count in `wheel()` | 1,469 ms | 304 ms |
+| leg position | 1,320 ms | 197 ms |
+| `wheel_teeth` | 1,547 ms | 335 ms |
+| `$slop` | 1,745 ms | 541 ms |
+
+What remains of an edit is the booleans along its path, which Manifold
+recomputes level by level up to the root; of the first render, the
+booleans (0.59 s) and conversions (68 ms).
+
+Through the window (`benchmarkEditSequence`, `model_named`, caches at
+5,000 MB). "Refresh" is the render statistic once the window reports the
+render done: the console's total, plus what the GUI thread does after
+printing it (the renderer for a new result, freeing the replaced tree,
+and the paint that builds the buffers when it falls before the report):
+
+| edit | eval | geometry before → after | refresh before → after |
+|---|---|---|---|
+| first render (empty table) | 4.67 s | 2.20 → 0.79 s | 7.67 → 6.32 s |
+| unchanged / comment at top | 45 ms | 1.21 s → 0 | 1.30–1.32 s → 76–80 ms |
+| undo, back to the base | 49–57 ms | 1.21 s → 0 | 1.30–1.33 s → 153–168 ms |
+| literal in `drive_gear()` | 116 ms | 1.66 → 0.30 s | 1.80 → 0.50 s |
+| feature count in `wheel()` | 104 ms | 1.71 → 0.31 s | 1.83 → 0.51 s |
+| leg position | 92 ms | 1.53 → 0.22 s | 1.65 → 0.40 s |
+| `wheel_teeth` | 166 ms | 1.75 → 0.35 s | 1.93 → 0.54 s |
+| `$slop` | 2.75 s | 1.98 → 0.54 s | 4.80 → 3.38 s |
+
+An undo shows a different result from the one on screen, so it makes a new
+renderer, whose buffers (60 ms) land in its time. Without the memo, an
+unchanged refresh's geometry is now 31 ms, the digests of 470k fresh nodes,
+instead of 1.2 s.
+
+Memory: the 13-step harness peaks at 3.15 GB of footprint instead of 3.55
+GB (each cache entry no longer keeps its key: up to 6 MB for keys near the
+root), and the GUI test run at 3.92 GB instead of 4.36 GB. At the end of
+the sequence the caches hold 4,873 entries, which they count as 1,555 MB
+(Manifold sizes are estimates) and which give back 522 MB when emptied.
+
+### Correctness
+
+- u-bot's STL, before and after: byte-identical on both model variants;
+  the CSG export too (`model_named`).
+- u-bot scripted edits with `--memo-verify --memo-keep 2`: 13/13 identical.
+- `[digest]` unit tests (10): equal where the text keys were (group chains,
+  empty groups, modifiers on single-operand groups, lists, intersection_for);
+  different where they mixed up geometry; different for each field that
+  `toString()` writes, per node class; every class hashes its own data
+  (two evaluations give equal digests node by node); a subclass without
+  `hashContent()` keys alone; copies carry digests and shallow copies do
+  not; a file's new time is read with the next root and not before; four
+  threads computing one tree agree; `hasModifierBelow()`. Two `[memo]`
+  tests check that reused nodes keep their digests and re-evaluated ones do
+  not, and that a reused list computes its own after its old parse is
+  freed; an `[overlay]` test that a modifier 50 calls deep is still found.
+- `ctest`: 1829/1832, the three known `export-svg*_spec-paths-arcs01`
+  failures; `-L memo` 19/19; `-C MemoSelftest` 545/545; `-C Bugs` changes
+  only issue 6456, from failing to passing.
+- GUI tests pass, including a new one: an unchanged render keeps the
+  renderer, an edit or a color scheme makes a new one.
+- AddressSanitizer, on the GUI tests and the unit tests: it found the
+  module cache test's stale lambda and two faults of this phase (a test
+  that freed the parse its tree pointed into, and the list copy that read
+  a freed statement), all fixed. With its fake stacks on, two memo tests
+  that depend on `StackCheck` fail, as `StackCheck` cannot measure those
+  stacks; they pass without.
+
+### Known gaps
+
+- **Booleans along the edited path**: 0.2–0.35 s of a u-bot part edit,
+  forced level by level as results enter the cache. Letting Manifold batch
+  the levels would mean caching unevaluated results; not tried.
+- **Auto-reload** still adds about 0.47 s on average, now most of what a
+  save costs: polling (200 ms period, 100 ms on average), the 200 ms wait
+  for further changes when a design has includes, and the parse (~0.17 s),
+  outside the console's total.
+- **Walks of the whole tree on the GUI thread** per refresh:
+  `progress_report_prep()` (6 ms), `find_root_tag()` (8 ms), and freeing
+  the replaced tree (15–30 ms, after the result is shown).
+- **Hash collisions**: two subtrees with equal 128-bit digests would share
+  geometry, as two calls with equal keys share results in the memo.
+- **Memory**: of the harness's 2.8 GB footprint at the end, about 1.6 GB
+  stays once the caches, the table and the tree are freed. Not
+  investigated.
+- As in Phase 2: accumulator reads, nested definitions, `import()` path
+  resolution, recursion limits, memory per kept render, unnamed
+  `tag_scope()`, a tab reused for another file.
+
 ## Next
 
-1. **Phase 3, geometry keys:** per-node digests computed bottom-up, reused
-   subtrees keeping theirs, so the whole-tree dump goes away: 1.2 s of the
-   1.3 s that an unchanged u-bot refresh now takes is geometry.
+1. **Auto-reload latency**, now the largest part of an unchanged save: a
+   file-system watcher with the polling kept as a fallback, and a shorter
+   wait for further changes (100 ms would still catch an editor's "Save
+   All"; files saved later are picked up by the next poll, at the cost of
+   a render). Both change upstream behavior, and iCloud-backed files need
+   trying.
 2. **Random tag scopes:** either name them in the model, or seed the RNG
    deterministically per refresh and record RNG position as a dependency, so
    unnamed `tag_scope()` becomes reusable. The second changes what unseeded
    `rands()` returns from refresh to refresh (the same values every time).
-3. **Auto-reload latency:** the 200 ms wait for further changes after a
-   reload, and a statistic that starts with the save.
+3. **Booleans of an edit:** batch the levels of the edited path, or keep
+   the root's parts apart for display (lazy union does, for top-level
+   objects) so that an edit does not union the whole model again.
 4. **Nested definitions** as boundaries, carried over from Phase 1.
 5. **Eviction by budget** rather than by a fixed number of renders.
 
@@ -563,6 +791,7 @@ OPENSCAD_MEMO_DEBUG=1 $BIN --memo-replay base.scad base.scad
 
 # The unit tests, and --memo-selftest over the whole regression corpus
 build-release/OpenSCADUnitTests "[memo]"
+build-release/OpenSCADUnitTests "[digest]"
 ctest --test-dir build-release -C MemoSelftest -L memo-selftest -j8
 
 # Random single-literal edits, written next to the base so includes resolve
