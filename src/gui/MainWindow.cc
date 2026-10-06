@@ -964,6 +964,7 @@ void MainWindow::compileEnded()
 {
   clearCurrentOutput();
   GuiLocker::unlock();
+  if (this->renderRequested) QTimer::singleShot(0, this, &MainWindow::renderWhenUnlocked);
   if (designActionAutoReload->isChecked()) autoReloadTimer->start();
 #ifdef ENABLE_GUI_TESTS
   emit compilationDone(this->rootFile.get());
@@ -2095,11 +2096,30 @@ void MainWindow::on_designAction3DPrint_triggered()
 
 void MainWindow::on_designActionRender_triggered()
 {
-  if (GuiLocker::isLocked()) return;
+  if (GuiLocker::isLocked()) {
+    // A compile, render or export is running: render once it is done, so the view ends up showing
+    // the latest text. Requests made meanwhile make one render.
+    if (!this->renderRequested) {
+      this->renderRequested = true;
+      QTimer::singleShot(autoReloadPollingPeriodMS, this, &MainWindow::renderWhenUnlocked);
+    }
+    return;
+  }
+  this->renderRequested = false;
   GuiLocker::lock();
 
   prepareCompile("cgalRender", true, false);
   compile(false);
+}
+
+void MainWindow::renderWhenUnlocked()
+{
+  if (!this->renderRequested) return;  // rendered meanwhile
+  if (GuiLocker::isLocked()) {
+    QTimer::singleShot(autoReloadPollingPeriodMS, this, &MainWindow::renderWhenUnlocked);
+    return;
+  }
+  on_designActionRender_triggered();
 }
 
 void MainWindow::cgalRender()

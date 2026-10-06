@@ -359,6 +359,7 @@ private slots:
   void on_designAction3DPrint_triggered();
   void sendToExternalTool(class ExternalToolInterface& externalToolService);
   void on_designActionRender_triggered();
+  void renderWhenUnlocked();
   void actionRenderDone(const std::shared_ptr<const RenderResult>&);
   void cgalRender();
   void handleMeasurementClicked(QAction *clickedAction);
@@ -480,6 +481,7 @@ private:
 
   char const *afterCompileSlot;
   bool procevents{false};
+  bool renderRequested{false};  // while the GUI was locked; see renderWhenUnlocked()
   QTemporaryFile *tempFile{nullptr};
   ProgressWidget *progresswidget{nullptr};
   CGALWorker *cgalworker;
