@@ -1022,6 +1022,7 @@ set(CORE_SOURCES
   src/core/LinearExtrudeNode.cc
   src/core/LocalScope.cc
   src/core/node_clone.cc
+  src/core/ModifierOverlays.cc
   src/core/ModuleInstantiation.cc
   src/core/NodeDumper.cc
   src/core/NodeVisitor.cc
