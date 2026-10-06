@@ -349,7 +349,7 @@ path words, 100k anchors and 399k translation entries.
   cases; the three failures are the pre-existing `export-svg*_spec-paths-arcs01`
   diffs.
 
-### Known gaps
+### Known gaps (as of Phase 1; superseded in Phase 2)
 
 - **Accumulator reads and warnings.** Unchanged: a pending read is not
   validated, so a reused call would replay a stale warning from its
@@ -367,31 +367,182 @@ path words, 100k anchors and 399k translation entries.
 - **Threads.** A table serves one evaluation at a time; nothing in it is
   synchronized.
 
+## 2026-10-06 — Phase 2: the GUI
+
+Each document keeps a memo table from one render to the next. A save of
+u-bot now refreshes in 1.3 s when nothing changed and in 1.65–1.95 s after
+editing a part, against 9.3–10 s (`model_named`; 1.9 s and 2.3–2.6 s with the
+model's own unnamed tag scopes). The "Script evaluation" line says how much
+was reused.
+
+### What changed, and why
+
+**Calls counted as a fresh evaluation makes them** (`d6bcf0831`). A reused
+call is one hit however many calls it skips, so an unchanged u-bot read as one
+hit out of one boundary. Each entry now records how many boundaries its
+evaluation reached, its own and those of calls reused inside it included;
+`Stats::userCalls` is then the number of module calls the user's files make
+(6,835 for u-bot) whatever was reused, and `Stats::userCallsReused` the part
+that reuse stood for.
+
+**A table per document** (`da634bfe0`). The window's `rootFile` is only the
+last tab parsed; the documents are the editor tabs, so each
+`EditorInterface` holds a `shared_ptr<memo::MemoTable>`, made by its first
+render and freed with the tab. `instantiateRoot()` evaluates with an
+`EvalMemoSession` on it, detached by a scope guard and destroyed before the
+`EvaluationSession` on every path.
+
+- *Re-entrancy.* Printing during an evaluation processes events
+  (`consoleOutput()` calls `processEvents()`), so Flush Caches, the
+  preference or closing the tab can run in the middle of one. Clearing the
+  table in place would free the entry list `enter()` is walking; instead they
+  drop the editor's reference, and the render holds one of its own until it
+  is done.
+- *Exceptions.* "Stop on first warning" throws out of the whole evaluation.
+  A unit test (`aeada9cf3`) stops one while a call is recorded and one while
+  a reuse replays the warning; either way the next evaluation reuses what it
+  can and matches a fresh one.
+- *Freeing.* `compileEnded()`, once the result is on screen, frees the trees
+  that reused entries gave up (`takeReplaced()`: the whole previous tree
+  when nothing changed) and then evicts, so neither lands in the evaluation
+  time.
+
+**Eviction.** `evict(2)` after every render: an entry survives two renders
+that do not use it. Without eviction every edit leaves behind the results of
+the calls it changed, the top-level call's among them, and those hold the
+whole old tree. Fifty successive single-literal edits of u-bot
+(`mut_01`…`mut_50` after the base, with `--memo-replay --memo-keep N` from
+`61d448572`; "beside the tree" is the footprint the table frees when cleared
+with the last tree still held, which is approximate since the two share
+pages):
+
+| keep | entries | beside the tree | peak footprint | eval median / p90 / max |
+|---|---|---|---|---|
+| no eviction | 7,323 | 2,842 MB | 3,214 MB | 67 / 126 / 853 ms |
+| 0 | 3,794 | 17 MB | 374 MB | 87 / 158 / 2,139 ms |
+| 1 | 3,531 | 31 MB | 439 MB | 74 / 124 / 853 ms |
+| **2** | 3,526 | 42 MB | 512 MB | 71 / 122 / 859 ms |
+| 4 | 3,637 | 48 MB | 646 MB | 71 / 121 / 859 ms |
+
+Keeping nothing beyond the last render makes every revert evaluate again
+(after `$slop`, going back to the base takes 2.67 s instead of 29 ms). With
+two, the next render can return in full to either of the two versions before
+the current one, as an undo of one or two edits does, and a part disabled
+with `*` for up to two renders comes back without running; from a version
+further back only what it alone had runs again. Each further render kept
+costs up to a tree, about 70 MB of peak footprint here. The table's steady
+state is 3,500–5,300 entries and about 40 MB beside the tree on screen, which
+takes about as much again: small next to the two 5,000 MB geometry caches. No
+size guard on top: what survives is what the last three renders used or
+made, so the table cannot outgrow three renders' trees and entries.
+
+**Console** (`e9156ce79`). A render-statistic phase can carry a note, printed
+after its time: `Script evaluation: 0:00:00.060 ( 4.6%), reused 6835 of 6835
+module calls`. One line per render, the one already there; none when the
+preference is off or the design calls no modules.
+
+**Flush Caches and the preference** (`2dfa84366`). Flush Caches drops the
+tables of every window's documents, as it empties the other, global, caches.
+Preferences → Advanced → 3D Rendering, below the cache sizes: "Reuse unchanged
+module results between renders", on by default (`advanced/reuseModuleResults`
+like the other Settings entries); turning it off drops the tables at once.
+
+**Threads.** Animation prefetch workers (`AnimateFrameTask`) make their own
+`EvaluationSession` and never get a memo; they share only the parse, which
+nothing writes after `parse()`. Renders on the GUI thread are serialized by
+`GuiLocker`, which is global across windows, and the CGAL worker only reads
+the finished tree, whose nodes the table shares. Main-thread animation steps
+(typing a time, stepping, dump-pictures) use the memo: `$t` is a recorded `$`
+read, so at a new time only the calls that read it run.
+
+**What reads the tree.** The picker (`getNodeByID()`), the editor highlight,
+`#`/`%` overlays, the interference report and exports all read nodes'
+statements, which for reused nodes point into the parse on screen (Phase 1).
+`--memo-verify` and the unit tests already compare each node's statement
+pointer with a fresh evaluation's; the GUI tests add the window's view: its
+tree equals a fresh evaluation of the same parse, a reused cube found by its
+index is on its new line, and `overlay::collect()` sees a `#` added to a
+reused call.
+
+**GUI tests** (`2c1aa8f59`, `086ebed15`). `TestEvalMemo` renders documents in
+a real window (`ENABLE_GUI_TESTS`, `--run-all-gui-tests`): reuse across
+renders and after a save that moves the text, Flush Caches and the
+preference, `$t`, and a render while the animation plays with frames
+prefetched on worker threads. Test runs now get settings of their own: they
+used to rewrite the recent files, auto-reload and view settings of the user's
+OpenSCAD. A `QSignalSpy` on `compilationDone` aborted with `qBadAlloc` (Qt
+6.11) after renders of u-bot, with or without the memo, so the tests wait
+through a plain connection. `benchmarkEditSequence()` times a series of
+saves through the window when `OPENSCAD_MEMO_BENCH` lists them.
+
+### Results
+
+Through the window (`benchmarkEditSequence`): each version saved over one
+document and refreshed as auto-reload does, `model_named`, geometry caches at
+5,000 MB. "Refresh" is the console's "Total rendering time":
+
+| edit | eval | geometry | refresh | without memo |
+|---|---|---|---|---|
+| first render (empty table) | 4.59 s | 2.20 s | 7.67 s | 10.5 s |
+| unchanged / comment at top / undo | 44–60 ms | 1.21 s | 1.30–1.33 s | 9.3–9.5 s |
+| literal in `drive_gear()` | 119 ms | 1.66 s | 1.80 s | 9.6 s |
+| feature count in `wheel()` | 103 ms | 1.71 s | 1.83 s | 9.8 s |
+| leg position | 91 ms | 1.53 s | 1.65 s | 9.6 s |
+| `wheel_teeth` | 161 ms | 1.75 s | 1.93 s | 9.8 s |
+| `$slop` | 2.77 s | 1.98 s | 4.80 s | 10.0 s |
+
+With the model's own unnamed tag scopes (`model`): 1.93–1.97 s unchanged
+(0.69–0.71 s of it evaluation), 2.28–2.56 s for the part edits, 5.24 s for
+`$slop`, against 9.2–10.6 s.
+
+An auto-reload takes about 0.5 s more than its total: the 200 ms polling
+period (half of it on average), the 200 ms that `waitAfterReload()` waits for
+further changes to included files, and the parse (~0.17 s), which the
+console omits because the second `compile()` restarts the statistic.
+Geometry is now 90% of an unchanged refresh.
+
+### Correctness
+
+- u-bot scripted edits, 13 steps on each model, with `--memo-keep 2`: every
+  tree, statements included, and every message stream identical to a fresh
+  evaluation.
+- 50 random literal mutations: 51/51 identical; median 75 ms, p90 123 ms, max
+  870 ms against a fresh median of 8.3 s. u-bot git history: 8/8.
+- `[memo]` unit tests: 17 (the call counts and the throwing evaluation are
+  new), and one for the phase note; `ctest` 1813/1816 with the three known
+  `export-svg*_spec-paths-arcs01` failures; `ctest -C MemoSelftest`
+  545/545.
+- GUI tests: all four classes pass.
+
+### Known gaps
+
+- **Accumulator reads and warnings**, **calls to modules defined inside
+  module bodies**, **`import()`/`surface()` path resolution**, the **128-bit
+  hash** and the **recursion** limits: as in Phase 1.
+- **Memory.** Each kept render can hold a whole old tree, about 70 MB of
+  peak footprint on u-bot. A budget in nodes would let the table keep more
+  renders when they are cheap, and fewer when they are not. The locations
+  take ~30 MB of the table, as before.
+- **Unnamed `tag_scope()`** costs 0.7 s of every refresh of u-bot as it is.
+- **Auto-reload's** console total omits its settle time and the parse.
+- **A tab reused for another file** (File → Open into an empty, unmodified
+  tab) keeps its table; what the new file cannot use is evicted within three
+  renders.
+- The `QSignalSpy` abort in the GUI tests is unexplained.
+
 ## Next
 
-1. **Phase 2, GUI:** a table per document across refreshes, generation-based
-   eviction, Flush Caches clears it, a preference to turn it off, a console
-   line ("reused X of Y calls"). What it calls:
-   - `memo::MemoTable` per document, kept across refreshes; `clear()` on
-     Flush Caches; `evict(keep)` after a refresh drops what the last `keep`
-     evaluations did not use; `size()` and `generation()`.
-   - Per refresh, after parsing the main file: `memo::EvalMemoSession
-     memo{table, *rootFile};` then `session.setMemo(&memo)` on its
-     `EvaluationSession`, `rootFile->instantiate(...)`, `setMemo(nullptr)`;
-     `memo.stats()` (`hits`, `boundaries`, `nodesCloned`, timings) for the
-     console; `memo.takeReplaced()` to hold the trees it took out of the table
-     until the new one is on screen; destroy `memo` before the session.
-   - Parses: the table needs none. Keep the parse behind the tree on screen as
-     now; every file must come from `parse()`, which annotates it.
-   - Prefetch threads: no memo (the table is not synchronized); they only read
-     the AST, which nothing writes after parsing.
-2. **Phase 3, geometry keys:** per-node digests computed bottom-up, reused
-   subtrees keeping theirs, so the ~1.0 s whole-tree dump goes away.
-3. **Random tag scopes:** either name them in the model, or seed the RNG
+1. **Phase 3, geometry keys:** per-node digests computed bottom-up, reused
+   subtrees keeping theirs, so the whole-tree dump goes away: 1.2 s of the
+   1.3 s that an unchanged u-bot refresh now takes is geometry.
+2. **Random tag scopes:** either name them in the model, or seed the RNG
    deterministically per refresh and record RNG position as a dependency, so
    unnamed `tag_scope()` becomes reusable. The second changes what unseeded
    `rands()` returns from refresh to refresh (the same values every time).
+3. **Auto-reload latency:** the 200 ms wait for further changes after a
+   reload, and a statistic that starts with the save.
 4. **Nested definitions** as boundaries, carried over from Phase 1.
+5. **Eviction by budget** rather than by a fixed number of renders.
 
 ## Reproducing
 
@@ -416,6 +567,21 @@ ctest --test-dir build-release -C MemoSelftest -L memo-selftest -j8
 
 # Random single-literal edits, written next to the base so includes resolve
 python3 -I doc/journals/memo-mutate.py base.scad . 50 7
+
+# Evict after each step as the GUI does, and report what the table holds
+$BIN --memo-replay base.scad edit1.scad base.scad --memo-keep 2
+
+# The GUI tests need a build of their own; a run opens a window, uses
+# settings of its own and exits with the number of failures
+cmake -B build-guitest -DCMAKE_BUILD_TYPE=Release -DEXPERIMENTAL=1 -DENABLE_GUI_TESTS=ON
+cmake --build build-guitest -j10 --target OpenSCADExe
+build-guitest/OpenSCAD.app/Contents/MacOS/OpenSCAD --run-all-gui-tests
+
+# ...and time refreshes through the window, with the memo and without: the
+# versions are saved in turn over memo-bench.scad, next to the first
+M=/path/to/a/copy/of/u-bot
+OPENSCAD_MEMO_BENCH=$M/base.scad:$M/edit1.scad:$M/base.scad \
+  build-guitest/OpenSCAD.app/Contents/MacOS/OpenSCAD --run-all-gui-tests
 ```
 
 Edit variants must sit in the model's own directory: relative `include`/`use`
