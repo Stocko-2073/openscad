@@ -182,7 +182,8 @@ part(3);
   const Hash128 digest = Tree(first.root).digest(*first.root);
 
   // The root is new on every evaluation; what was reused under it comes with its digests.
-  const Run second = evaluate(*parseScript(text), &table);
+  const auto again = parseScript(text);  // the nodes point into it
+  const Run second = evaluate(*again, &table);
   CHECK(!second.root->hasDigest());
   for (const auto& call : second.root->children) {
     std::vector<const AbstractNode *> nodes{call.get()};
