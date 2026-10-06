@@ -33,6 +33,12 @@
 #ifdef ENABLE_MANIFOLD
 #include "geometry/manifold/ManifoldGeometry.h"
 #endif
+#ifdef USE_MIMALLOC
+#include <mimalloc.h>
+#endif
+#ifdef __APPLE__
+#include <mach/mach.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -148,6 +154,26 @@ std::string compareMessages(const std::vector<Message>& memo, const std::vector<
   return "messages identical";
 }
 
+// The process's memory as the system counts it, once the allocator has
+// returned what it can: Activity Monitor's "Memory" on macOS.
+std::optional<size_t> footprintBytes()
+{
+#ifdef USE_MIMALLOC
+  mi_collect(true);
+#endif
+#ifdef __APPLE__
+  task_vm_info_data_t info;
+  mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+  if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count) !=
+      KERN_SUCCESS) {
+    return std::nullopt;
+  }
+  return static_cast<size_t>(info.phys_footprint);
+#else
+  return std::nullopt;
+#endif
+}
+
 std::string firstTreeDifference(const std::string& a, const std::string& b)
 {
   size_t i = 0;
@@ -181,7 +207,7 @@ double geometryMs(const std::shared_ptr<AbstractNode>& root, const fs::path& dir
 }
 
 int memo_replay(const std::vector<std::string>& files, const std::string& commands, bool verify,
-                bool geometry)
+                bool geometry, int keep)
 {
   memo::MemoTable table;
   const fs::path original = fs::current_path();
@@ -223,12 +249,14 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
     parsed->handleDependencies();
 
     Run memoRun = evaluate(parsed, path.parent_path(), &table);
+    const size_t evicted = keep >= 0 ? table.evict(keep) : 0;
     total.add(memoRun.stats);
     const memo::Stats& s = memoRun.stats;
     const size_t uncacheable =
       s.unhashableArg + s.unhashableEnv + s.childrenLocalDef + s.childrenNoKey + s.unhashableChildrenVar;
     std::cout << "step " << generation << " " << path.filename().generic_string() << ": eval "
-              << static_cast<long>(memoRun.ms) << " ms, " << memoRun.nodes << " nodes | boundaries "
+              << static_cast<long>(memoRun.ms) << " ms, " << memoRun.nodes << " nodes | calls "
+              << s.userCalls << ", reused " << s.userCallsReused << " | boundaries "
               << s.boundaries << ": hit " << s.hits << ", miss " << s.misses << " (stored " << s.stored
               << ", impure " << s.impure << ", $-unhashable " << s.unhashableDollar << ", $-differ "
               << s.staleDollar << ", unlocatable " << s.unlocatable << ", not relocated "
@@ -244,7 +272,9 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
               << std::chrono::duration_cast<std::chrono::milliseconds>(s.locateTime).count() << " ms ("
               << s.nodesLocated << " nodes), reuse "
               << std::chrono::duration_cast<std::chrono::milliseconds>(s.reuseTime).count() << " ms | table "
-              << table.size() << "\n";
+              << table.size();
+    if (keep >= 0) std::cout << " (evicted " << evicted << ")";
+    std::cout << "\n";
 
     for (size_t i = 0; i < memoRun.reasons.size(); ++i) {
       std::cout << "        " << memoRun.reasons[i].second << "  " << memoRun.reasons[i].first << "\n";
@@ -273,6 +303,26 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
   std::cout << "total: hits " << total.hits << ", misses " << total.misses << ", cloned "
             << total.nodesCloned << " nodes";
   if (verify) std::cout << ", verify failures " << failures;
+  std::cout << "\n";
+
+  // What the table keeps alive beside the last tree, which shares most of its
+  // nodes, and for scale what that tree and its parse take.
+  const size_t entries = table.size();
+  const auto withTable = footprintBytes();
+  table.clear();
+  const auto withoutTable = footprintBytes();
+  shown.reset();
+  shownFile.reset();
+  const auto withoutTree = footprintBytes();
+  std::cout << "table: " << entries << " entries";
+  if (withTable && withoutTable && withoutTree) {
+    const auto mb = [](size_t from, size_t to) {
+      return static_cast<long>((static_cast<double>(from) - static_cast<double>(to)) / (1024 * 1024));
+    };
+    std::cout << ", " << mb(*withTable, *withoutTable) << " MB beside the last tree, which takes "
+              << mb(*withoutTable, *withoutTree) << " MB with its parse (footprint "
+              << *withTable / (1024 * 1024) << " MB)";
+  }
   std::cout << "\n";
   return failures ? 1 : 0;
 }

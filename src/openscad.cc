@@ -987,6 +987,9 @@ int openscad_main(int argc, char **argv)
       "node trees and messages; exit nonzero on any difference")
     ("memo-geometry", "with --memo-replay, also time each step's geometry evaluation, keeping the "
       "geometry caches across steps as the GUI does")
+    ("memo-keep", po::value<int>(),
+      "with --memo-replay, evict after each step what the last N steps did not use, as the GUI "
+      "does after each render (by default nothing is evicted)")
     ("memo-selftest", po::value<std::string>(),
       "evaluate a .scad file twice with incremental evaluation and compare each run with a "
       "fresh evaluation (--memo-replay FILE FILE --memo-verify)")
@@ -1257,7 +1260,8 @@ int openscad_main(int argc, char **argv)
     }
     const bool verify = vm.count("memo-verify") || vm.count("memo-selftest");
     try {
-      return memo_replay(files, commandline_commands, verify, vm.count("memo-geometry") > 0);
+      const int keep = vm.count("memo-keep") ? vm["memo-keep"].as<int>() : -1;
+      return memo_replay(files, commandline_commands, verify, vm.count("memo-geometry") > 0, keep);
     } catch (const HardWarningException&) {
       return 1;
     }
