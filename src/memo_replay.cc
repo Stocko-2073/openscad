@@ -181,8 +181,6 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
                 bool geometry)
 {
   memo::MemoTable table;
-  // The memo table points into every syntax tree it has seen; keep them all.
-  std::vector<std::unique_ptr<SourceFile>> keep;
   const fs::path original = fs::current_path();
   memo::Stats total;
   int failures = 0;
@@ -193,8 +191,10 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
     CGALCache::instance()->setMaxSizeMB(5000);
   }
   uint64_t generation = 0;
-  // The tree on screen: a refresh replaces it only once the new one is ready,
-  // so its nodes are freed after evaluating the next step, not during it.
+  // What is on screen: a refresh replaces it only once the new tree is ready,
+  // so the old one is freed after evaluating the next step, not during it.
+  // The table needs no parse of its own: it reads none once evaluated.
+  std::unique_ptr<SourceFile> shownFile;
   std::shared_ptr<AbstractNode> shown;
 
   for (const auto& name : files) {
@@ -216,7 +216,7 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
       fs::current_path(original);
       return 1;
     }
-    keep.emplace_back(parsed);
+    std::unique_ptr<SourceFile> file(parsed);
     parsed->handleDependencies();
 
     Run memoRun = evaluate(parsed, path.parent_path(), &table);
@@ -263,6 +263,7 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
       if (!treeOk || !messagesOk) ++failures;
     }
     shown = memoRun.root;
+    shownFile = std::move(file);
     fs::current_path(original);
   }
 
