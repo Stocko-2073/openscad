@@ -156,7 +156,6 @@ void Preferences::init()
   createFontSizeMenu(customizerFontSize, "advanced/customizerFontSize");
 
   // Setup default settings
-  this->defaultmap["advanced/opencsg_show_warning"] = true;
   this->defaultmap["advanced/polysetCacheSize"] =
     qulonglong(GeometryCache::instance()->maxSizeMB()) * 1024ul * 1024ul;
   this->defaultmap["advanced/polysetCacheSizeMB"] =
@@ -167,8 +166,6 @@ void Preferences::init()
   this->defaultmap["advanced/cgalCacheSizeMB"] =
     getValue("advanced/cgalCacheSize").toULongLong() /
     (1024ul * 1024ul);  // carry over old settings if they exist
-  this->defaultmap["advanced/openCSGLimit"] = RenderSettings::inst()->openCSGTermLimit;
-  this->defaultmap["advanced/forceGoldfeather"] = false;
   this->defaultmap["advanced/undockableWindows"] = false;
   this->defaultmap["advanced/reorderWindows"] = true;
   this->defaultmap["advanced/renderBackend3D"] =
@@ -237,7 +234,6 @@ void Preferences::init()
   this->cgalCacheSizeMBEdit->setValidator(memvalidator);
 #endif
   this->polysetCacheSizeMBEdit->setValidator(memvalidator);
-  this->opencsgLimitEdit->setValidator(uintValidator);
   this->timeThresholdOnRenderCompleteSoundEdit->setValidator(uintValidator);
   this->consoleMaxLinesEdit->setValidator(uintValidator);
   this->lineEditCharacterThreshold->setValidator(validator1);
@@ -554,12 +550,6 @@ void Preferences::on_undockCheckBox_toggled(bool state)
   emit updateUndockMode(state);
 }
 
-void Preferences::on_openCSGWarningBox_toggled(bool state)
-{
-  QSettingsCached settings;
-  settings.setValue("advanced/opencsg_show_warning", state);
-}
-
 void Preferences::on_cgalCacheSizeMBEdit_textChanged(const QString& text)
 {
   QSettingsCached settings;
@@ -574,13 +564,6 @@ void Preferences::on_polysetCacheSizeMBEdit_textChanged(const QString& text)
   GeometryCache::instance()->setMaxSizeMB(text.toULong());
 }
 
-void Preferences::on_opencsgLimitEdit_textChanged(const QString& text)
-{
-  QSettingsCached settings;
-  settings.setValue("advanced/openCSGLimit", text);
-  // FIXME: Set this globally?
-}
-
 void Preferences::on_localizationCheckBox_toggled(bool state)
 {
   QSettingsCached settings;
@@ -591,13 +574,6 @@ void Preferences::on_autoReloadRaiseCheckBox_toggled(bool state)
 {
   QSettingsCached settings;
   settings.setValue("advanced/autoReloadRaise", state);
-}
-
-void Preferences::on_forceGoldfeatherBox_toggled(bool state)
-{
-  QSettingsCached settings;
-  settings.setValue("advanced/forceGoldfeather", state);
-  emit openCSGSettingsChanged();
 }
 
 void Preferences::on_mouseWheelZoomBox_toggled(bool state)
@@ -1370,20 +1346,14 @@ void Preferences::updateGUI()
     BlockSignals<QLabel *>(this->lastCheckedLabel)->setText(updater->lastUpdateCheckDate());
   }
 
-  BlockSignals<QCheckBox *>(this->openCSGWarningBox)
-    ->setChecked(getValue("advanced/opencsg_show_warning").toBool());
   BlockSignals<QLineEdit *>(this->cgalCacheSizeMBEdit)
     ->setText(getValue("advanced/cgalCacheSizeMB").toString());
   BlockSignals<QLineEdit *>(this->polysetCacheSizeMBEdit)
     ->setText(getValue("advanced/polysetCacheSizeMB").toString());
-  BlockSignals<QLineEdit *>(this->opencsgLimitEdit)
-    ->setText(getValue("advanced/openCSGLimit").toString());
   BlockSignals<QCheckBox *>(this->localizationCheckBox)
     ->setChecked(getValue("advanced/localization").toBool());
   BlockSignals<QCheckBox *>(this->autoReloadRaiseCheckBox)
     ->setChecked(getValue("advanced/autoReloadRaise").toBool());
-  BlockSignals<QCheckBox *>(this->forceGoldfeatherBox)
-    ->setChecked(getValue("advanced/forceGoldfeather").toBool());
   BlockSignals<QCheckBox *>(this->reorderCheckBox)
     ->setChecked(getValue("advanced/reorderWindows").toBool());
   BlockSignals<QCheckBox *>(this->undockCheckBox)
@@ -1501,7 +1471,6 @@ void Preferences::applyComboBox(QComboBox * /*comboBox*/, int val,
 void Preferences::apply_win() const
 {
   emit requestRedraw();
-  emit openCSGSettingsChanged();
 }
 
 void Preferences::createFontSizeMenu(QComboBox *boxarg, const QString& setting)

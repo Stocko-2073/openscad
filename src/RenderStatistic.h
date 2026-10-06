@@ -54,14 +54,10 @@ public:
   //
   // Each phase is named for what it produces, since the stages are easy to
   // confuse: the script is *evaluated* into a tree of AbstractNodes, and only
-  // the stage after that builds the CSGNode tree which normalization then turns
-  // into CSG products.
+  // the stage after that evaluates the nodes' geometry.
   constexpr static auto PHASE_PARSING = "Parsing";               // source -> AST
   constexpr static auto PHASE_EVALUATION = "Script evaluation";  // AST -> node tree
-  constexpr static auto PHASE_CSG_BUILD = "CSG tree build";      // node tree -> CSG tree
-  constexpr static auto PHASE_CSG_NORMALIZATION = "CSG normalization";  // CSG tree -> products
   constexpr static auto PHASE_INTERFERENCE = "Interference check";
-  constexpr static auto PHASE_RENDERERS = "Renderer construction";
   constexpr static auto PHASE_GEOMETRY = "Geometry evaluation";  // node tree -> geometry
   constexpr static auto PHASE_EXPORT = "Export";
 

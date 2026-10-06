@@ -35,7 +35,6 @@
     <file>icons/chokusen/svg/chokusen-orthogonal.svg</file>
     <file>icons/chokusen/svg/chokusen-parameter.svg</file>
     <file>icons/chokusen/svg/chokusen-perspective.svg</file>
-    <file>icons/chokusen/svg/chokusen-preview.svg</file>
     <file>icons/chokusen/svg/chokusen-redo.svg</file>
     <file>icons/chokusen/svg/chokusen-remove.svg</file>
     <file>icons/chokusen/svg/chokusen-render.svg</file>
@@ -44,8 +43,6 @@
     <file>icons/chokusen/svg/chokusen-scalemarkers.svg</file>
     <file>icons/chokusen/svg/chokusen-send.svg</file>
     <file>icons/chokusen/svg/chokusen-show-edges.svg</file>
-    <file>icons/chokusen/svg/chokusen-surface.svg</file>
-    <file>icons/chokusen/svg/chokusen-throwntogether.svg</file>
     <file>icons/chokusen/svg/chokusen-undo.svg</file>
     <file>icons/chokusen/svg/chokusen-unindent.svg</file>
     <file>icons/chokusen/svg/chokusen-up.svg</file>

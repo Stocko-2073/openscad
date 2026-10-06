@@ -48,14 +48,11 @@ Q_IMPORT_PLUGIN(QSvgPlugin)
 
 class BuiltinContext;
 class CGALWorker;
-class CSGNode;
-class CSGProducts;
 class FontListDialog;
 class LibraryInfoDialog;
 class Preferences;
 class ProgressWidget;
 struct RenderResult;
-class ThrownTogetherRenderer;
 namespace OpenScad::Animate { struct FrameResult; }
 
 #include "RenderStatistic.h"
@@ -109,10 +106,6 @@ public:
 
   std::shared_ptr<const Geometry> rootGeom;
   std::shared_ptr<Renderer> geomRenderer;
-#ifdef ENABLE_OPENCSG
-  std::shared_ptr<Renderer> previewRenderer;
-#endif
-  std::shared_ptr<Renderer> thrownTogetherRenderer;
 
   QString lastCompiledDoc;
 
@@ -174,7 +167,6 @@ private slots:
   void setFont(const QString& family, uint size);
   void setColorScheme(const QString& cs);
   void showProgress();
-  void openCSGSettingsChanged();
   void consoleOutput(const Message& msgObj);
   void setSelection(int index);
 
@@ -226,7 +218,6 @@ private:
   void setRenderVariables(ContextHandle<BuiltinContext>& context);
   void updateCompileResult();
   void compile(bool reload, bool forcedone = false);
-  void compileCSG();
   bool checkEditorModified();
   QString dumpCSGTree(const std::shared_ptr<AbstractNode>& root);
 
@@ -264,9 +255,9 @@ public slots:
   void updateRecentFileActions();
   void handleFileDrop(const QUrl& url);
 
-  // Apply a pre-computed animation frame (geometry + CSG products) directly
-  // to the GL view, bypassing the parse → instantiate → compileCSG hop. Called
-  // by the Animate prefetch cache during playback.
+  // Apply a pre-computed animation frame (geometry and overlays) directly to the
+  // GL view, bypassing the parse → instantiate → render hop. Called by the
+  // Animate prefetch cache during playback.
   void showAnimationFrame(std::shared_ptr<OpenScad::Animate::FrameResult> frame);
 
 private slots:
@@ -352,8 +343,6 @@ protected:
 public slots:
   void actionRender();
 private slots:
-  void csgRender();
-  void csgReloadRender();
   void on_designAction3DPrint_triggered();
   void sendToExternalTool(class ExternalToolInterface& externalToolService);
   void on_designActionRender_triggered();
@@ -365,7 +354,6 @@ private slots:
   void on_designCheckValidity_triggered();
   void on_designActionDisplayAST_triggered();
   void on_designActionDisplayCSGTree_triggered();
-  void on_designActionDisplayCSGProducts_triggered();
   bool canExport(unsigned int dim);
   void actionExport(unsigned int dim, ExportInfo& exportInfo);
   void actionExportFileFormat(int fmt);
@@ -373,7 +361,6 @@ private slots:
   void on_designActionFlushCaches_triggered();
 
 public:
-  void viewModeActionsUncheck();
   void setCurrentOutput();
   void clearCurrentOutput();
   void hideCurrentOutput();
@@ -407,13 +394,6 @@ public slots:
   void openFileFromPath(const QString&, int);
 
   void viewModeRender();
-#ifdef ENABLE_OPENCSG
-  void viewModePreview();
-  void on_viewActionPreview_triggered();
-#endif
-  void viewModeThrownTogether();
-  void on_viewActionThrownTogether_triggered();
-  void updateViewModeAfterGLInit();
   void on_viewActionShowEdges_toggled(bool checked);
   void on_viewActionShowAxes_toggled(bool checked);
   void on_viewActionShowScaleProportional_toggled(bool checked);
@@ -458,26 +438,20 @@ private:
   QWidget *lastFocus;  // keep track of active copyable widget (Editor|Console) for global menu action
                        // Edit->Copy
 
-  std::shared_ptr<CSGNode> csgRoot;         // Result of the CSGTreeEvaluator
-  std::shared_ptr<CSGNode> normalizedRoot;  // Normalized CSG tree
-  std::shared_ptr<CSGProducts> rootProduct;
-  std::shared_ptr<CSGProducts> highlightsProducts;
-  std::shared_ptr<CSGProducts> backgroundProducts;
   int currentlySelectedObject{-1};
   void addPickerMenuSteps(QMenu& menu, const std::deque<std::shared_ptr<const AbstractNode>>& path);
 
   // Right-click attribution (core/PickAttribution.h), built on first use and dropped with the tree
   // or rootGeom it came from.
-  std::unordered_map<int, std::vector<pick::Leaf>> pickRenderLeaves;  // preview, by render() index
-  std::optional<std::vector<pick::Leaf>> pickRootLeaves;              // F6 view
-  std::optional<std::vector<pick::PlacedMesh>> pickRootSurface;       // F6 view
-  // rootProduct holds an Animate frame's products, whose node indices don't match rootNode.
+  std::optional<std::vector<pick::Leaf>> pickRootLeaves;
+  std::optional<std::vector<pick::PlacedMesh>> pickRootSurface;
+  // The view shows an Animate frame, whose node indices don't match rootNode.
   bool animationFrameShown{false};
   void resetPickMemo();
   // A renderer for F6 geometry with the overlays drawn over it; null when there is nothing to draw.
   std::shared_ptr<Renderer> createGeometryRenderer(const std::shared_ptr<const Geometry>& geom,
                                                    const std::vector<overlay::Mesh>& overlays);
-  std::vector<int> pickPrimitives(const QGLView::PickResult& picked, bool renderView);
+  std::vector<int> pickPrimitives(const QGLView::PickResult& picked);
   void addPickerAlsoHere(QMenu& menu, const std::vector<int>& primitives);
 
   char const *afterCompileSlot;
@@ -514,15 +488,14 @@ private:
   std::vector<std::unique_ptr<QTemporaryFile>> allTempFiles;
 
 public:
-  // Public so the Animate dock can disable measurements when it shows a cached
-  // preview frame (parity with actionRenderPreview's reset).
+  // Public so the Animate dock can reset measurements when it shows a cached
+  // frame, as a render does.
   void resetMeasurementsState(bool enable, const QString& tooltipMessage);
 private:
   QActionGroup *measurementGroup;
   QAction *activeMeasurement = nullptr;
 
   QActionGroup *viewActionProjectionGroup;
-  QActionGroup *previewModeGroup;
 
 signals:
   void highlightError(int);

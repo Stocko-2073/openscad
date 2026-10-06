@@ -35,9 +35,6 @@ class QGLView : public QOpenGLWidget, public GLView
 public:
   QGLView(QWidget *parent = nullptr);
   ~QGLView() override;
-#ifdef ENABLE_OPENCSG
-  bool hasOpenCSGSupport() { return this->is_opencsg_capable; }
-#endif
   // Properties
   bool orthoMode() const { return (this->cam.projection == Camera::ProjectionType::ORTHOGONAL); }
   void setOrthoMode(bool enabled);
@@ -56,7 +53,6 @@ public:
 
   // What a right-click hit in the 3D view.
   struct PickResult {
-    int index = -1;  // AbstractNode::idx from the ID pass (meaningless in the F6 view)
     // Set only when the pixel shows geometry: the world-space ray through the pixel's center, from
     // the near clipping plane (t = 0) to the far plane (t = 1), and the t of the surface drawn there.
     std::optional<double> depthT;
@@ -116,11 +112,9 @@ private:
   void normalizeAngle(GLdouble& angle);
 
 #ifdef ENABLE_OPENCSG
-  void display_opencsg_warning() override;
-  std::unique_ptr<MouseSelector> selector;
-private slots:
-  void display_opencsg_warning_dialog();
+  void display_opencsg_warning() override {}  // the view doesn't use OpenCSG
 #endif
+  std::unique_ptr<MouseSelector> selector;
 
 signals:
   void cameraChanged();

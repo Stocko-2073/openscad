@@ -49,11 +49,8 @@ public slots:
   void on_fontChooser_currentFontChanged(const QFont&);
   void on_fontSize_currentIndexChanged(int);
   void on_syntaxHighlight_currentTextChanged(const QString&);
-  void on_openCSGWarningBox_toggled(bool);
   void on_cgalCacheSizeMBEdit_textChanged(const QString&);
   void on_polysetCacheSizeMBEdit_textChanged(const QString&);
-  void on_opencsgLimitEdit_textChanged(const QString&);
-  void on_forceGoldfeatherBox_toggled(bool);
   void on_mouseWheelZoomBox_toggled(bool);
   void on_localizationCheckBox_toggled(bool);
   void on_autoReloadRaiseCheckBox_toggled(bool);
@@ -165,7 +162,6 @@ signals:
   void consoleFontChanged(const QString& family, uint size) const;
   void customizerFontChanged(const QString& family, uint size) const;
   void colorSchemeChanged(const QString& scheme) const;
-  void openCSGSettingsChanged() const;
   void syntaxHighlightChanged(const QString& s) const;
   void editorConfigChanged() const;
   void ExperimentalChanged() const;

@@ -1,8 +1,8 @@
 #include "gui/MouseSelector.h"
 
-#include <cstdint>
 #include <cstdio>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "glview/ShaderUtils.h"
@@ -10,16 +10,8 @@
 #include "glview/system-gl.h"
 #include "utils/printutils.h"
 /**
- * The selection is making use of a special shader, that renders each object in a color
- * that is derived from its index(), by using the first 24 bits of the identifier as a
- * 3-tuple for color.
- *
- * Roughly at most 1/3rd of the index()-es are rendered, therefore exhausting the keyspace
- * faster than expected.
- * If this ever becomes a problem, the index-mapping can be adjusted to use 10 up to 16 bit
- * per color channel to store the identifier.
- * Increasing this should be done carefully while testing on older graphics cards, they
- * might do "fancy" optimization.
+ * The view is drawn with a flat, unlit shader into an offscreen framebuffer, and the depth under
+ * the cursor is read back. The picker turns that into a point on the rendered surface.
  */
 
 MouseSelector::MouseSelector(GLView *view)
@@ -43,8 +35,7 @@ void MouseSelector::reset(GLView *view)
 void MouseSelector::initShader()
 {
   // Attributes:
-  // frag_idcolor - (uniform) 24 bit of the selected object's id encoded into R/G/B components as float
-  // values
+  // frag_idcolor - (uniform) the flat color to draw with
   const auto selectshader =
     ShaderUtils::compileShaderProgram(ShaderUtils::loadShaderSource("MouseSelector.vert"),
                                       ShaderUtils::loadShaderSource("MouseSelector.frag"));
@@ -86,22 +77,17 @@ void MouseSelector::setupFramebuffer(int width, int height)
 }
 
 /**
- * Setup the shaders, Projection and Model matrix and call the given renderer.
- * The renderer has to support rendering with ID colors (using the shader we provide),
- * otherwise the selection won't work.
- *
- * returns index of picked node (AbstractNode::idx), 0 over the background, or -1 if (x, y) is
- * outside the view. `depth`, when given, receives the window depth drawn there (1 where nothing was).
+ * Setup the shaders, Projection and Model matrix and call the given renderer, then read back the
+ * depth at (x, y).
  */
-int MouseSelector::select(const Renderer *renderer, int x, int y, float *depth)
+std::optional<float> MouseSelector::depthAt(const Renderer *renderer, int x, int y)
 {
-  if (depth) *depth = 1.0f;
-  if (!this->framebuffer) return -1;
+  if (!this->framebuffer) return std::nullopt;
 
   // This function should render a frame, as usual, with the following changes:
   // * Render to as custom framebuffer
   // * The shader should be the selector shader
-  // * Since we use ID color, no color setup is needed
+  // * Only depth is read back, so no color setup is needed
   // * No lighting
   // * No decorations, like axes
 
@@ -111,14 +97,14 @@ int MouseSelector::select(const Renderer *renderer, int x, int y, float *depth)
   const int width = this->view->cam.pixel_width;
   const int height = this->view->cam.pixel_height;
   if (x >= width || x < 0 || y >= height || y < 0) {
-    return -1;
+    return std::nullopt;
   }
 
   // Initialize GL to draw to texture
   // Ideally a texture of only 1x1 or 2x2 pixels as a subset of the viewing frustrum
   // of the currently selected frame.
   // For now, i will use a texture the same size as the normal viewport
-  // and select the identifier at the mouse coordinates
+  // and read the depth at the mouse coordinates
   GL_CHECKD(this->framebuffer->bind());
 
   glClearColor(0, 0, 0, 1.0);
@@ -142,21 +128,14 @@ int MouseSelector::select(const Renderer *renderer, int x, int y, float *depth)
   glFlush();
   glFinish();
 
-  // Grab the color from the framebuffer and convert it back to an identifier
-  GLubyte color[3] = {0};
-  // Qt counts rows from the top, GL from the bottom.
-  const int row = height - 1 - y;
-  GL_CHECKD(glReadPixels(x, row, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, color));
-
-  const int index = (uint32_t)color[0] | ((uint32_t)color[1] << 8) | ((uint32_t)color[2] << 16);
-
   // Before unbinding: the depth lives in this framebuffer, not the widget's.
-  if (depth) {
-    GL_CHECKD(glReadPixels(x, row, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, depth));
-  }
+  // Qt counts rows from the top, GL from the bottom.
+  float depth = 1.0f;
+  GL_CHECKD(glReadPixels(x, height - 1 - y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth));
 
   // Switch the active framebuffer back to the default
   this->framebuffer->unbind();
 
-  return index;
+  if (depth >= 1.0f) return std::nullopt;  // background
+  return depth;
 }

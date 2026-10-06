@@ -2,9 +2,8 @@
 
 // Geometric attribution for the 3D-view right-click picker.
 //
-// The picker's ID pass can only name the node a mesh was drawn for, and two kinds of mesh hide the
-// primitives they were made from: a render() leaf in preview, and the whole F6 result. Given the ray
-// through the clicked pixel, this finds where it meets such a surface and names the primitives whose
+// The rendered result is one mesh, which hides the primitives it was made from. Given the ray
+// through the clicked pixel, this finds where it meets the result and names the primitives whose
 // faces pass through that point. A face cut by difference() belongs to the primitive that cut it.
 // Nothing here needs a GL context.
 
@@ -15,8 +14,6 @@
 #include "geometry/linalg.h"
 
 class AbstractNode;
-class CSGLeaf;
-class CSGProducts;
 class Geometry;
 class PolySet;
 class Tree;
@@ -59,27 +56,22 @@ Vector3d closestPointOnTriangle(const Vector3d& p, const Vector3d& a, const Vect
 
 // The primitives that make up `node`, placed in the world by `matrix` (node's own transform).
 // Groups, modules, booleans, color() and render() are looked through. Primitives, extrusions,
-// imports, hull(), minkowski(), resize(), fill() and physics() stay whole, as preview draws them.
-// `%` subtrees below `node` are left out, as from F6; node's own `%` or `#` is ignored. Only 3D
-// primitives are kept. Logs nothing and never throws on hard warnings. hull() and the like are taken
-// from the geometry cache only, so this never re-runs one.
+// imports, hull(), minkowski(), resize(), fill() and physics() stay whole. `%` subtrees below `node`
+// are left out, as from F6; node's own `%` or `#` is ignored. Only 3D primitives are kept. Logs
+// nothing and never throws on hard warnings. hull() and the like are taken from the geometry cache
+// only, so this never re-runs one.
 std::vector<Leaf> collectLeaves(const Tree& tree, const AbstractNode& node, const Transform3d& matrix);
 
 // The 3D meshes of an F6 result. 2D parts are skipped.
 std::vector<PlacedMesh> surfaceOf(const std::shared_ptr<const Geometry>& geom);
 
-// The leaf of `products` drawn for node `index`, if any.
-std::shared_ptr<CSGLeaf> findLeaf(const CSGProducts& products, int index);
-
-// Where `ray` meets `surface`: the crossing nearest `depthT` when given (preview, where a subtracted
-// render() shows its far side), otherwise the first one (F6).
-std::optional<SurfaceHit> castRay(const std::vector<PlacedMesh>& surface, const Ray& ray,
-                                  std::optional<double> depthT);
+// Where `ray` first meets `surface`.
+std::optional<SurfaceHit> castRay(const std::vector<PlacedMesh>& surface, const Ray& ray);
 
 // Node indices of the primitives whose faces make `surface` where `ray` meets it, best first:
 // primitives adding material before ones that cut it away, then in source order. Empty when the ray
 // misses or no primitive matches.
 std::vector<int> attribute(const std::vector<PlacedMesh>& surface, const std::vector<Leaf>& leaves,
-                           const Ray& ray, std::optional<double> depthT);
+                           const Ray& ray);
 
 }  // namespace pick

@@ -1379,7 +1379,6 @@ set(GUI_SOURCES
   src/gui/EditorColorMap.cc
   src/gui/MouseSelector.cc
   src/gui/OctoPrint.cc
-  src/gui/OpenCSGWarningDialog.cc
   src/gui/OpenSCADApp.cc
   src/gui/Preferences.cc
   src/gui/PrintInitDialog.cc
@@ -1457,7 +1456,6 @@ set(GUI_HEADERS
     src/gui/Network.h
     src/gui/NetworkSignal.h
     src/gui/OctoPrint.h
-    src/gui/OpenCSGWarningDialog.h
     src/gui/OpenSCADApp.h
     src/gui/Preferences.h
     src/gui/PrintInitDialog.h
@@ -1505,7 +1503,6 @@ set(GUI_UIS
     src/gui/LaunchingScreen.ui
     src/gui/LibraryInfoDialog.ui
     src/gui/MainWindow.ui
-    src/gui/OpenCSGWarningDialog.ui
     src/gui/Preferences.ui
     src/gui/PrintInitDialog.ui
     src/gui/ProgressWidget.ui

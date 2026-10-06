@@ -8,7 +8,6 @@
 #include <utility>
 #include <vector>
 
-#include "core/CSGNode.h"
 #include "core/CgalAdvNode.h"
 #include "core/ModuleInstantiation.h"
 #include "core/NodeVisitor.h"
@@ -220,7 +219,7 @@ public:
   {
     if (state.isPrefix()) {
       if (isBackground(node)) return Response::PruneTraversal;
-      // Removed from the geometry, as in CSGTreeEvaluator.
+      // Removed from the geometry, as in GeometryEvaluator.
       if (matrix_contains_infinity(node.matrix) || matrix_contains_nan(node.matrix)) {
         return Response::PruneTraversal;
       }
@@ -355,23 +354,10 @@ std::vector<PlacedMesh> surfaceOf(const std::shared_ptr<const Geometry>& geom)
   return surface;
 }
 
-std::shared_ptr<CSGLeaf> findLeaf(const CSGProducts& products, int index)
-{
-  for (const auto& product : products.products) {
-    for (const auto *chain : {&product.intersections, &product.subtractions}) {
-      for (const auto& object : *chain) {
-        if (object.leaf && object.leaf->index == index) return object.leaf;
-      }
-    }
-  }
-  return nullptr;
-}
-
-std::optional<SurfaceHit> castRay(const std::vector<PlacedMesh>& surface, const Ray& ray,
-                                  std::optional<double> depthT)
+std::optional<SurfaceHit> castRay(const std::vector<PlacedMesh>& surface, const Ray& ray)
 {
   std::optional<SurfaceHit> best;
-  double bestKey = std::numeric_limits<double>::infinity();
+  double bestT = std::numeric_limits<double>::infinity();
   if (!(ray.direction.squaredNorm() > 0)) return best;
   // Two directions across the ray. A triangle the ray passes through has corners on both sides of
   // it along each, so most triangles are skipped after two dot products per vertex.
@@ -399,10 +385,8 @@ std::optional<SurfaceHit> castRay(const std::vector<PlacedMesh>& surface, const 
       }
       const Vector3d &a = world[i], &b = world[j], &c = world[k];
       const auto t = intersectTriangle(ray.origin, ray.direction, a, b, c);
-      if (!t || *t < 0 || *t > 1) return;
-      const double key = depthT ? std::abs(*t - *depthT) : *t;
-      if (key >= bestKey) return;
-      bestKey = key;
+      if (!t || *t < 0 || *t > 1 || *t >= bestT) return;
+      bestT = *t;
       best = SurfaceHit{*t, ray.origin + *t * ray.direction,
                         world.orientation * (b - a).cross(c - a).normalized()};
     });
@@ -411,9 +395,9 @@ std::optional<SurfaceHit> castRay(const std::vector<PlacedMesh>& surface, const 
 }
 
 std::vector<int> attribute(const std::vector<PlacedMesh>& surface, const std::vector<Leaf>& leaves,
-                           const Ray& ray, std::optional<double> depthT)
+                           const Ray& ray)
 {
-  const auto hit = castRay(surface, ray, depthT);
+  const auto hit = castRay(surface, ray);
   if (!hit) return {};
 
   BoundingBox box;

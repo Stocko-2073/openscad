@@ -97,13 +97,11 @@
 #include "core/AST.h"
 #include "core/BuiltinContext.h"
 #include "core/Builtins.h"
-#include "core/CSGNode.h"
 #include "core/Context.h"
 #include "core/DatalessFiles.h"
 #include "core/EvaluationSession.h"
 #include "core/Expression.h"
 #include "core/PickAttribution.h"
-#include "core/RenderNode.h"
 #include "core/RenderVariables.h"
 #include "core/ScopeContext.h"
 #include "core/Settings.h"
@@ -121,8 +119,6 @@
 #if not defined(USE_POLYSET_FOR_CGAL)
 #include "glview/cgal/CGALRenderer.h"
 #endif
-#include "glview/preview/CSGTreeNormalizer.h"
-#include "glview/preview/ThrownTogetherRenderer.h"
 #include "gui/AnimateFrameCache.h"
 #include "gui/AboutDialog.h"
 #include "gui/CGALWorker.h"
@@ -168,12 +164,6 @@
 #include "geometry/manifold/ManifoldGeometry.h"
 #include "geometry/manifold/manifoldutils.h"
 #endif  // ENABLE_MANIFOLD
-#ifdef ENABLE_OPENCSG
-#include <opencsg.h>
-
-#include "core/CSGTreeEvaluator.h"
-#include "glview/preview/OpenCSGRenderer.h"
-#endif
 #ifdef OPENSCAD_UPDATER
 #include "gui/AutoUpdater.h"
 #endif
@@ -987,19 +977,9 @@ void MainWindow::instantiateRoot()
 
   // Go on and instantiate root_node, then call the continuation slot
 
-  // Invalidate renderers before we kill the CSG tree
-  this->qglview->setRenderer(nullptr);
-#ifdef ENABLE_OPENCSG
-  this->previewRenderer = nullptr;
-#endif
-  this->thrownTogetherRenderer = nullptr;
-
   // Remove previous CSG tree
   this->absoluteRootNode.reset();
 
-  this->csgRoot.reset();
-  this->normalizedRoot.reset();
-  this->rootProduct.reset();
   // Picker attribution refers to the old tree's node indices.
   resetPickMemo();
   this->animationFrameShown = false;
@@ -1059,127 +1039,6 @@ void MainWindow::instantiateRoot()
     }
     LOG(" ");
     this->processEvents();
-  }
-}
-
-/*!
-   Generates CSG tree for OpenCSG evaluation.
-   Assumes that the design has been parsed and evaluated (this->root_node is set)
- */
-
-void MainWindow::compileCSG()
-{
-  OpenSCAD::hardwarnings = GlobalPreferences::inst()->getValue("advanced/enableHardwarnings").toBool();
-  try {
-    assert(this->rootNode);
-    LOG("Compiling design (CSG tree generation)...");
-    this->processEvents();
-
-    // Main CSG evaluation
-    this->progresswidget = new ProgressWidget(this);
-    connect(this->progresswidget, &ProgressWidget::requestShow, this, &MainWindow::showProgress);
-
-    GeometryEvaluator geomevaluator(this->tree);
-#ifdef ENABLE_OPENCSG
-    CSGTreeEvaluator csgrenderer(this->tree, &geomevaluator);
-#endif
-
-    if (!isClosing) progress_report_prep(this->rootNode, report_func, this);
-    else return;
-    try {
-#ifdef ENABLE_OPENCSG
-      this->processEvents();
-      {
-        const RenderStatistic::ScopedPhase phase(renderStatistic,
-                                                 RenderStatistic::PHASE_CSG_BUILD);
-        this->csgRoot = csgrenderer.buildCSGTree(*rootNode);
-      }
-#endif
-      renderStatistic.printCacheStatistic();
-      this->processEvents();
-    } catch (const ProgressCancelException&) {
-      LOG("CSG generation cancelled.");
-    } catch (const HardWarningException&) {
-      LOG("CSG generation cancelled due to hardwarning being enabled.");
-    }
-    progress_report_fin();
-    updateStatusBar(nullptr);
-
-    renderStatistic.beginPhase(RenderStatistic::PHASE_CSG_NORMALIZATION);
-    LOG("Compiling design (CSG normalization)...");
-    this->processEvents();
-
-    const size_t normalizelimit =
-      2ul * GlobalPreferences::inst()->getValue("advanced/openCSGLimit").toUInt();
-    CSGTreeNormalizer normalizer(normalizelimit);
-
-    if (this->csgRoot) {
-      this->normalizedRoot = normalizer.normalize(this->csgRoot);
-      if (this->normalizedRoot) {
-        this->rootProduct = std::make_shared<CSGProducts>();
-        this->rootProduct->import(this->normalizedRoot);
-      } else {
-        this->rootProduct.reset();
-        LOG(message_group::Warning, "CSG normalization resulted in an empty tree");
-        this->processEvents();
-      }
-    }
-
-    const std::vector<std::shared_ptr<CSGNode>>& highlight_terms = csgrenderer.getHighlightNodes();
-    if (highlight_terms.size() > 0) {
-      LOG("Compiling highlights (%1$d CSG Trees)...", highlight_terms.size());
-      this->processEvents();
-
-      this->highlightsProducts = std::make_shared<CSGProducts>();
-      for (const auto& highlight_term : highlight_terms) {
-        auto nterm = normalizer.normalize(highlight_term);
-        if (nterm) {
-          this->highlightsProducts->import(nterm);
-        }
-      }
-    } else {
-      this->highlightsProducts.reset();
-    }
-
-    const auto& background_terms = csgrenderer.getBackgroundNodes();
-    if (background_terms.size() > 0) {
-      LOG("Compiling background (%1$d CSG Trees)...", background_terms.size());
-      this->processEvents();
-
-      this->backgroundProducts = std::make_shared<CSGProducts>();
-      for (const auto& background_term : background_terms) {
-        auto nterm = normalizer.normalize(background_term);
-        if (nterm) {
-          this->backgroundProducts->import(nterm);
-        }
-      }
-    } else {
-      this->backgroundProducts.reset();
-    }
-    renderStatistic.endPhase(RenderStatistic::PHASE_CSG_NORMALIZATION);
-
-    renderStatistic.beginPhase(RenderStatistic::PHASE_RENDERERS);
-    if (this->rootProduct && (this->rootProduct->size() >
-                              GlobalPreferences::inst()->getValue("advanced/openCSGLimit").toUInt())) {
-      LOG(message_group::UI_Warning, "Normalized tree has %1$d elements!", this->rootProduct->size());
-      LOG(message_group::UI_Warning, "OpenCSG rendering has been disabled.");
-    }
-#ifdef ENABLE_OPENCSG
-    else {
-      LOG("Normalized tree has %1$d elements!", (this->rootProduct ? this->rootProduct->size() : 0));
-      this->previewRenderer = std::make_shared<OpenCSGRenderer>(
-        this->rootProduct, this->highlightsProducts, this->backgroundProducts);
-    }
-#endif  // ifdef ENABLE_OPENCSG
-    this->thrownTogetherRenderer = std::make_shared<ThrownTogetherRenderer>(
-      this->rootProduct, this->highlightsProducts, this->backgroundProducts);
-    renderStatistic.endPhase(RenderStatistic::PHASE_RENDERERS);
-
-    LOG("Compile and preview finished.");
-    renderStatistic.printRenderingTime();
-    this->processEvents();
-  } catch (const HardWarningException&) {
-    exceptionCleanup();
   }
 }
 
@@ -1892,23 +1751,6 @@ void MainWindow::actionReloadRender()
   compile(true);
 }
 
-void MainWindow::csgReloadRender()
-{
-  if (this->rootNode) compileCSG();
-
-  // Go to non-CGAL view mode
-  if (viewActionThrownTogether->isChecked()) {
-    viewModeThrownTogether();
-  } else {
-#ifdef ENABLE_OPENCSG
-    viewModePreview();
-#else
-    viewModeThrownTogether();
-#endif
-  }
-  compileEnded();
-}
-
 void MainWindow::prepareCompile(const char *afterCompileSlot, bool procevents)
 {
   this->failedDownloads.clear();  // try downloading them again
@@ -1919,24 +1761,6 @@ void MainWindow::prepareCompile(const char *afterCompileSlot, bool procevents)
   this->processEvents();
   this->afterCompileSlot = afterCompileSlot;
   this->procevents = procevents;
-}
-
-void MainWindow::csgRender()
-{
-  if (this->rootNode) compileCSG();
-
-  // Go to non-CGAL view mode
-  if (viewActionThrownTogether->isChecked()) {
-    viewModeThrownTogether();
-  } else {
-#ifdef ENABLE_OPENCSG
-    viewModePreview();
-#else
-    viewModeThrownTogether();
-#endif
-  }
-
-  compileEnded();
 }
 
 void MainWindow::showAnimationFrame(std::shared_ptr<OpenScad::Animate::FrameResult> frame)
@@ -2226,25 +2050,17 @@ void MainWindow::leftClick(QPoint mouse)
  */
 void MainWindow::rightClick(QPoint position)
 {
-  // selecting without a renderer?!
-  if (!this->qglview->renderer || !this->rootNode) {
+  // Nothing to select
+  if (!this->qglview->renderer || !this->rootNode || !this->rootGeom) {
     return;
   }
   // An animation frame comes from its own tree, whose nodes rootNode doesn't have.
   if (this->animationFrameShown) return;
-  // The F6 view draws no ID colors; its picks are attributed geometrically.
-  const bool renderView = this->qglview->renderer == this->geomRenderer;
-  // Nothing to select
-  if (renderView ? !this->rootGeom : !this->rootProduct) {
-    return;
-  }
 
-  // Select the object at mouse coordinates
+  // Name the primitives that made the surface under the cursor.
   const QGLView::PickResult picked = this->qglview->pickObject(position);
-  // Inside a render() or the F6 result, name the primitive under the cursor.
-  const std::vector<int> primitives = pickPrimitives(picked, renderView);
-  int index = renderView ? -1 : picked.index;
-  if (!primitives.empty()) index = primitives.front();
+  const std::vector<int> primitives = pickPrimitives(picked);
+  const int index = primitives.empty() ? -1 : primitives.front();
   std::deque<std::shared_ptr<const AbstractNode>> path;
   const std::shared_ptr<const AbstractNode> result = this->rootNode->getNodeByID(index, path);
 
@@ -2387,61 +2203,35 @@ void MainWindow::addPickerAlsoHere(QMenu& menu, const std::vector<int>& primitiv
 }
 
 /**
- * Names the primitives under the cursor when the picked mesh hides them: a render() in preview,
- * or the whole result in the F6 view. Empty when there is nothing to add to the ID pass's answer.
+ * Names the primitives whose faces make the rendered surface under the cursor, best first. Empty
+ * when the cursor is over nothing.
  */
-std::vector<int> MainWindow::pickPrimitives(const QGLView::PickResult& picked, bool renderView)
+std::vector<int> MainWindow::pickPrimitives(const QGLView::PickResult& picked)
 {
-  // This runs geometry code on the GUI thread: never during a compile or render. An animation
-  // frame's products don't belong to rootNode.
-  if (!picked.depthT || GuiLocker::isLocked() || this->animationFrameShown) return {};
+  // This runs geometry code on the GUI thread: never during a compile or render.
+  if (!picked.depthT || GuiLocker::isLocked()) return {};
   const pick::Ray ray{picked.rayOrigin, picked.rayDirection};
   try {
-    if (renderView) {
-      if (!this->pickRootLeaves) {
-        QApplication::setOverrideCursor(Qt::WaitCursor);
-        auto restoreCursor = sg::make_scope_guard([]() { QApplication::restoreOverrideCursor(); });
-        // Marked as attempted first, so a failure isn't retried on every click.
-        this->pickRootLeaves.emplace();
-        this->pickRootSurface = pick::surfaceOf(this->rootGeom);
-        if (!this->pickRootSurface->empty()) {
-          *this->pickRootLeaves =
-            pick::collectLeaves(this->tree, *this->rootNode, Transform3d::Identity());
-        }
-      }
-      if (!this->pickRootSurface) return {};
-      // The F6 view draws exactly this surface, so the first crossing is the one shown.
-      return pick::attribute(*this->pickRootSurface, *this->pickRootLeaves, ray, std::nullopt);
-    }
-
-    // In preview only a render() hides primitives; anything else the ID pass names already is one.
-    std::deque<std::shared_ptr<const AbstractNode>> path;
-    const auto node = this->rootNode->getNodeByID(picked.index, path);
-    if (!std::dynamic_pointer_cast<const RenderNode>(node)) return {};
-    std::shared_ptr<CSGLeaf> leaf;
-    for (const auto& products :
-         {this->rootProduct, this->highlightsProducts, this->backgroundProducts}) {
-      if (products && (leaf = pick::findLeaf(*products, picked.index))) break;
-    }
-    if (!leaf || !leaf->polyset || leaf->polyset->getDimension() != 3) return {};
-    auto it = this->pickRenderLeaves.find(picked.index);
-    if (it == this->pickRenderLeaves.end()) {
+    if (!this->pickRootLeaves) {
       QApplication::setOverrideCursor(Qt::WaitCursor);
       auto restoreCursor = sg::make_scope_guard([]() { QApplication::restoreOverrideCursor(); });
-      it = this->pickRenderLeaves.emplace(picked.index, std::vector<pick::Leaf>{}).first;
-      it->second = pick::collectLeaves(this->tree, *node, leaf->matrix);
+      // Marked as attempted first, so a failure isn't retried on every click.
+      this->pickRootLeaves.emplace();
+      this->pickRootSurface = pick::surfaceOf(this->rootGeom);
+      if (!this->pickRootSurface->empty()) {
+        *this->pickRootLeaves = pick::collectLeaves(this->tree, *this->rootNode, Transform3d::Identity());
+      }
     }
-    // The depth picks the crossing drawn: a subtracted render() shows its far side.
-    return pick::attribute({{leaf->polyset, leaf->matrix}}, it->second, ray, picked.depthT);
+    if (!this->pickRootSurface) return {};
+    return pick::attribute(*this->pickRootSurface, *this->pickRootLeaves, ray);
   } catch (...) {
-    // Best effort: keep what the ID pass found.
+    // Best effort: no menu.
     return {};
   }
 }
 
 void MainWindow::resetPickMemo()
 {
-  this->pickRenderLeaves.clear();
   this->pickRootLeaves.reset();
   this->pickRootSurface.reset();
 }
@@ -2654,20 +2444,6 @@ void MainWindow::on_designActionDisplayCSGTree_triggered()
   auto guard = scopedSetCurrentOutput();
   QString text = (rootNode) ? QString::fromStdString(tree.getString(*rootNode, "  ")) : "";
   showTextInWindow("CSG", text);
-}
-
-void MainWindow::on_designActionDisplayCSGProducts_triggered()
-{
-  auto guard = scopedSetCurrentOutput();
-  // a small lambda to avoid code duplication
-  auto constexpr dump = [](auto node) { return QString::fromStdString(node ? node->dump() : "N/A"); };
-  auto text =
-    QString(
-      "\nCSG before normalization:\n%1\n\n\nCSG after normalization:\n%2\n\n\nCSG rendering "
-      "chain:\n%3\n\n\nHighlights CSG rendering chain:\n%4\n\n\nBackground CSG rendering chain:\n%5\n")
-      .arg(dump(csgRoot), dump(normalizedRoot), dump(rootProduct), dump(highlightsProducts),
-           dump(backgroundProducts));
-  showTextInWindow("CSG Products Dump", text);
 }
 
 void MainWindow::on_designCheckValidity_triggered()
@@ -2904,66 +2680,9 @@ void MainWindow::on_designActionFlushCaches_triggered()
   LOG("Caches Flushed");
 }
 
-void MainWindow::viewModeActionsUncheck()
-{
-  previewModeGroup->setEnabled(false);
-}
-
-#ifdef ENABLE_OPENCSG
-
 void MainWindow::viewModeRender()
 {
-  previewModeGroup->setEnabled(false);
   this->qglview->setRenderer(this->geomRenderer);
-  this->qglview->updateColorScheme();
-  this->qglview->update();
-}
-
-/*!
-   Go to the OpenCSG view mode.
-   Falls back to thrown together mode if OpenCSG is not available
- */
-void MainWindow::on_viewActionPreview_triggered()
-{
-  viewModePreview();
-}
-
-void MainWindow::viewModePreview()
-{
-  previewModeGroup->setEnabled(true);
-  if (this->qglview->hasOpenCSGSupport()) {
-    viewActionPreview->setChecked(true);
-    this->qglview->setRenderer(this->previewRenderer ? this->previewRenderer
-                                                     : this->thrownTogetherRenderer);
-    this->qglview->updateColorScheme();
-    this->qglview->update();
-  } else {
-    viewModeThrownTogether();
-  }
-}
-
-#endif /* ENABLE_OPENCSG */
-
-void MainWindow::updateViewModeAfterGLInit()
-{
-#ifdef ENABLE_OPENCSG
-  viewActionPreview->setEnabled(this->qglview->hasOpenCSGSupport());
-  if (this->qglview->hasOpenCSGSupport()) {
-    viewModePreview();
-  }
-#endif
-}
-
-void MainWindow::on_viewActionThrownTogether_triggered()
-{
-  viewModeThrownTogether();
-}
-
-void MainWindow::viewModeThrownTogether()
-{
-  previewModeGroup->setEnabled(true);
-  viewActionThrownTogether->setChecked(true);
-  this->qglview->setRenderer(this->thrownTogetherRenderer);
   this->qglview->updateColorScheme();
   this->qglview->update();
 }
@@ -3353,24 +3072,18 @@ QString MainWindow::getDockBaseName(const QString& title) const
 
 void MainWindow::onTabManagerAboutToCloseEditor(EditorInterface *closingEditor)
 {
-  // This slots is in charge of closing properly the preview when the
+  // This slots is in charge of closing properly the render when the
   // associated editor is about to close.
   if (closingEditor == renderedEditor) {
     renderedEditor = nullptr;
 
-    // Invalidate renderers before we kill the CSG tree
     this->qglview->setRenderer(nullptr);
-#ifdef ENABLE_OPENCSG
-    this->previewRenderer = nullptr;
-#endif
-    this->thrownTogetherRenderer = nullptr;
+    this->geomRenderer = nullptr;
+    this->rootGeom.reset();
 
     // Remove previous CSG tree
     this->absoluteRootNode.reset();
 
-    this->csgRoot.reset();
-    this->normalizedRoot.reset();
-    this->rootProduct.reset();
     resetPickMemo();
     this->animationFrameShown = false;
 
@@ -3662,16 +3375,6 @@ void MainWindow::clearCurrentOutput()
   set_output_handler(nullptr, nullptr, nullptr);
 }
 
-void MainWindow::openCSGSettingsChanged()
-{
-#ifdef ENABLE_OPENCSG
-  OpenCSG::setOption(OpenCSG::AlgorithmSetting,
-                     GlobalPreferences::inst()->getValue("advanced/forceGoldfeather").toBool()
-                       ? OpenCSG::Goldfeather
-                       : OpenCSG::Automatic);
-#endif
-}
-
 void MainWindow::processEvents()
 {
   if (this->procevents) QApplication::processEvents();
@@ -3770,8 +3473,6 @@ void MainWindow::setupPreferences()
           &MainWindow::updateReorderMode);
   connect(GlobalPreferences::inst(), &Preferences::updateUndockMode, this,
           &MainWindow::updateUndockMode);
-  connect(GlobalPreferences::inst(), &Preferences::openCSGSettingsChanged, this,
-          &MainWindow::openCSGSettingsChanged);
   connect(GlobalPreferences::inst(), &Preferences::colorSchemeChanged, this,
           &MainWindow::setColorScheme);
   connect(GlobalPreferences::inst(), &Preferences::toolbarExportChanged, this,
@@ -3959,17 +3660,11 @@ void MainWindow::setup3DView()
   this->qglview->setMouseCentricZoom(Settings::Settings::mouseCentricZoom.value());
   this->setAllMouseViewActions();
   this->meas.setView(qglview);
-  resetMeasurementsState(false, "Render (not preview) to enable measurements");
+  resetMeasurementsState(false, "Render (F6) to enable measurements");
 
   // Initial Color Scheme
   const QString cs = GlobalPreferences::inst()->getValue("3dview/colorscheme").toString();
   this->setColorScheme(cs);
-
-  // Initialize View Mode
-  // Default to ThrownTogether as OpenCSG support is not known until initializeGL()
-  // runs (after show()). The initialized() signal will trigger an update to
-  // Preview mode if supported.
-  viewModeThrownTogether();
 
   loadViewSettings();
   loadDesignSettings();
@@ -3980,7 +3675,6 @@ void MainWindow::setup3DView()
   connect(this->qglview, &QGLView::resized, viewportControlWidget, &ViewportControl::viewResized);
   connect(this->qglview, &QGLView::doRightClick, this, &MainWindow::rightClick);
   connect(this->qglview, &QGLView::doLeftClick, this, &MainWindow::leftClick);
-  connect(this->qglview, &QGLView::initialized, this, &MainWindow::updateViewModeAfterGLInit);
 }
 
 /**
@@ -4146,16 +3840,6 @@ void MainWindow::setupMenusAndActions()
   //
   // View menu
   //
-  previewModeGroup = new QActionGroup(this);
-  previewModeGroup->setExclusive(true);
-  previewModeGroup->addAction(this->viewActionPreview);
-  previewModeGroup->addAction(this->viewActionThrownTogether);
-  if (this->qglview->hasOpenCSGSupport()) {
-    this->viewActionPreview->setChecked(true);
-  } else {
-    this->viewActionThrownTogether->setChecked(true);
-  }
-
   viewActionProjectionGroup = new QActionGroup(this);
   viewActionProjectionGroup->setExclusive(true);
   viewActionProjectionGroup->addAction(this->viewActionPerspective);

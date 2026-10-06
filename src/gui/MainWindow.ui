@@ -328,7 +328,6 @@
     <addaction name="designCheckValidity"/>
     <addaction name="designActionDisplayAST"/>
     <addaction name="designActionDisplayCSGTree"/>
-    <addaction name="designActionDisplayCSGProducts"/>
     <addaction name="separator"/>
     <addaction name="designActionFlushCaches"/>
    </widget>
@@ -336,9 +335,6 @@
     <property name="title">
      <string>&amp;View</string>
     </property>
-    <addaction name="viewActionPreview"/>
-    <addaction name="viewActionThrownTogether"/>
-    <addaction name="separator"/>
     <addaction name="viewActionShowEdges"/>
     <addaction name="viewActionShowAxes"/>
     <addaction name="viewActionShowScaleProportional"/>
@@ -1039,11 +1035,6 @@
     <string>Display CSG &amp;Tree...</string>
    </property>
   </action>
-  <action name="designActionDisplayCSGProducts">
-   <property name="text">
-    <string>Display CSG Pr&amp;oducts...</string>
-   </property>
-  </action>
   <action name="fileActionExportBinarySTL">
    <property name="icon">
     <iconset theme="chokusen-export-stl"/>
@@ -1090,34 +1081,6 @@
    </property>
    <property name="text">
     <string>Export as &amp;WRL...</string>
-   </property>
-  </action>
-  <action name="viewActionPreview">
-   <property name="checkable">
-    <bool>true</bool>
-   </property>
-   <property name="icon">
-    <iconset theme="chokusen-surface"/>
-   </property>
-   <property name="text">
-    <string>Preview</string>
-   </property>
-   <property name="shortcut">
-    <string>F9</string>
-   </property>
-  </action>
-  <action name="viewActionThrownTogether">
-   <property name="checkable">
-    <bool>true</bool>
-   </property>
-   <property name="icon">
-    <iconset theme="chokusen-throwntogether"/>
-   </property>
-   <property name="text">
-    <string>Thrown Together</string>
-   </property>
-   <property name="shortcut">
-    <string>F12</string>
    </property>
   </action>
   <action name="viewActionShowEdges">

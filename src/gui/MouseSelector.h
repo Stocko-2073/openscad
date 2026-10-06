@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 
 #include "glview/GLView.h"
 #include "glview/Renderer.h"
@@ -8,7 +9,7 @@
 #include "glview/fbo.h"
 
 /**
- * Grab the of the Tree element that was rendered at a specific location
+ * Finds what was drawn at a location of the view: draws it offscreen and reads the depth back.
  */
 class MouseSelector
 {
@@ -18,8 +19,8 @@ public:
   /// Resize the renderbuffer
   void reset(GLView *view);
 
-  // `depth`, when given, receives the window depth drawn at (x, y): 1 where nothing was drawn.
-  int select(const Renderer *renderer, int x, int y, float *depth = nullptr);
+  // The window depth drawn at (x, y), or nothing when (x, y) is outside the view or shows background.
+  std::optional<float> depthAt(const Renderer *renderer, int x, int y);
 
   ShaderUtils::ShaderInfo shaderinfo;
 

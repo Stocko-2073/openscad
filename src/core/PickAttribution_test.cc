@@ -6,17 +6,13 @@
 #include <deque>
 #include <filesystem>
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
 #include "core/BuiltinContext.h"
 #include "core/Builtins.h"
-#include "core/CSGNode.h"
-#include "core/CSGTreeEvaluator.h"
 #include "core/Context.h"
 #include "core/EvaluationSession.h"
-#include "core/RenderNode.h"
 #include "core/SourceFile.h"
 #include "core/Tree.h"
 #include "core/node.h"
@@ -27,7 +23,6 @@
 #include "geometry/cgal/CGALCache.h"
 #endif
 #include "glview/RenderSettings.h"
-#include "glview/preview/CSGTreeNormalizer.h"
 #include "openscad.h"
 #include "platform/PlatformUtils.h"
 
@@ -112,43 +107,6 @@ View renderView(const Scene& scene)
   return view;
 }
 
-std::shared_ptr<const AbstractNode> findRender(const std::shared_ptr<const AbstractNode>& node)
-{
-  if (std::dynamic_pointer_cast<const RenderNode>(node)) return node;
-  for (const auto& child : node->getChildren()) {
-    if (auto found = findRender(child)) return found;
-  }
-  return nullptr;
-}
-
-// Preview: the render() leaf as compileCSG() draws it, and the primitives inside it.
-View previewView(const Scene& scene)
-{
-  const auto render = findRender(scene.root);
-  REQUIRE(render);
-
-  GeometryEvaluator evaluator(*scene.tree);
-  CSGTreeEvaluator csg(*scene.tree, &evaluator);
-  std::vector<std::shared_ptr<CSGNode>> terms{csg.buildCSGTree(*scene.root)};
-  for (const auto& term : csg.getHighlightNodes()) terms.push_back(term);
-  for (const auto& term : csg.getBackgroundNodes()) terms.push_back(term);
-
-  std::shared_ptr<CSGLeaf> leaf;
-  for (const auto& term : terms) {
-    if (!term) continue;
-    CSGTreeNormalizer normalizer(100000);
-    CSGProducts products;
-    products.import(normalizer.normalize(term));
-    if ((leaf = pick::findLeaf(products, render->index()))) break;
-  }
-  REQUIRE(leaf);
-
-  View view;
-  view.surface = {{leaf->polyset, leaf->matrix}};
-  view.leaves = pick::collectLeaves(*scene.tree, *render, leaf->matrix);
-  return view;
-}
-
 pick::Ray ray(const Vector3d& from, const Vector3d& to)
 {
   return {from, to - from};
@@ -158,12 +116,6 @@ pick::Ray ray(const Vector3d& from, const Vector3d& to)
 pick::Ray down(double x, double y)
 {
   return ray({x, y, 50}, {x, y, -50});
-}
-
-// The t of `down` where it crosses height z.
-double downT(double z)
-{
-  return (50 - z) / 100;
 }
 
 std::shared_ptr<const AbstractNode> node(const Scene& scene, int index)
@@ -185,10 +137,9 @@ std::vector<int> lines(const Scene& scene, const std::vector<int>& indices)
   return result;
 }
 
-std::vector<int> attribute(const View& view, const pick::Ray& r,
-                           std::optional<double> depthT = std::nullopt)
+std::vector<int> attribute(const View& view, const pick::Ray& r)
 {
-  return pick::attribute(view.surface, view.leaves, r, depthT);
+  return pick::attribute(view.surface, view.leaves, r);
 }
 
 using Lines = std::vector<int>;
@@ -216,7 +167,7 @@ TEST_CASE("The closest point of a triangle is on its face, an edge, or a corner"
   CHECK(pick::closestPointOnTriangle({1, 1, 0}, a, b, c).isApprox(Vector3d(0.5, 0.5, 0)));
 }
 
-TEST_CASE("The depth chooses which crossing of the surface was drawn", "[pick]")
+TEST_CASE("A ray meets the surface where it first crosses it", "[pick]")
 {
   // Two squares, at z = 10 and z = 0, as convex quads.
   auto ps = std::make_shared<PolySet>(3, /*convex*/ true);
@@ -226,13 +177,11 @@ TEST_CASE("The depth chooses which crossing of the surface was drawn", "[pick]")
   const std::vector<pick::PlacedMesh> surface{{ps, Transform3d::Identity()}};
   const auto r = ray({0.5, 0.5, 20}, {0.5, 0.5, -20});
 
-  CHECK(pick::castRay(surface, r, std::nullopt)->t == Catch::Approx(0.25));
-  CHECK(pick::castRay(surface, r, 0.45)->t == Catch::Approx(0.5));
-  CHECK(pick::castRay(surface, r, 0.45)->point.isApprox(Vector3d(0.5, 0.5, 0)));
-  CHECK(pick::castRay(surface, r, 0.3)->t == Catch::Approx(0.25));
-  CHECK_FALSE(pick::castRay(surface, ray({2, 2, 20}, {2, 2, -20}), std::nullopt));
+  CHECK(pick::castRay(surface, r)->t == Catch::Approx(0.25));
+  CHECK(pick::castRay(surface, r)->point.isApprox(Vector3d(0.5, 0.5, 10)));
+  CHECK_FALSE(pick::castRay(surface, ray({2, 2, 20}, {2, 2, -20})));
   // Only t in [0, 1] counts: past the far plane is not drawn.
-  CHECK_FALSE(pick::castRay(surface, ray({0.5, 0.5, 20}, {0.5, 0.5, 15}), std::nullopt));
+  CHECK_FALSE(pick::castRay(surface, ray({0.5, 0.5, 20}, {0.5, 0.5, 15})));
 }
 
 #ifdef ENABLE_MANIFOLD
@@ -354,64 +303,18 @@ TEST_CASE("Primitives inside a placed render() of nested modules are named", "[p
   const auto holeWall =
     ray(world(10, 10, 2), world(10 + 20 * std::cos(0.26), 10 + 20 * std::sin(0.26), 2));
 
-  for (const bool preview : {false, true}) {
-    DYNAMIC_SECTION((preview ? "preview" : "F6"))
-    {
-      const View view = preview ? previewView(*scene) : renderView(*scene);
-      const auto depth = [&](double z) {
-        return preview ? std::optional<double>(downT(z)) : std::nullopt;
-      };
-
-      CHECK(lines(*scene, attribute(view, plateTop, depth(4))) == Lines{5});
-      const auto post = attribute(view, postTop, depth(14));
-      REQUIRE(lines(*scene, post) == Lines{2});
-      // The chain runs through the module call and the render().
-      std::deque<std::shared_ptr<const AbstractNode>> path;
-      scene->root->getNodeByID(post.front(), path);
-      CHECK(std::any_of(path.begin(), path.end(),
-                        [](const auto& step) { return step->verbose_name() == "module post"; }));
-      CHECK(std::any_of(path.begin(), path.end(),
-                        [](const auto& step) { return step->name() == "render"; }));
-      CHECK(lines(*scene, attribute(view, holeWall,
-                                    preview ? std::optional<double>(0) : std::nullopt)) == Lines{6});
-      CHECK(attribute(view, down(0, 0), depth(0)).empty());
-    }
-  }
-
-  // Drawn deeper down, the same ray shows the plate's underside instead of the post.
-  CHECK(lines(*scene, attribute(previewView(*scene), postTop, downT(0))) == Lines{5});
-}
-
-TEST_CASE("A subtracted render() shows the face its depth names", "[pick]")
-{
-  const Backend manifold(RenderBackend3D::ManifoldBackend);
-  const auto scene = instantiate(
-    "difference() {\n"
-    "  cube(20, center = true);\n"
-    "  translate([0, 0, 10]) render() union() {\n"
-    "    sphere(6, $fn = 48);\n"
-    "    translate([3, 0, 0]) cylinder(r = 2, h = 20, $fn = 24);\n"
-    "  }\n"
-    "}");
-  // Looking down at (3, 0), preview draws the pocket's floor: the sphere, below the cube's top.
-  const double floor = 10 - std::sqrt(36.0 - 9.0);
-  CHECK(lines(*scene, attribute(previewView(*scene), down(3, 0), downT(floor))) == Lines{4});
-}
-
-TEST_CASE("A render() drawn as % or # can be looked into", "[pick]")
-{
-  const Backend manifold(RenderBackend3D::ManifoldBackend);
-  for (const std::string modifier : {"%", "#"}) {
-    DYNAMIC_SECTION(modifier)
-    {
-      const auto scene = instantiate(modifier +
-                                     "render() union() {\n"
-                                     "  cube(10);\n"
-                                     "  translate([0, 0, 10]) sphere(3, $fn = 16);\n"
-                                     "}");
-      CHECK(lines(*scene, attribute(previewView(*scene), down(5, 5), downT(10))) == Lines{2});
-    }
-  }
+  const View view = renderView(*scene);
+  CHECK(lines(*scene, attribute(view, plateTop)) == Lines{5});
+  const auto post = attribute(view, postTop);
+  REQUIRE(lines(*scene, post) == Lines{2});
+  // The chain runs through the module call and the render().
+  std::deque<std::shared_ptr<const AbstractNode>> path;
+  scene->root->getNodeByID(post.front(), path);
+  CHECK(std::any_of(path.begin(), path.end(),
+                    [](const auto& step) { return step->verbose_name() == "module post"; }));
+  CHECK(std::any_of(path.begin(), path.end(), [](const auto& step) { return step->name() == "render"; }));
+  CHECK(lines(*scene, attribute(view, holeWall)) == Lines{6});
+  CHECK(attribute(view, down(0, 0)).empty());
 }
 
 TEST_CASE("Mirrored and far-off geometry is named the same", "[pick]")

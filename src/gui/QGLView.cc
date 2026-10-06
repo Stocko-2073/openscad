@@ -59,16 +59,11 @@
 #ifdef USE_GLAD
 #include <QOpenGLContext>
 #endif
-#include "gui/OpenCSGWarningDialog.h"
 
 #include <cstdio>
 #include <sstream>
 #include <string>
 #include <vector>
-
-#ifdef ENABLE_OPENCSG
-#include <opencsg.h>
-#endif
 
 #include "gui/qt-obsolete.h"
 #include "gui/Measurement.h"
@@ -172,40 +167,6 @@ std::string QGLView::getRendererInfo() const
   return info.str();
 }
 
-#ifdef ENABLE_OPENCSG
-void QGLView::display_opencsg_warning()
-{
-  if (GlobalPreferences::inst()->getValue("advanced/opencsg_show_warning").toBool()) {
-    QTimer::singleShot(0, this, &QGLView::display_opencsg_warning_dialog);
-  }
-}
-
-void QGLView::display_opencsg_warning_dialog()
-{
-  auto dialog = new OpenCSGWarningDialog(this);
-
-  QString message =
-    _("Warning: Missing OpenGL capabilities for OpenCSG - OpenCSG has been disabled.\n\n");
-  message +=
-    _("It is highly recommended to use OpenSCAD on a system with "
-      "OpenGL 2.0 or later.\n"
-      "Your renderer information is as follows:\n");
-#if defined(USE_GLEW) || defined(OPENCSG_GLEW)
-  QString rendererinfo(_("GLEW version %1\n%2 (%3)\nOpenGL version %4\n"));
-  message +=
-    rendererinfo.arg((const char *)glewGetString(GLEW_VERSION), (const char *)glGetString(GL_RENDERER),
-                     (const char *)glGetString(GL_VENDOR), (const char *)glGetString(GL_VERSION));
-#endif
-#ifdef USE_GLAD
-  QString rendererinfo(_("GLAD version %1\n%2 (%3)\nOpenGL version %4\n"));
-  message +=
-    rendererinfo.arg(GLAD_GENERATOR_VERSION, (const char *)glGetString(GL_RENDERER),
-                     (const char *)glGetString(GL_VENDOR), (const char *)glGetString(GL_VERSION));
-#endif
-  dialog->setText(message);
-  dialog->exec();
-}
-#endif  // ifdef ENABLE_OPENCSG
 
 void QGLView::resizeGL(int w, int h)
 {
@@ -656,11 +617,10 @@ QGLView::PickResult QGLView::pickObject(QPoint position)
   // Update the selector with the right image size
   this->selector->reset(this);
 
-  float depth = 1.0f;
-  result.index = this->selector->select(this->getRenderer(), position.x(), position.y(), &depth);
-  if (result.index < 0 || depth >= 1.0f) return result;  // outside the view, or background
+  const auto depth = this->selector->depthAt(this->getRenderer(), position.x(), position.y());
+  if (!depth) return result;  // outside the view, or background
 
-  // select() drew with this->modelview and this->projection (its setupCamera() refreshed them) into
+  // depthAt() drew with this->modelview and this->projection (its setupCamera() refreshed them) into
   // a framebuffer of cam.pixel_width x cam.pixel_height logical pixels, the units of `position`.
   const auto width = static_cast<GLint>(this->cam.pixel_width);
   const auto height = static_cast<GLint>(this->cam.pixel_height);
@@ -672,7 +632,7 @@ QGLView::PickResult QGLView::pickObject(QPoint position)
                         &out.y(), &out.z()) == GL_TRUE;
   };
   Vector3d nearPoint, farPoint, surfacePoint;
-  if (!unproject(0, nearPoint) || !unproject(1, farPoint) || !unproject(depth, surfacePoint)) {
+  if (!unproject(0, nearPoint) || !unproject(1, farPoint) || !unproject(*depth, surfacePoint)) {
     return result;
   }
   const Vector3d direction = farPoint - nearPoint;
