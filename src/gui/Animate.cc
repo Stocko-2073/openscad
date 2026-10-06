@@ -90,7 +90,7 @@ void Animate::on_e_tval_textChanged(const QString&)
   // Free-form scrubbing in the t field leaves both flags false — fall through to
   // the sync path then.
   if (!this->inTimerTick_ && !this->inButtonStep_) {
-    emit mainWindow->actionRenderPreview();
+    mainWindow->actionRender();
   }
 
   updatePauseButtonIcon();
@@ -164,6 +164,8 @@ void Animate::incrementTVal()
   if (mainWindow->parameterDock->isVisible()) {
     if (mainWindow->activeEditor->parameterWidget->childHasFocus()) return;
   }
+  // Dumping renders every step in turn: wait until the last one is rendered and saved.
+  if (this->dumpPictures() && GuiLocker::isLocked()) return;
 
   const int prevStep = this->animStep;
   if (this->animNumSteps > 1) {
@@ -183,9 +185,10 @@ void Animate::incrementTVal()
   this->e_tval->setText(txt);
   this->inTimerTick_ = false;
 
-  // Dump-pictures mode runs single-threaded for deterministic frame output.
+  // Dump-pictures mode renders each step synchronously for deterministic frame output; the render
+  // saves the picture when it is done.
   if (this->dumpPictures()) {
-    emit mainWindow->actionRenderPreview();
+    mainWindow->actionRender();
     updatePauseButtonIcon();
     return;
   }
@@ -201,9 +204,9 @@ void Animate::incrementTVal()
     // freshest Ready frame in the cache — for scenes whose compute time
     // exceeds 1/fps this keeps something visible (slowed playback) instead of
     // a blank GLView until workers catch up. We can't sync-fallback to
-    // actionRenderPreview here because that takes GuiLocker, calls
-    // instantiateRoot which sets the renderer to nullptr, and stomps on the
-    // in-flight prefetch chain.
+    // actionRender here because that takes GuiLocker, calls instantiateRoot
+    // which sets the renderer to nullptr, and stomps on the in-flight prefetch
+    // chain.
     if (!tryShowCachedFrame(this->animStep)) {
       auto fallback = frameCache_->latestReady();
       if (fallback && fallback->step != lastShownStep_) {
@@ -217,7 +220,7 @@ void Animate::incrementTVal()
     const int lookahead = frameCache_->workerCount();
     frameCache_->prefetchWindow(this->animStep + 1, lookahead);
   } else {
-    emit mainWindow->actionRenderPreview();
+    mainWindow->actionRender();
   }
 
   updatePauseButtonIcon();
@@ -249,7 +252,7 @@ void Animate::showCurrentStepFromCache()
   this->inButtonStep_ = false;
 
   if (!frameCache_) {
-    emit mainWindow->actionRenderPreview();
+    mainWindow->actionRender();
     return;
   }
 
@@ -268,11 +271,10 @@ void Animate::showCurrentStepFromCache()
   // change). Either way the centered prefetch below warms the neighbourhood so
   // the NEXT step lands a hit.
   if (tryShowCachedFrame(this->animStep)) {
-    // actionRenderPreview disables measurements on every preview; match that so a
-    // cached step leaves the same state as a synchronously-rendered one.
-    mainWindow->resetMeasurementsState(false, "Render (not preview) to enable measurements");
+    // A cached frame is rendered geometry, so it can be measured, as after a synchronous render.
+    mainWindow->resetMeasurementsState(true, "Click to start measuring");
   } else {
-    emit mainWindow->actionRenderPreview();
+    mainWindow->actionRender();
   }
 
   // Warm BOTH directions: prefetchWindow only walks forward, so start half a
@@ -320,9 +322,8 @@ void Animate::rebuildFrameCacheSource()
                                 mainWindow->activeEditor->filepath.toStdString())
                                 .parent_path()
                                 .string();
-  // Frames are drawn as previews, so $preview is true whatever the last compile was.
   frameCache_->setSource(mainWindow->rootFile, docPath, this->animNumSteps,
-                         mainWindow->qglview->cam, true);
+                         mainWindow->qglview->cam);
   cachedSource_ = mainWindow->rootFile;
   frameCache_->prefetchWindow(this->animStep, frameCache_->workerCount());
 }

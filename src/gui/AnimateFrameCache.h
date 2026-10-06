@@ -6,22 +6,24 @@
 #include <atomic>
 #include <map>
 #include <memory>
+#include <vector>
+
+#include "core/ModifierOverlays.h"
 
 class SourceFile;
-class CSGProducts;
 class AbstractNode;
+class Geometry;
 class Tree;
 class Camera;
 
 namespace OpenScad::Animate {
 
-// One frame's pre-computed CSG state, ready for the GLView to render.
+// One frame rendered as F6 renders, ready for the GLView to draw.
 struct FrameResult
 {
-  std::shared_ptr<CSGProducts> root_products;
-  std::shared_ptr<CSGProducts> highlights_products;
-  std::shared_ptr<CSGProducts> background_products;
-  // Kept alive so the products' internal references stay valid.
+  std::shared_ptr<const Geometry> geometry;  // null when the frame has no geometry
+  std::vector<overlay::Mesh> overlays;
+  // Kept alive with the geometry, which may refer to its nodes.
   std::shared_ptr<AbstractNode> root_node;
   std::shared_ptr<Tree> tree;
 };
@@ -38,7 +40,7 @@ struct CachedFrame
   std::shared_ptr<FrameResult> result;
 };
 
-// Pre-fetches geometry/CSG for animation frames on a worker pool so the GUI
+// Pre-fetches the geometry of animation frames on a worker pool so the GUI
 // thread only has to do the GL draw when a frame is due. All public methods
 // are safe to call from the GUI thread; the cache internally serialises access
 // to its frame map and signals on the GUI thread when a frame is ready.
@@ -58,7 +60,7 @@ public:
   // Reset the cache to use the given source. invalidates all pending/ready
   // frames. Pass numSteps==0 to disable.
   void setSource(std::shared_ptr<SourceFile> sourceFile, std::string documentPath,
-                 int numSteps, const Camera &camera, bool isPreview);
+                 int numSteps, const Camera &camera);
 
   // Schedule pre-computation for [currentStep, currentStep+lookahead-1] modulo numSteps,
   // cancelling tasks for steps outside that window. Safe to call from the GUI thread.
@@ -101,7 +103,6 @@ private:
   std::shared_ptr<SourceFile> source_file_;
   std::string document_path_;
   int num_steps_ = 0;
-  bool is_preview_ = true;
 
   // Camera snapshot at enqueue time. Not refreshed on user orbit; documented limitation.
   std::shared_ptr<Camera> camera_;

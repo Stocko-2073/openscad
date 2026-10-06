@@ -9,10 +9,9 @@
 #include <utility>
 
 #include "core/BuiltinContext.h"
-#include "core/CSGNode.h"
-#include "core/CSGTreeEvaluator.h"
 #include "core/Context.h"
 #include "core/EvaluationSession.h"
+#include "core/ModifierOverlays.h"
 #include "core/RenderVariables.h"
 #include "core/ScopeContext.h"
 #include "core/SourceFile.h"
@@ -20,7 +19,9 @@
 #include "core/node.h"
 #include "core/progress.h"
 #include "geometry/GeometryEvaluator.h"
-#include "glview/preview/CSGTreeNormalizer.h"
+#ifdef ENABLE_MANIFOLD
+#include "geometry/manifold/ManifoldGeometry.h"
+#endif
 #include "gui/AnimateFrameCache.h"
 #include "utils/exceptions.h"
 #include "utils/printutils.h"
@@ -32,11 +33,6 @@
 namespace OpenScad::Animate {
 
 namespace {
-
-// Matches the limit used in MainWindow::compileCSG. Hard-coded here so the
-// worker doesn't depend on Qt preferences (those aren't thread-safe to read).
-// The GUI side passes us a pre-computed limit if it wants something else.
-constexpr size_t kDefaultOpenCSGLimit = 5000;
 
 bool is_cancelled(const std::shared_ptr<std::atomic<bool>>& flag)
 {
@@ -51,7 +47,6 @@ FrameTask::FrameTask(QPointer<FrameCache> owner,
                      std::shared_ptr<SourceFile> sourceFile,
                      std::string documentPath,
                      Camera camera,
-                     bool isPreview,
                      std::shared_ptr<std::atomic<bool>> cancelFlag)
   : owner_(std::move(owner)),
     generation_(generation),
@@ -59,7 +54,6 @@ FrameTask::FrameTask(QPointer<FrameCache> owner,
     source_file_(std::move(sourceFile)),
     document_path_(std::move(documentPath)),
     camera_(std::move(camera)),
-    is_preview_(isPreview),
     cancel_flag_(std::move(cancelFlag))
 {
   setAutoDelete(true);
@@ -68,7 +62,7 @@ FrameTask::FrameTask(QPointer<FrameCache> owner,
 void FrameTask::run()
 {
   // Worker thread: never touch GUI / GL state. We only use the immutable
-  // SourceFile and produce CSG products.
+  // SourceFile and produce geometry.
   //
   // Silence PRINT/LOG entirely on this thread. The output handler reaches into
   // Qt widgets (main-thread only) and the print machinery has shared global
@@ -95,7 +89,7 @@ void FrameTask::run()
     ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(&session)};
 
     const RenderVariables r = {
-      .preview = is_preview_,
+      .preview = false,
       .time = frame_->t,
       .camera = camera_,
     };
@@ -119,47 +113,24 @@ void FrameTask::run()
     if (is_cancelled(cancel_flag_)) throw ProgressCancelException();
 
     GeometryEvaluator geomevaluator(*tree);
-    CSGTreeEvaluator csgrenderer(*tree, &geomevaluator);
-
-    auto csg_root = csgrenderer.buildCSGTree(*root_node);
+    result->geometry = geomevaluator.evaluateGeometry(*root_node, true);
+#ifdef ENABLE_MANIFOLD
+    // Manifold evaluates lazily; finish here rather than on the GUI thread.
+    if (auto manifold = std::dynamic_pointer_cast<const ManifoldGeometry>(result->geometry)) {
+      (void)manifold->getManifold().Status();
+    }
+#endif
 
     if (is_cancelled(cancel_flag_)) throw ProgressCancelException();
 
-    CSGTreeNormalizer normalizer(2 * kDefaultOpenCSGLimit);
-
-    if (csg_root) {
-      auto normalized = normalizer.normalize(csg_root);
-      if (normalized) {
-        result->root_products = std::make_shared<CSGProducts>();
-        result->root_products->import(normalized);
-      }
-    }
-
-    const auto& highlight_terms = csgrenderer.getHighlightNodes();
-    if (!highlight_terms.empty()) {
-      result->highlights_products = std::make_shared<CSGProducts>();
-      for (const auto& term : highlight_terms) {
-        auto nterm = normalizer.normalize(term);
-        if (nterm) result->highlights_products->import(nterm);
-      }
-    }
-
-    const auto& background_terms = csgrenderer.getBackgroundNodes();
-    if (!background_terms.empty()) {
-      result->background_products = std::make_shared<CSGProducts>();
-      for (const auto& term : background_terms) {
-        auto nterm = normalizer.normalize(term);
-        if (nterm) result->background_products->import(nterm);
-      }
-    }
+    result->overlays = overlay::collect(*tree, *root_node);
 
     result->root_node = root_node;
     result->tree = tree;
     // Don't retain file_context — its ContextMemoryManager (owned by the
     // session) is destructed below and asserts that all managed contexts have
-    // been released. The GUI's compileCSG path doesn't retain it either; the
-    // normalized CSGProducts only reference PolySets and transforms, which
-    // are owned outright (no raw pointers back into the FileContext).
+    // been released. The GUI's render path doesn't retain it either; geometry
+    // owns its meshes outright (no raw pointers back into the FileContext).
 
     ok = true;
   } catch (const ProgressCancelException&) {

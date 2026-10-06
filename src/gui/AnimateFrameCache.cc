@@ -58,8 +58,7 @@ int FrameCache::workerCount() const
 void FrameCache::setSource(std::shared_ptr<SourceFile> sourceFile,
                            std::string documentPath,
                            int numSteps,
-                           const Camera &camera,
-                           bool isPreview)
+                           const Camera &camera)
 {
   // Cancel any in-flight tasks before swapping state.
   std::shared_ptr<std::atomic<bool>> old_flag;
@@ -72,7 +71,6 @@ void FrameCache::setSource(std::shared_ptr<SourceFile> sourceFile,
     source_file_ = std::move(sourceFile);
     document_path_ = std::move(documentPath);
     num_steps_ = numSteps;
-    is_preview_ = isPreview;
     camera_ = std::make_shared<Camera>(camera);
     cancel_flag_ = std::make_shared<std::atomic<bool>>(false);
     frames_.clear();
@@ -180,7 +178,6 @@ void FrameCache::enqueueStep_unlocked(int step)
                              source_file_,
                              document_path_,
                              cam,
-                             is_preview_,
                              cancel_flag_);
   pool_->start(task);
 }

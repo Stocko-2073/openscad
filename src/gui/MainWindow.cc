@@ -1984,13 +1984,6 @@ void MainWindow::csgRender()
 #endif
   }
 
-  if (animateWidget->dumpPictures()) {
-    const int steps = animateWidget->nextFrame();
-    const QImage img = this->qglview->grabFrame();
-    const QString filename = QString("frame%1.png").arg(steps, 5, 10, QChar('0'));
-    img.save(filename, "PNG");
-  }
-
   compileEnded();
 }
 
@@ -1998,37 +1991,14 @@ void MainWindow::showAnimationFrame(std::shared_ptr<OpenScad::Animate::FrameResu
 {
   if (!frame) return;
 
-  // Adopt the precomputed CSG products. We don't refresh rootNode/absoluteRootNode
-  // here — those are rebuilt by the next instantiateRoot() when playback ends or
-  // a non-animation render is triggered.
-  this->rootProduct = frame->root_products;
-  this->highlightsProducts = frame->highlights_products;
-  this->backgroundProducts = frame->background_products;
-  // The frame's node indices don't match rootNode, so the picker can't look inside its render()s.
+  // Draw the frame's geometry. rootGeom, rootNode and absoluteRootNode stay those of the last
+  // render: they are rebuilt by the next instantiateRoot() when playback ends or a render is
+  // triggered, and exports keep using the rendered geometry.
   resetPickMemo();
+  // The frame's node indices don't match rootNode, so the picker has nothing to name.
   this->animationFrameShown = true;
-
-#ifdef ENABLE_OPENCSG
-  if (this->rootProduct
-      && this->rootProduct->size() <= GlobalPreferences::inst()->getValue("advanced/openCSGLimit").toUInt()) {
-    this->previewRenderer = std::make_shared<OpenCSGRenderer>(
-      this->rootProduct, this->highlightsProducts, this->backgroundProducts);
-  } else {
-    this->previewRenderer = nullptr;
-  }
-#endif
-  this->thrownTogetherRenderer = std::make_shared<ThrownTogetherRenderer>(
-    this->rootProduct, this->highlightsProducts, this->backgroundProducts);
-
-  if (viewActionThrownTogether->isChecked()) {
-    viewModeThrownTogether();
-  } else {
-#ifdef ENABLE_OPENCSG
-    viewModePreview();
-#else
-    viewModeThrownTogether();
-#endif
-  }
+  this->geomRenderer = createGeometryRenderer(frame->geometry, frame->overlays);
+  viewModeRender();
 }
 
 void MainWindow::sendToExternalTool(ExternalToolInterface& externalToolService)
@@ -2096,6 +2066,11 @@ void MainWindow::on_designAction3DPrint_triggered()
 
 void MainWindow::on_designActionRender_triggered()
 {
+  actionRender();
+}
+
+void MainWindow::actionRender()
+{
   if (GuiLocker::isLocked()) {
     // A compile, render or export is running: render once it is done, so the view ends up showing
     // the latest text. Requests made meanwhile make one render.
@@ -2119,7 +2094,7 @@ void MainWindow::renderWhenUnlocked()
     QTimer::singleShot(autoReloadPollingPeriodMS, this, &MainWindow::renderWhenUnlocked);
     return;
   }
-  on_designActionRender_triggered();
+  actionRender();
 }
 
 void MainWindow::cgalRender()
@@ -2149,6 +2124,27 @@ void MainWindow::cgalRender()
   const bool checkInterference = false;
 #endif
   this->cgalworker->start(this->tree, checkInterference);
+}
+
+std::shared_ptr<Renderer> MainWindow::createGeometryRenderer(
+  const std::shared_ptr<const Geometry>& geom, const std::vector<overlay::Mesh>& overlays)
+{
+  if (!geom && overlays.empty()) return nullptr;
+  std::shared_ptr<VBORenderer> renderer;
+#if defined(USE_POLYSET_FOR_CGAL)
+  renderer = std::make_shared<PolySetRenderer>(geom);
+#else
+  // Choose PolySetRenderer for PolySet and Polygon2d, and for Manifold since we
+  // know that all geometries are convertible to PolySet.
+  if (!geom || RenderSettings::inst()->backend3D == RenderBackend3D::ManifoldBackend ||
+      std::dynamic_pointer_cast<const PolySet>(geom) || std::dynamic_pointer_cast<const Polygon2d>(geom)) {
+    renderer = std::make_shared<PolySetRenderer>(geom);
+  } else {
+    renderer = std::make_shared<CGALRenderer>(geom);
+  }
+#endif
+  renderer->setOverlays(overlays);
+  return renderer;
 }
 
 void MainWindow::actionRenderDone(const std::shared_ptr<const RenderResult>& result)
@@ -2181,22 +2177,7 @@ void MainWindow::actionRenderDone(const std::shared_ptr<const RenderResult>& res
     LOG("Rendering finished.");
 
     this->rootGeom = root_geom;
-    std::shared_ptr<VBORenderer> renderer;
-#if defined(USE_POLYSET_FOR_CGAL)
-    renderer = std::make_shared<PolySetRenderer>(this->rootGeom);
-#else
-    // Choose PolySetRenderer for PolySet and Polygon2d, and for Manifold since we
-    // know that all geometries are convertible to PolySet.
-    if (RenderSettings::inst()->backend3D == RenderBackend3D::ManifoldBackend ||
-        std::dynamic_pointer_cast<const PolySet>(this->rootGeom) ||
-        std::dynamic_pointer_cast<const Polygon2d>(this->rootGeom)) {
-      renderer = std::make_shared<PolySetRenderer>(this->rootGeom);
-    } else {
-      renderer = std::make_shared<CGALRenderer>(this->rootGeom);
-    }
-#endif
-    renderer->setOverlays(result->overlays);
-    this->geomRenderer = renderer;
+    this->geomRenderer = createGeometryRenderer(this->rootGeom, result->overlays);
 
     // Go to CGAL view mode
     viewModeRender();
@@ -2206,9 +2187,7 @@ void MainWindow::actionRenderDone(const std::shared_ptr<const RenderResult>& res
     LOG(message_group::UI_Warning, "No top level geometry to render");
     // A design of only % subtrees still shows them.
     if (!result->overlays.empty()) {
-      auto renderer = std::make_shared<PolySetRenderer>(nullptr);
-      renderer->setOverlays(result->overlays);
-      this->geomRenderer = renderer;
+      this->geomRenderer = createGeometryRenderer(nullptr, result->overlays);
       viewModeRender();
     }
   }
@@ -2225,7 +2204,16 @@ void MainWindow::actionRenderDone(const std::shared_ptr<const RenderResult>& res
 
   renderedEditor = activeEditor;
   activeEditor->contentsRendered = true;
+  if (animateWidget->dumpPictures()) dumpAnimationFrame();
   compileEnded();
+}
+
+void MainWindow::dumpAnimationFrame()
+{
+  const int step = animateWidget->nextFrame();
+  const QImage img = this->qglview->grabFrame();
+  const QString filename = QString("frame%1.png").arg(step, 5, 10, QChar('0'));
+  img.save(filename, "PNG");
 }
 
 void MainWindow::handleMeasurementClicked(QAction *clickedAction)
@@ -2290,6 +2278,8 @@ void MainWindow::rightClick(QPoint position)
   if (!this->qglview->renderer || !this->rootNode) {
     return;
   }
+  // An animation frame comes from its own tree, whose nodes rootNode doesn't have.
+  if (this->animationFrameShown) return;
   // The F6 view draws no ID colors; its picks are attributed geometrically.
   const bool renderView = this->qglview->renderer == this->geomRenderer;
   // Nothing to select

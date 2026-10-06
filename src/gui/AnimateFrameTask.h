@@ -15,9 +15,9 @@ namespace OpenScad::Animate {
 class FrameCache;
 struct CachedFrame;
 
-// Pre-computes one animation frame's CSG products on a worker thread. Touches
-// no Qt GUI / GL state. Reads the shared SourceFile (immutable post-parse) and
-// the per-frame inputs from the FrameCache.
+// Pre-computes one animation frame's geometry and overlays on a worker thread, as
+// F6 renders them. Touches no Qt GUI / GL state. Reads the shared SourceFile
+// (immutable post-parse) and the per-frame inputs from the FrameCache.
 class FrameTask : public QRunnable
 {
 public:
@@ -27,7 +27,6 @@ public:
             std::shared_ptr<SourceFile> sourceFile,
             std::string documentPath,
             Camera camera,
-            bool isPreview,
             std::shared_ptr<std::atomic<bool>> cancelFlag);
 
   void run() override;
@@ -39,7 +38,6 @@ private:
   std::shared_ptr<SourceFile> source_file_;
   std::string document_path_;
   Camera camera_;
-  bool is_preview_;
   std::shared_ptr<std::atomic<bool>> cancel_flag_;
 };
 

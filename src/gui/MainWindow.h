@@ -59,6 +59,7 @@ class ThrownTogetherRenderer;
 namespace OpenScad::Animate { struct FrameResult; }
 
 #include "RenderStatistic.h"
+#include "core/ModifierOverlays.h"
 #include "core/PickAttribution.h"
 #include "core/Tree.h"
 #include "geometry/Geometry.h"
@@ -351,6 +352,7 @@ protected:
   bool eventFilter(QObject *obj, QEvent *event) override;
 
 public slots:
+  void actionRender();
   void actionRenderPreview();
   void on_designActionPreview_triggered();
 private slots:
@@ -361,6 +363,7 @@ private slots:
   void on_designActionRender_triggered();
   void renderWhenUnlocked();
   void actionRenderDone(const std::shared_ptr<const RenderResult>&);
+  void dumpAnimationFrame();
   void cgalRender();
   void handleMeasurementClicked(QAction *clickedAction);
   void on_designCheckValidity_triggered();
@@ -476,6 +479,9 @@ private:
   // rootProduct holds an Animate frame's products, whose node indices don't match rootNode.
   bool animationFrameShown{false};
   void resetPickMemo();
+  // A renderer for F6 geometry with the overlays drawn over it; null when there is nothing to draw.
+  std::shared_ptr<Renderer> createGeometryRenderer(const std::shared_ptr<const Geometry>& geom,
+                                                   const std::vector<overlay::Mesh>& overlays);
   std::vector<int> pickPrimitives(const QGLView::PickResult& picked, bool renderView);
   void addPickerAlsoHere(QMenu& menu, const std::vector<int>& primitives);
 
