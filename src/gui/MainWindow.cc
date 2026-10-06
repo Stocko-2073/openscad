@@ -169,6 +169,9 @@
 #ifdef OPENSCAD_UPDATER
 #include "gui/AutoUpdater.h"
 #endif
+#ifdef USE_MIMALLOC
+#include <mimalloc.h>
+#endif
 
 #ifdef ENABLE_PYTHON
 #include "nettle/base64.h"
@@ -2758,6 +2761,12 @@ void MainWindow::on_designActionFlushCaches_triggered()
   dxf_cross_cache.clear();
   SourceFileCache::instance()->clear();
   for (auto *window : scadApp->windowManager.getWindows()) window->dropMemoTables();
+#ifdef USE_MIMALLOC
+  // Nothing hands this memory back to the system while the window idles: much of it was
+  // allocated by render threads that have ended, and Manifold frees its large buffers on a
+  // thread of its own, a moment from now. Collect once those frees have run.
+  QTimer::singleShot(1000, this, [] { mi_collect(true); });
+#endif
 
   LOG("Caches Flushed");
 }
