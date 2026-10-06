@@ -23,18 +23,15 @@ Export the given file to \fIoutputfile\fP in STL, OFF, AMF, 3MF, DXF, SVG,
 or PNG format, depending on file extension of \fIoutputfile\fP. If this
 option is given, the GUI will not be started.
 
-Known extensions: stl, off, amf, 3mf, csg, dxf, svg, png, echo, ast, term,
+Known extensions: stl, off, amf, 3mf, csg, dxf, svg, png, echo, ast,
 nef3, nefdbg.
 
 Additional formats, which are mainly used for debugging and testing (but can
 also be used in automation), are AST (the input file as parsed and serialized
 again), CSG (an OpenSCAD language representation of the input file with
-calculations done and module calls applied), TERM (the constructive solid
-geometry expression passed to OpenCSG).  If \fIoutputfile\fP is \fBnull\fP, no
+calculations done and module calls applied).  If \fIoutputfile\fP is \fBnull\fP, no
 output file will be written, but the file will still be evaluated and all
-\fBecho\fP commands will be written to the standard error output. (The
-rendering process will still take place if the \fB\-\-render\fP option is
-given.)
+\fBecho\fP commands will be written to the standard error output.
 .TP
 \fB\--export-format=\fIformat
 Overrides format of exported scad file when using option \fB\-o\fP. \fIformat\fP
@@ -81,20 +78,14 @@ Print list of export parameters and values that can be set via -O
 .B \-v
 Print version.
 .TP
-.B \-\-render
-If exporting an image, render the model fully. (Default is preview)
-.TP
-.B \-\-preview[=throwntogether]
-If exporting an image, use an OpenCSG preview (optionally in throwntogether mode for quicker rendering).
+.B \-\-render[=force]
+An image is always rendered. With \fB=force\fP, convert the result to the 3D backend's own geometry first.
 .TP
 .B \-\-animate[=N]
 Export N animated frames as PNG images.
 .TP
 .B \-\-view[=axes|crosshairs|edges|scales]
 View options
-.TP
-.B \-\-csglimit=limit
-If exporting an image as an OpenCSG preview, stop rendering after encountering \fIlimit\fP elements to avoid runaway resource usage.
 .TP
 .B \-\-camera=transx,transy,transz,rotx,roty,rotz,distance
 If exporting an image, use a Gimbal camera with the given parameters. 

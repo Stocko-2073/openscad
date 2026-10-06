@@ -116,7 +116,6 @@ Follow the instructions for the platform you're compiling on below.
  * [GMP (5.x)](https://gmplib.org/)
  * [MPFR (3.x)](https://www.mpfr.org/)
 * [boost (1.70 ->)](https://www.boost.org/)
-* [OpenCSG (1.4.2 ->)](http://www.opencsg.org/)
 * [GLEW (1.5.4 ->)](http://glew.sourceforge.net/)
 * [Eigen (3.x)](https://eigen.tuxfamily.org/)
 * [glib2 (2.x)](https://developer.gnome.org/glib/)
@@ -215,7 +214,7 @@ Then run the script to compile all the prerequisite libraries above:
     ./scripts/uni-build-dependencies.sh
 
 Note that huge dependencies like gcc, qt, or glib2 are not included
-here, only the smaller ones (boost, CGAL, opencsg, etc). After the
+here, only the smaller ones (boost, CGAL, etc). After the
 build, again check dependencies.
 
     ./scripts/check-dependencies.sh

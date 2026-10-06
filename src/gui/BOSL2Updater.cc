@@ -267,10 +267,10 @@ void BOSL2Updater::install(const Unpacked& unpacked, const Version& latest)
   // which folder is on the library path.
   refresh_library_path();
   if (previous) {
-    LOG("BOSL2 updated from %1$s to %2$s; the next preview or render uses it.",
+    LOG("BOSL2 updated from %1$s to %2$s; the next render uses it.",
         versionText(*previous).toStdString(), versionText(*unpacked.version).toStdString());
   } else {
-    LOG("BOSL2 %1$s installed; the next preview or render uses it.",
+    LOG("BOSL2 %1$s installed; the next render uses it.",
         versionText(*unpacked.version).toStdString());
   }
   finish();

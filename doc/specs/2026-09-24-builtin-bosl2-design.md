@@ -67,8 +67,8 @@ update folder.
    would escape the folder are rejected.
 4. On the main thread, where compiles run: move the old `BOSL2` aside,
    rename the staging folder to `BOSL2`, delete the old one, rebuild the
-   library path, and log `BOSL2 updated from vA to vB; the next preview or
-   render uses it.`
+   library path, and log `BOSL2 updated from vA to vB; the next render uses
+   it.`
 
 Being offline, being rate-limited by GitHub or any other network failure is
 silent (debug output only): the copy on disk keeps working. A download that

@@ -2,6 +2,11 @@
 
 Status: implemented, 2026-09-10.
 
+Update, 2026-10-06: the preview is gone (see `2026-10-05-f6-only-design.md`).
+The GUI runs the check after a render and draws the overlaps red through the
+result, and step 3 below now uses `pick::collectLeaves()`, which marks the
+leaves that cut material, instead of `CSGTreeEvaluator`.
+
 Exposes the preview's static interference check (commits `04e186749`,
 `55981f4be`, `a65b44ad3`) on the command line, and extends it with a
 per-primitive attribution so that a machine reader can tell *which*

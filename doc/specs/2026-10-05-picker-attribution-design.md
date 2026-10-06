@@ -2,6 +2,10 @@
 
 Status: implemented, 2026-10-05.
 
+Update, 2026-10-06: the preview is gone (see `2026-10-05-f6-only-design.md`),
+so only the F6 path below remains. `pick::findLeaf()` and the depth-chosen
+crossing are removed, and the select pass reads back only the depth.
+
 Right-clicking the 3D view lists the chain of nodes under the cursor,
 primitive first, then each parent up to the top level. Hovering an entry
 highlights its source in the editor. The chain now reaches the primitive

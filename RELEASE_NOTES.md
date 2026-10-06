@@ -28,6 +28,16 @@
     `poly()`, `failed_constraints()`. See `doc/solve2d_guide.md` and
     `doc/specs/solve2d.md`.
 
+**Program Features**
+
+* Changed
+  * Remove the OpenCSG preview: every view is a render (F6), and F5 renders
+    too. `#` and `%` subtrees are drawn translucent over the result,
+    interfering parts' overlaps are drawn red through it, and animation frames
+    are rendered. `$preview` is always false. Command-line PNGs are rendered;
+    `--preview`, `--csglimit` and `.term` export are removed, as is the OpenCSG
+    dependency. See `doc/specs/2026-10-05-f6-only-design.md`.
+
 # OpenSCAD 2021.01
 
 **Language Features**
