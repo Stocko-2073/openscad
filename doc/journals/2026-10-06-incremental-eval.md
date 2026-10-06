@@ -749,10 +749,108 @@ the sequence the caches hold 4,873 entries, which they count as 1,555 MB
   geometry, as two calls with equal keys share results in the memo.
 - **Memory**: of the harness's 2.8 GB footprint at the end, about 1.6 GB
   stays once the caches, the table and the tree are freed. Not
-  investigated.
+  investigated here; see "Memory that is not given back" below.
 - As in Phase 2: accumulator reads, nested definitions, `import()` path
   resolution, recursion limits, memory per kept render, unnamed
   `tag_scope()`, a tab reused for another file.
+
+## 2026-10-06 — Memory that is not given back
+
+At the end of Phase 3 the harness reported 2.1 GB of footprint left once the
+caches, the table and the tree were freed. None of it was a leak: once every
+free has run and every thread that owns pages has collected, the process is
+back to about 160 MB. Three things kept it, and the GUI met all three.
+
+### Why it stayed
+
+**mimalloc 1.9.7 never purged on its own.** `mi_arenas_try_purge()`
+returned early once the purge time had *passed* (`arenas_expire < now`, an
+inverted comparison), so memory freed back to mimalloc's arenas went back to
+the system only through `mi_collect(true)`. OpenSCAD never calls it; the
+harness does, before each measurement, which hid this. A standalone program
+on the same build that frees 1.5 GB keeps a 1.5 GB footprint through 2 s of
+further allocation; with the comparison fixed, the footprint is 2–9 MB within
+0.5 s. Upstream fixed it in March (`acd6f6c`, and `4e50cec` beside it),
+released in v1.9.8. `MIMALLOC_PURGE_DELAY=0`, which purges at once, also
+avoids it.
+
+**Manifold frees large buffers later, on a thread of its own.** `Vec` hands
+every buffer over 256 KiB to a TBB task (`free_async`, on Manifold's
+`gc_arena`). The harness measured right after `clear()`, while those frees
+were still running: it saw 522 MB come back where 2.4 GB does within 80 ms.
+
+**mimalloc v1 returns a page only through the thread that owns it.** A block
+freed from another thread waits on its page until the owner collects, which
+happens when the owner allocates again. If the owner has ended, its segments
+are abandoned until another thread's allocation, or `mi_collect(true)` on the
+main thread, reclaims them. The GUI renders on a fresh thread each time
+(`CGALWorker` starts its `QThread` per render), Manifold allocates its large
+buffers on TBB workers, which sleep between renders, and Flush Caches frees
+from the GUI thread. While the window idles, nothing collects.
+
+A pitfall for the next look: `footprint` and `vmmap` list mimalloc's memory
+as "IOAccelerator", because mimalloc tags its mappings with VM tag 100
+(`MIMALLOC_OS_TAG`), which is `VM_MEMORY_IOACCELERATOR`.
+
+### What changed, and why
+
+- **mimalloc v1.9.8**, from v1.9.7: the purge fix. Later 1.9.x releases are
+  mostly hardening; v1.9.11 reworks the macOS zone that the override relies
+  on, so the smallest step was taken.
+- **Flush Caches** runs `mi_collect(true)` on the GUI thread a second later,
+  once Manifold's frees have run: it reclaims what ended render threads left
+  and purges the arenas. It takes 18–47 ms.
+- **Harness**: `footprintBytes()` collects until the footprint stops
+  falling, so it no longer measures before Manifold's frees arrive.
+
+### Results
+
+The 13-step harness (`--memo-geometry --memo-keep 2`), and the same steps
+with each step's geometry on a thread of its own, as the GUI does, with no
+forced collect once everything is freed. "Footprint" is in MB as the
+harness prints it:
+
+| | v1.9.7 | v1.9.8 |
+|---|---|---|
+| footprint once everything is freed, forced collects (harness) | 222 | 231 |
+| ...without forced collects, 1.7 s later (GUI-like) | 2,872 | 221 |
+| peak footprint, median of 4 interleaved runs | 3,060 | 2,899 |
+| geometry of the five edit steps, sum of medians | 1,724 ms | 1,741 ms |
+
+The geometry difference is within the runs' spread (each step varies by
+10–15% from run to run on either version). Rendering the frozen u-bot
+(7 interleaved runs, medians): evaluation 6,644 vs 6,645 ms, total 8,928 vs
+8,885 ms, peak footprint 1,505 vs 1,298 MB, STL byte-identical.
+
+Through the window (`benchmarkEditSequence`, the 13 steps with the memo,
+then without; caches at 5,000 MB), with the footprint read in the test:
+
+| | v1.9.7 | v1.9.8 |
+|---|---|---|
+| peak footprint | 3.97 GB | 3.70–3.72 GB |
+| first render after the caches are cleared between the passes | 3,323 MB | 1,323–1,355 MB |
+| 3 s after Flush Caches at the end, idle | 3,707 MB | 3,192 MB |
+| ...with the collect after Flush Caches | – | 1,308–1,465 MB |
+
+### Correctness
+
+- `ctest`: 1829/1832, the three known `export-svg*_spec-paths-arcs01`
+  failures; `-C MemoSelftest` 545/545; `[memo]` and `[digest]` unit tests
+  pass; GUI tests pass.
+
+### Known gaps
+
+- **Idle TBB workers** keep what others freed in their pages until they next
+  allocate: about 800 MB after Flush Caches at the end of the GUI benchmark
+  (1.31 GB → 0.51 GB when `mi_collect(true)` runs on each of the 10 TBB
+  threads). The next render gives it back, so it does not accumulate; left
+  as it is. Reaching them would take a task per thread held until all have
+  run, or an allocator that shares pages between threads (mimalloc v3
+  reworks this; not tried).
+- **`ENABLE_TBB`** is defined only by the first configure of a build
+  directory (`if(NOT DEFINED MANIFOLD_PAR)` in `CMakeLists.txt`); after any
+  reconfigure, `parallelizable_transform` runs serially. No file in
+  `build-release` has it. Unrelated to memory; found on the way.
 
 ## Next
 
