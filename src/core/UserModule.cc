@@ -37,6 +37,7 @@
 #include "core/Arguments.h"
 #include "core/Assignment.h"
 #include "core/Context.h"
+#include "core/EvalMemo.h"
 #include "core/Expression.h"
 #include "core/ModuleInstantiation.h"
 #include "core/ScopeContext.h"
@@ -98,9 +99,24 @@ std::shared_ptr<AbstractNode> UserModule::instantiate(
   }
 
   StaticModuleNameStack name{inst->name()};  // push on static stack, pop at end of method!
+  // Evaluated here, after the push, exactly where the context's constructor
+  // argument used to evaluate them: parent_module() in an argument sees this
+  // module.
+  Arguments arguments(inst->arguments, context);
+  if (memo::EvalMemoSession *memo = context->session()->memo()) {
+    return memo->instantiate(*this, defining_context, inst, context, std::move(arguments));
+  }
+  return instantiateWith(defining_context, inst, context, std::move(arguments), nullptr);
+}
+
+std::shared_ptr<AbstractNode> UserModule::instantiateWith(
+  const std::shared_ptr<const Context>& defining_context, const ModuleInstantiation *inst,
+  const std::shared_ptr<const Context>& context, Arguments&& arguments,
+  const uint64_t *children_key) const
+{
   ContextHandle<UserModuleContext> module_context{Context::create<UserModuleContext>(
-    defining_context, this, inst->location(), Arguments(inst->arguments, context),
-    Children(inst->scope, context))};
+    defining_context, this, inst->location(), std::move(arguments), Children(inst->scope, context))};
+  if (children_key) module_context->setChildrenKey(children_key);
 #if 0 && DEBUG
   PRINTDB("UserModuleContext for module %s(%s):\n", this->name % STR(this->parameters));
   PRINTDB("%s", module_context->dump());

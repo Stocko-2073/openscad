@@ -72,6 +72,8 @@ public:
   void apply_variables(ContextFrame&& other);
 
   EvaluationSession *session() const { return evaluation_session; }
+  // The $ variables this frame binds. For core/EvalMemo, which hashes the visible ones.
+  [[nodiscard]] const ValueMap& configVariables() const { return config_variables; }
   const std::string& documentRoot() const;
 
 protected:

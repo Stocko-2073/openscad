@@ -32,6 +32,7 @@
 
 #include "core/AST.h"
 #include "core/ContextFrame.h"
+#include "core/EvalMemo.h"
 #include "core/Value.h"
 #include "core/callables.h"
 #include "core/function.h"
@@ -60,12 +61,14 @@ void EvaluationSession::pop_frame(size_t index)
 boost::optional<const Value&> EvaluationSession::try_lookup_special_variable(
   const Identifier& name) const
 {
-  for (auto it = stack.crbegin(); it != stack.crend(); ++it) {
-    boost::optional<const Value&> result = (*it)->lookup_local_variable(name);
+  for (size_t i = stack.size(); i-- > 0;) {
+    boost::optional<const Value&> result = stack[i]->lookup_local_variable(name);
     if (result) {
+      if (memo_session) memo_session->noteDollarRead(name, i, &*result);
       return result;
     }
   }
+  if (memo_session) memo_session->noteDollarRead(name, SIZE_MAX, nullptr);
   return boost::none;
 }
 
@@ -83,15 +86,22 @@ const Value& EvaluationSession::lookup_special_variable(const Identifier& name,
 boost::optional<CallableFunction> EvaluationSession::lookup_special_function(const Identifier& name,
                                                                              const Location& loc) const
 {
-  for (auto it = stack.crbegin(); it != stack.crend(); ++it) {
-    if (!(*it)->may_hold_function(name)) {
+  for (size_t i = stack.size(); i-- > 0;) {
+    if (!stack[i]->may_hold_function(name)) {
       continue;
     }
-    boost::optional<CallableFunction> result = (*it)->lookup_local_function(name, loc);
+    boost::optional<CallableFunction> result = stack[i]->lookup_local_function(name, loc);
     if (result) {
+      // A $ function is a variable holding a function value; reading it is a
+      // $ read like any other.
+      if (memo_session) {
+        const auto value = stack[i]->lookup_local_variable(name);
+        memo_session->noteDollarRead(name, i, value ? &*value : nullptr);
+      }
       return result;
     }
   }
+  if (memo_session) memo_session->noteDollarRead(name, SIZE_MAX, nullptr);
   LOG(message_group::Warning, loc, documentRoot(), "Ignoring unknown function '%1$s'", name);
   return boost::none;
 }
@@ -102,6 +112,8 @@ boost::optional<InstantiableModule> EvaluationSession::lookup_special_module(con
   for (auto it = stack.crbegin(); it != stack.crend(); ++it) {
     boost::optional<InstantiableModule> result = (*it)->lookup_local_module(name, loc);
     if (result) {
+      // Nothing records which $ module was found; keep the call out of the memo.
+      if (memo_session) memo::EvalMemoSession::noteImpure(const_cast<EvaluationSession *>(this));
       return result;
     }
   }

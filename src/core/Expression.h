@@ -19,6 +19,9 @@
 
 template <class T>
 class ContextHandle;
+namespace memo {
+class ASTHasher;
+}
 
 class Expression : public ASTNode
 {
@@ -27,6 +30,8 @@ public:
   [[nodiscard]] virtual bool isLiteral() const;
   [[nodiscard]] virtual Value evaluate(const std::shared_ptr<const Context>& context) const = 0;
   Value checkUndef(Value&& val, const std::shared_ptr<const Context>& context) const;
+  // Exact structural hash, for incremental evaluation. See core/EvalMemo.h.
+  virtual void hashInto(memo::ASTHasher& h) const = 0;
 };
 
 class UnaryOp : public Expression
@@ -37,6 +42,7 @@ public:
   UnaryOp(Op op, Expression *expr, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
 
 private:
   [[nodiscard]] const char *opString() const;
@@ -72,6 +78,7 @@ public:
   BinaryOp(Expression *left, Op op, Expression *right, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
 
 private:
   [[nodiscard]] const char *opString() const;
@@ -88,6 +95,7 @@ public:
   [[nodiscard]] const Expression *evaluateStep(const std::shared_ptr<const Context>& context) const;
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
 
 private:
   std::shared_ptr<Expression> cond;
@@ -101,6 +109,7 @@ public:
   ArrayLookup(Expression *array, Expression *index, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
 
 private:
   std::shared_ptr<Expression> array;
@@ -122,6 +131,7 @@ public:
 
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
   [[nodiscard]] bool isLiteral() const override { return true; }
 
 private:
@@ -138,6 +148,7 @@ public:
   [[nodiscard]] const Expression *getEnd() const { return end.get(); }
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
   [[nodiscard]] bool isLiteral() const override;
 
 private:
@@ -153,6 +164,7 @@ public:
   const std::vector<std::shared_ptr<Expression>>& getChildren() const { return children; }
   Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
   void emplace_back(Expression *expr);
   bool isLiteral() const override;
 
@@ -167,7 +179,16 @@ public:
   Lookup(std::string name, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
   [[nodiscard]] const Identifier& get_name() const { return name; }
+
+  /*
+   * Set by incremental evaluation when this reads a $ variable only to assign
+   * the same variable, as in BOSL2's `$transform = $transform * m`. The value
+   * it sees does not reach the output unless something reads the variable
+   * for real. See core/EvalMemo.h.
+   */
+  mutable bool accumulator = false;
 
 private:
   Identifier name;
@@ -179,6 +200,7 @@ public:
   MemberLookup(Expression *expr, std::string member, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
 
 private:
   std::shared_ptr<Expression> expr;
@@ -197,6 +219,7 @@ public:
     const std::shared_ptr<const Context>& context) const;
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
   [[nodiscard]] const Identifier& get_name() const { return name; }
   static Expression *create(const std::string& funcname, const AssignmentList& arglist, Expression *expr,
                             const Location& loc);
@@ -229,6 +252,7 @@ public:
   FunctionDefinition(Expression *expr, AssignmentList parameters, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
 
 public:
   std::shared_ptr<const Context> context;
@@ -245,6 +269,7 @@ public:
   [[nodiscard]] const Expression *evaluateStep(const std::shared_ptr<const Context>& context) const;
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
 
 private:
   AssignmentList arguments;
@@ -258,6 +283,7 @@ public:
   [[nodiscard]] const Expression *evaluateStep(const std::shared_ptr<const Context>& context) const;
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
 
 private:
   AssignmentList arguments;
@@ -276,6 +302,7 @@ public:
   const Expression *evaluateStep(ContextHandle<Context>& targetContext) const;
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
 
 private:
   AssignmentList arguments;
@@ -294,6 +321,7 @@ public:
   LcIf(Expression *cond, Expression *ifexpr, Expression *elseexpr, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
 
 private:
   std::shared_ptr<Expression> cond;
@@ -312,6 +340,7 @@ public:
                       const ProfileSite& profile = {});
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
 
 private:
   AssignmentList arguments;
@@ -327,6 +356,7 @@ public:
          const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
 
 private:
   AssignmentList arguments;
@@ -341,6 +371,7 @@ public:
   LcEach(Expression *expr, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
 
 private:
   Value evalRecur(Value&& v, const std::shared_ptr<const Context>& context) const;
@@ -353,6 +384,7 @@ public:
   LcLet(AssignmentList args, Expression *expr, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void hashInto(memo::ASTHasher& h) const override;
 
 private:
   AssignmentList arguments;

@@ -15,6 +15,9 @@
 
 class Value;
 class ContextFrame;
+namespace memo {
+class EvalMemoSession;
+}
 
 class EvaluationSession
 {
@@ -52,6 +55,15 @@ public:
   }
 
   [[nodiscard]] const std::string& documentRoot() const { return document_root; }
+
+  /*
+   * Incremental evaluation, when the caller turned it on for this session. See
+   * core/EvalMemo.h. Null otherwise, which is the default everywhere.
+   */
+  [[nodiscard]] memo::EvalMemoSession *memo() const { return memo_session; }
+  void setMemo(memo::EvalMemoSession *memo) { memo_session = memo; }
+  // The special-variable stack, bottom first.
+  [[nodiscard]] const std::vector<ContextFrame *>& frames() const { return stack; }
   ContextMemoryManager& contextMemoryManager() { return context_memory_manager; }
   HeapSizeAccounting& accounting() { return context_memory_manager.accounting(); }
 
@@ -61,4 +73,5 @@ private:
   ContextMemoryManager context_memory_manager;
   uint64_t scope_serial_counter = 0;
   std::vector<FunctionLookupCache> function_lookup_cache;
+  memo::EvalMemoSession *memo_session = nullptr;
 };

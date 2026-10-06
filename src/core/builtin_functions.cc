@@ -41,6 +41,7 @@
 #include "core/Arguments.h"
 #include "core/Builtins.h"
 #include "core/Context.h"
+#include "core/EvalMemo.h"
 #include "core/EvaluationSession.h"
 #include "core/Expression.h"
 #include "core/FreetypeRenderer.h"
@@ -140,6 +141,8 @@ Value builtin_sign(Arguments arguments, const Location& loc)
 
 Value builtin_rands(Arguments arguments, const Location& loc)
 {
+  // Depends on more than its arguments, so a call that ran it cannot be reused.
+  memo::EvalMemoSession::noteImpure(arguments.session());
   if (arguments.size() < 3 || arguments.size() > 4) {
     print_argCnt_warning("rands", arguments.size(), "3 or 4", loc, arguments.documentRoot());
     return Value::undefined.clone();
@@ -858,6 +861,8 @@ Value builtin_version_num(Arguments arguments, const Location& loc)
 
 Value builtin_parent_module(Arguments arguments, const Location& loc)
 {
+  // Reads the module-name stack, which a reused call must see the same.
+  memo::EvalMemoSession::noteModuleStackRead(arguments.session());
   double d;
   if (arguments.size() == 0) {
     d = 1;
@@ -946,6 +951,8 @@ Value builtin_cross(Arguments arguments, const Location& loc)
 
 Value builtin_textmetrics(Arguments arguments, const Location& loc)
 {
+  // Depends on more than its arguments, so a call that ran it cannot be reused.
+  memo::EvalMemoSession::noteImpure(arguments.session());
   auto *session = arguments.session();
   static const std::vector<Identifier> required{"text", "size", "font"};
   static const std::vector<Identifier> optional{"direction", "language", "script", "halign", "valign", "spacing", "em"};
@@ -999,6 +1006,8 @@ Value builtin_textmetrics(Arguments arguments, const Location& loc)
 
 Value builtin_fontmetrics(Arguments arguments, const Location& loc)
 {
+  // Depends on more than its arguments, so a call that ran it cannot be reused.
+  memo::EvalMemoSession::noteImpure(arguments.session());
   auto *session = arguments.session();
   static const std::vector<Identifier> required{"size", "font", "em"};
   Parameters parameters = Parameters::parse(std::move(arguments), loc, required);
@@ -1100,6 +1109,8 @@ Value builtin_is_object(Arguments arguments, const Location& loc)
 
 Value builtin_import(Arguments arguments, const Location& loc)
 {
+  // Depends on more than its arguments, so a call that ran it cannot be reused.
+  memo::EvalMemoSession::noteImpure(arguments.session());
   auto session = arguments.session();
   static const std::vector<Identifier> optional{"file"};
   const Parameters parameters = Parameters::parse(std::move(arguments), loc, {}, optional);

@@ -46,6 +46,7 @@
 #include "core/AST.h"
 #include "core/Assignment.h"
 #include "core/Context.h"
+#include "core/EvalMemo.h"
 #include "core/EvaluationSession.h"
 #include "core/Parameters.h"
 #include "core/Value.h"
@@ -366,6 +367,16 @@ Lookup::Lookup(std::string name, const Location& loc) : Expression(loc), name(st
 
 Value Lookup::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  if (accumulator) {
+    if (memo::EvalMemoSession *memo = context->session()->memo()) {
+      memo->accumulatorRead = true;
+      struct Reset {
+        memo::EvalMemoSession *memo;
+        ~Reset() { memo->accumulatorRead = false; }
+      } reset{memo};
+      return context->lookup_variable(this->name, loc).clone();
+    }
+  }
   return context->lookup_variable(this->name, loc).clone();
 }
 

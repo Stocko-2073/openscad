@@ -55,6 +55,8 @@ public:
   int index() const { return this->idx; }
 
   static void resetIndexCounter() { idx_counter.store(1, std::memory_order_relaxed); }
+  // A fresh index, for nodes copied rather than constructed. See core/EvalMemo.h.
+  static int takeIndex() { return static_cast<int>(idx_counter.fetch_add(1, std::memory_order_relaxed)); }
 
   // FIXME: Make protected
   std::vector<std::shared_ptr<AbstractNode>> children;

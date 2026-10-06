@@ -48,6 +48,16 @@ public:
    */
   uint64_t functionBits() const { return function_bits; }
 
+  // Definitions in source order, as written. For core/EvalMemo, which hashes them.
+  const std::vector<std::pair<std::string, std::shared_ptr<UserModule>>>& moduleDefinitions() const
+  {
+    return astModules;
+  }
+  const std::vector<std::pair<std::string, std::shared_ptr<UserFunction>>>& functionDefinitions() const
+  {
+    return astFunctions;
+  }
+
   AssignmentList assignments;
   std::vector<std::shared_ptr<ModuleInstantiation>> moduleInstantiations;
 

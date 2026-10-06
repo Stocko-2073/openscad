@@ -22,6 +22,7 @@ OutputHandlerFunc *outputhandler = nullptr;
 void *outputhandler_data = nullptr;
 
 thread_local bool g_suppress_print = false;
+thread_local std::vector<std::vector<Message> *> g_message_capture;
 std::string OpenSCAD::debug("");
 bool OpenSCAD::quiet = false;
 bool OpenSCAD::hardwarnings = false;
@@ -82,8 +83,9 @@ void print_messages_pop()
 
 void PRINT(const Message& msgObj)
 {
-  if (g_suppress_print) return;
   if (msgObj.msg.empty() && msgObj.group != message_group::Echo) return;
+  if (!g_message_capture.empty()) g_message_capture.back()->push_back(msgObj);
+  if (g_suppress_print) return;
 
   if (print_messages_stack.size() > 0) {
     if (!print_messages_stack.back().empty()) {

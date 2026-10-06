@@ -13,6 +13,7 @@
 #include <string>
 #include <tuple>
 #include <utility>
+#include <vector>
 // Undefine some defines from libintl.h to presolve
 // some collisions in boost headers later
 #if defined snprintf
@@ -141,6 +142,14 @@ public:
 private:
   bool prev_;
 };
+
+/*
+ * While non-empty, every message PRINT emits is also appended to the innermost
+ * vector, whether or not printing is suppressed on this thread. Incremental
+ * evaluation (core/EvalMemo.h) records a call's output this way so that it can
+ * replay it when the call is reused instead of run.
+ */
+extern thread_local std::vector<std::vector<Message> *> g_message_capture;
 
 /* PRINT statements come out in same window as ECHO.
    usage: PRINTB("Var1: %s Var2: %i", var1 % var2 ); */
