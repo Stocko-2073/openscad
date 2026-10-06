@@ -30,6 +30,9 @@ From your build directory:
       * **Heavy:** Run more time consuming tests (\> \~10 seconds).
       * **Examples:** Test all examples.
       * **Bugs:** Test known bugs (tests will fail).
+      * **MemoSelftest:** Evaluate every script in `tests/data/scad` twice with
+        incremental evaluation and compare both runs with a fresh one
+        (`--memo-selftest`; label `memo-selftest`).
       * **All:** Test everything.
 
 **Windows:**

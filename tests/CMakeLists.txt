@@ -1286,6 +1286,39 @@ add_output_file_test(relative-output FILE ${TEST_SCAD_DIR}/3D/features/cube-test
 add_output_file_test(relative-output FILE ${TEST_SCAD_DIR}/3D/features/cube-tests.scad FORMAT nef3)
 add_output_file_test(relative-output FILE ${TEST_SCAD_DIR}/3D/features/cube-tests.scad FORMAT nefdbg)
 
+#################
+# Memo selftest #
+#################
+# --memo-selftest evaluates a script twice with incremental evaluation
+# (src/core/EvalMemo.h) and compares both runs with a fresh one, down to each
+# node's statement and every message. Opt-in: ctest -C MemoSelftest runs these
+# (with the unit tests; add -L memo-selftest for these alone), as does -C All.
+
+file(GLOB_RECURSE MEMO_SELFTEST_FILES ${TEST_SCAD_DIR}/*.scad)
+# Parse errors on purpose; the harness only evaluates what parses.
+list(FILTER MEMO_SELFTEST_FILES EXCLUDE REGEX "/issues/issue1890-[a-z]+[.]scad$")
+# Reads a DXF file that the first evaluation leaves in a global cache, so the
+# second one differs from a fresh one, memo or not.
+list(REMOVE_ITEM MEMO_SELFTEST_FILES ${TEST_SCAD_DIR}/misc/dim-all.scad)
+foreach(FILE ${MEMO_SELFTEST_FILES})
+  file(RELATIVE_PATH NAME ${TEST_SCAD_DIR} ${FILE})
+  string(REGEX REPLACE "[.]scad$" "" NAME ${NAME})
+  string(REGEX REPLACE "[/ ]" "_" NAME ${NAME})
+  get_filename_component(DIR ${FILE} DIRECTORY)
+  get_filename_component(BASE ${FILE} NAME)
+  set(MEMO_SELFTEST_ARGS)
+  if(BASE MATCHES "^(recursion-test-vector|issue4172-echo-vector-stack-exhaust)[.]scad$")
+    # As in their echo tests: ctest raises the stack limit, and tracing the
+    # deeply nested arguments of the deeper recursion then takes many minutes.
+    set(MEMO_SELFTEST_ARGS --trace-usermodule-parameters=false)
+  endif()
+  add_test(NAME memo-selftest_${NAME} CONFIGURATIONS MemoSelftest All
+    COMMAND ${OPENSCAD_BINPATH} --enable=all ${MEMO_SELFTEST_ARGS} --memo-selftest ${BASE}
+    WORKING_DIRECTORY ${DIR})
+  set_property(TEST memo-selftest_${NAME} PROPERTY ENVIRONMENT ${CTEST_ENVIRONMENT})
+  set_property(TEST memo-selftest_${NAME} PROPERTY LABELS memo-selftest)
+endforeach()
+
 disable_tests_safe(
   # Disable tests failing due to https://github.com/openscad/openscad/issues/4632
   relative-output_csg_run
