@@ -11,11 +11,9 @@
 #include <vector>
 
 #include "core/AST.h"
-#include "core/CSGNode.h"
-#include "core/CSGTreeEvaluator.h"
 #include "core/ModuleInstantiation.h"
+#include "core/PickAttribution.h"
 #include "core/Tree.h"
-#include "core/enums.h"
 #include "core/node.h"
 #include "core/parsersettings.h"
 #include "geometry/GeometryEvaluator.h"
@@ -37,29 +35,7 @@ double manifoldVolume(const ManifoldGeometry& geom)
   return geom.isEmpty() ? 0.0 : geom.getManifold().Volume();
 }
 
-// Gathers the CSG leaves that add material to a term. A leaf is subtracted
-// when it sits on the right side of an odd number of DIFFERENCE ancestors
-// (a - (b - c) = a - b + a∩c, so c is positive again); everything else,
-// including both sides of an intersection, is positive.
-void collectPositiveLeaves(const std::shared_ptr<CSGNode>& term, bool negative,
-                           std::vector<std::shared_ptr<CSGLeaf>>& out)
-{
-  if (!term) return;
-  if (auto leaf = std::dynamic_pointer_cast<CSGLeaf>(term)) {
-    if (!negative && leaf->polyset && !leaf->isEmptySet() && leaf->index != 0) {
-      out.push_back(leaf);
-    }
-    return;
-  }
-  if (auto op = std::dynamic_pointer_cast<CSGOperation>(term)) {
-    collectPositiveLeaves(op->left(), negative, out);
-    const bool flips = op->getType() == OpenSCADOperator::DIFFERENCE;
-    collectPositiveLeaves(op->right(), negative != flips, out);
-  }
-}
-
-std::shared_ptr<const AbstractNode> findNode(const std::shared_ptr<const AbstractNode>& root,
-                                             int index)
+std::shared_ptr<const AbstractNode> findNode(const std::shared_ptr<const AbstractNode>& root, int index)
 {
   std::deque<std::shared_ptr<const AbstractNode>> path;
   return root->getNodeByID(index, path);
@@ -68,8 +44,7 @@ std::shared_ptr<const AbstractNode> findNode(const std::shared_ptr<const Abstrac
 // Builds the picker-style chain for `nodeIndex` inside `part`: the node itself,
 // its ancestors, up to and including the top-level part, filtered to the
 // current file when requested. Returned outermost first.
-std::vector<ChainStep> buildChain(const Part& part, int nodeIndex, const Tree& tree,
-                                  const Options& opts)
+std::vector<ChainStep> buildChain(const Part& part, int nodeIndex, const Tree& tree, const Options& opts)
 {
   std::vector<ChainStep> chain;
   std::deque<std::shared_ptr<const AbstractNode>> path;
@@ -86,8 +61,7 @@ std::vector<ChainStep> buildChain(const Part& part, int nodeIndex, const Tree& t
     cs.name = pickerDisplayName(*step);
     cs.loc = sourceRef(*step, tree);
     if (cs.loc.valid) {
-      cs.label = STR(cs.name, " (", fs::path(cs.loc.absPath).filename().string(), ":", cs.loc.line,
-                     ")");
+      cs.label = STR(cs.name, " (", fs::path(cs.loc.absPath).filename().string(), ":", cs.loc.line, ")");
     } else {
       cs.label = STR(cs.name, " (no source reference)");
     }
@@ -97,19 +71,18 @@ std::vector<ChainStep> buildChain(const Part& part, int nodeIndex, const Tree& t
 }
 
 // Attributes a collision to the primitives of each part that overlap the pair's
-// intersection region. Terms and per-leaf manifolds are memoized across
-// collisions so a part involved in several pairs is only evaluated once.
+// intersection region: those that add material, not those a difference()
+// cuts away with. Leaves and per-leaf manifolds are memoized across collisions
+// so a part involved in several pairs is only evaluated once.
 class PrimitiveAttributor
 {
 public:
-  PrimitiveAttributor(const Tree& tree, GeometryEvaluator& geomevaluator, const Options& opts)
-    : tree_(tree), csgevaluator_(tree, &geomevaluator), opts_(opts)
-  {
-  }
+  PrimitiveAttributor(const Tree& tree, const Options& opts) : tree_(tree), opts_(opts) {}
 
   void attribute(const Part& part, const ManifoldGeometry& overlap, Collision& collision)
   {
-    for (const auto& leaf : positiveLeaves(part)) {
+    for (const auto& leaf : leaves(part)) {
+      if (leaf.subtracted) continue;
       const auto& leafManifold = worldManifold(leaf);
       if (!leafManifold || leafManifold->isEmpty()) continue;
       if (!leafManifold->getBoundingBox().intersects(overlap.getBoundingBox())) continue;
@@ -118,60 +91,61 @@ public:
 
       Primitive prim;
       prim.part = part.number;
-      prim.nodeIndex = leaf->index;
+      prim.nodeIndex = leaf.index;
       prim.volume = vol;
-      if (const auto node = findNode(part.node, leaf->index)) {
+      if (const auto node = findNode(part.node, leaf.index)) {
         prim.name = pickerDisplayName(*node);
         prim.description = node->toString();
         prim.loc = sourceRef(*node, tree_);
-      } else {
-        prim.name = leaf->label;
       }
-      prim.chain = buildChain(part, leaf->index, tree_, opts_);
+      prim.chain = buildChain(part, leaf.index, tree_, opts_);
       collision.primitives.push_back(std::move(prim));
     }
   }
 
 private:
-  const std::vector<std::shared_ptr<CSGLeaf>>& positiveLeaves(const Part& part)
+  const std::vector<pick::Leaf>& leaves(const Part& part)
   {
     auto it = leavesByPart_.find(part.number);
     if (it == leavesByPart_.end()) {
-      std::vector<std::shared_ptr<CSGLeaf>> leaves;
       // Top-level parts are direct children of the root, so the identity
-      // matrix the traversal starts from is the true world frame.
-      collectPositiveLeaves(csgevaluator_.buildCSGTree(*part.node), false, leaves);
-      it = leavesByPart_.emplace(part.number, std::move(leaves)).first;
+      // matrix is the true world frame.
+      it = leavesByPart_
+             .emplace(part.number, pick::collectLeaves(tree_, *part.node, Transform3d::Identity(), true))
+             .first;
     }
     return it->second;
   }
 
-  const std::shared_ptr<const ManifoldGeometry>& worldManifold(const std::shared_ptr<CSGLeaf>& leaf)
+  const std::shared_ptr<const ManifoldGeometry>& worldManifold(const pick::Leaf& leaf)
   {
-    auto it = manifoldByLeaf_.find(leaf->index);
+    auto it = manifoldByLeaf_.find(leaf.index);
     if (it == manifoldByLeaf_.end()) {
-      std::shared_ptr<ManifoldGeometry> mani = ManifoldUtils::createManifoldFromPolySet(*leaf->polyset);
-      if (mani) mani->transform(leaf->matrix);
-      it = manifoldByLeaf_.emplace(leaf->index, std::move(mani)).first;
+      std::shared_ptr<ManifoldGeometry> mani =
+        ManifoldUtils::createManifoldFromPolySet(*leaf.mesh.polyset);
+      if (mani) mani->transform(leaf.mesh.matrix);
+      it = manifoldByLeaf_.emplace(leaf.index, std::move(mani)).first;
     }
     return it->second;
   }
 
   const Tree& tree_;
-  CSGTreeEvaluator csgevaluator_;
   const Options& opts_;
-  std::unordered_map<int, std::vector<std::shared_ptr<CSGLeaf>>> leavesByPart_;
+  std::unordered_map<int, std::vector<pick::Leaf>> leavesByPart_;
   std::unordered_map<int, std::shared_ptr<const ManifoldGeometry>> manifoldByLeaf_;
 };
 
-double roundVolume(double v) { return std::round(v * 1e6) / 1e6; }
+double roundVolume(double v)
+{
+  return std::round(v * 1e6) / 1e6;
+}
 
 nlohmann::ordered_json locationJson(const SourceRef& loc)
 {
   if (!loc.valid) return nullptr;
   return {
-    {"file", loc.relFile},   {"path", loc.absPath},       {"line", loc.line},
-    {"column", loc.column},  {"end_line", loc.endLine},   {"end_column", loc.endColumn},
+    {"file", loc.relFile},  {"path", loc.absPath},     {"line", loc.line},
+    {"column", loc.column}, {"end_line", loc.endLine}, {"end_column", loc.endColumn},
   };
 }
 
@@ -188,11 +162,11 @@ nlohmann::ordered_json bboxJson(const BoundingBox& bbox)
 const char *partStatusName(PartStatus status)
 {
   switch (status) {
-  case PartStatus::Checked: return "checked";
-  case PartStatus::SkippedNull: return "skipped-null";
-  case PartStatus::SkippedBackground: return "skipped-background";
-  case PartStatus::SkippedEmpty: return "skipped-empty";
-  case PartStatus::Skipped2D: return "skipped-2d";
+  case PartStatus::Checked:            return "checked";
+  case PartStatus::SkippedNull:        return "skipped-null";
+  case PartStatus::SkippedBackground:  return "skipped-background";
+  case PartStatus::SkippedEmpty:       return "skipped-empty";
+  case PartStatus::Skipped2D:          return "skipped-2d";
   case PartStatus::SkippedNotManifold: return "skipped-not-manifold";
   }
   return "unknown";
@@ -308,7 +282,7 @@ Report run(const Tree& tree, const Options& opts)
 
   std::unique_ptr<PrimitiveAttributor> attributor;
   if (opts.primitives) {
-    attributor = std::make_unique<PrimitiveAttributor>(tree, geomevaluator, opts);
+    attributor = std::make_unique<PrimitiveAttributor>(tree, opts);
   }
 
   const auto& parts = report.parts;
@@ -345,8 +319,8 @@ void logReport(const Report& report, const Tree& tree)
     const Location locA = a->node && a->node->modinst ? a->node->modinst->location() : Location::NONE;
     const Location locB = b->node && b->node->modinst ? b->node->modinst->location() : Location::NONE;
     LOG(message_group::Warning, locA, tree.getDocumentPath(), "%1$s",
-        STR("Interference: part ", a->number, " (line ", locA.firstLine(), ") overlaps part ",
-            b->number, " (line ", locB.firstLine(), "), overlap volume = ", collision.volume));
+        STR("Interference: part ", a->number, " (line ", locA.firstLine(), ") overlaps part ", b->number,
+            " (line ", locB.firstLine(), "), overlap volume = ", collision.volume));
   }
   LOG(message_group::Echo, "%1$s",
       STR("Interference check: ", report.checkedParts(), " part(s), ", report.collisions.size(),

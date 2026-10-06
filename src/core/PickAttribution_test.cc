@@ -7,8 +7,10 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "Feature.h"
 #include "core/BuiltinContext.h"
 #include "core/Builtins.h"
 #include "core/Context.h"
@@ -257,6 +259,67 @@ TEST_CASE("Highlighted primitives count, background ones and 2D ones do not", "[
   }
 }
 
+// Source line of each leaf of the whole tree, and whether it cuts material away.
+std::vector<std::pair<int, bool>> subtractedByLine(const Scene& scene)
+{
+  std::vector<std::pair<int, bool>> result;
+  for (const auto& leaf : pick::collectLeaves(*scene.tree, *scene.root, Transform3d::Identity())) {
+    result.emplace_back(lines(scene, {leaf.index}).front(), leaf.subtracted);
+  }
+  return result;
+}
+
+using Cuts = std::vector<std::pair<int, bool>>;
+
+TEST_CASE("A leaf cuts material when an odd number of difference()s subtract it", "[pick]")
+{
+  const auto scene = instantiate(
+    "difference() {\n"
+    "  cube(10);\n"
+    "  difference() {\n"
+    "    translate([2, 2, -1]) cube(6);\n"
+    "    translate([4, 4, -2]) cube(2);\n"
+    "  }\n"
+    "  translate([0, 0, 9]) cube(1);\n"
+    "}\n"
+    "intersection() { cube(1); sphere(1); }");
+  CHECK(subtractedByLine(*scene) ==
+        Cuts{{2, false}, {4, true}, {5, false}, {7, true}, {9, false}, {9, false}});
+}
+
+TEST_CASE("The first operand of difference() that isn't % is the one cut", "[pick]")
+{
+  const auto scene = instantiate(
+    "difference() {\n"
+    "  %cube(1);\n"
+    "  cube(5);\n"
+    "  translate([1, 1, 1]) cube(1);\n"
+    "}");
+  CHECK(subtractedByLine(*scene) == Cuts{{3, false}, {4, true}});
+}
+
+TEST_CASE("A loop in difference() is one operand, or several with lazy union", "[pick]")
+{
+  const std::string text =
+    "difference() {\n"
+    "  for (i = [0:2]) translate([3 * i, 0, 0]) cube(2);\n"
+    "}";
+  SECTION("group")
+  {
+    const auto scene = instantiate(text);
+    CHECK(subtractedByLine(*scene) == Cuts{{2, false}, {2, false}, {2, false}});
+  }
+  SECTION("lazy union")
+  {
+    struct LazyUnion {
+      LazyUnion() { Feature::enable_feature("lazy-union", true); }
+      ~LazyUnion() { Feature::enable_feature("lazy-union", false); }
+    } lazyUnion;
+    const auto scene = instantiate(text);
+    CHECK(subtractedByLine(*scene) == Cuts{{2, false}, {2, true}, {2, true}});
+  }
+}
+
 TEST_CASE("hull() and minkowski() are named as a whole", "[pick]")
 {
   const Backend manifold(RenderBackend3D::ManifoldBackend);
@@ -312,7 +375,8 @@ TEST_CASE("Primitives inside a placed render() of nested modules are named", "[p
   scene->root->getNodeByID(post.front(), path);
   CHECK(std::any_of(path.begin(), path.end(),
                     [](const auto& step) { return step->verbose_name() == "module post"; }));
-  CHECK(std::any_of(path.begin(), path.end(), [](const auto& step) { return step->name() == "render"; }));
+  CHECK(
+    std::any_of(path.begin(), path.end(), [](const auto& step) { return step->name() == "render"; }));
   CHECK(lines(*scene, attribute(view, holeWall)) == Lines{6});
   CHECK(attribute(view, down(0, 0)).empty());
 }

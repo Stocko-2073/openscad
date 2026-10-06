@@ -37,6 +37,9 @@ struct Leaf {
   int index = 0;  // AbstractNode::idx
   PlacedMesh mesh;
   BoundingBox bbox;  // world space
+  // Cuts material away rather than adding it: it is subtracted by an odd number of difference()s.
+  // (a - (b - c) = a - b + a∩c, so c adds material again.)
+  bool subtracted = false;
 };
 
 // Where a ray meets a surface.
@@ -58,9 +61,10 @@ Vector3d closestPointOnTriangle(const Vector3d& p, const Vector3d& a, const Vect
 // Groups, modules, booleans, color() and render() are looked through. Primitives, extrusions,
 // imports, hull(), minkowski(), resize(), fill() and physics() stay whole. `%` subtrees below `node`
 // are left out, as from F6; node's own `%` or `#` is ignored. Only 3D primitives are kept. Logs
-// nothing and never throws on hard warnings. hull() and the like are taken from the geometry cache
-// only, so this never re-runs one.
-std::vector<Leaf> collectLeaves(const Tree& tree, const AbstractNode& node, const Transform3d& matrix);
+// nothing and never throws on hard warnings. Unless `evaluateWhole`, hull() and the like are taken
+// from the geometry cache only, so a right-click never re-runs one.
+std::vector<Leaf> collectLeaves(const Tree& tree, const AbstractNode& node, const Transform3d& matrix,
+                                bool evaluateWhole = false);
 
 // The 3D meshes of an F6 result. 2D parts are skipped.
 std::vector<PlacedMesh> surfaceOf(const std::shared_ptr<const Geometry>& geom);

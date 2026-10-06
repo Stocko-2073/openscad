@@ -5,9 +5,9 @@
 // Each direct child of the root node is treated as one "part". Pairs whose
 // bounding boxes touch are confirmed with an exact Manifold intersection, and a
 // pair interferes when the intersection volume exceeds kVolumeEps. Optionally,
-// every colliding pair is attributed to the primitives (CSG leaves) that
-// actually contribute volume to the overlap, each with an ancestor chain
-// formatted like the 3D-view right-click picker menu.
+// every colliding pair is attributed to the primitives that actually contribute
+// volume to the overlap, each with an ancestor chain formatted like the 3D-view
+// right-click picker menu.
 
 #include <cstdint>
 #include <memory>
@@ -47,7 +47,7 @@ struct ChainStep {
   SourceRef loc;
 };
 
-// A CSG leaf primitive that contributes volume to a collision.
+// A primitive that contributes volume to a collision.
 struct Primitive {
   int part = 0;  // part number the primitive belongs to
   int nodeIndex = 0;

@@ -5,10 +5,13 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "core/CgalAdvNode.h"
+#include "core/CsgOpNode.h"
 #include "core/ModuleInstantiation.h"
 #include "core/NodeVisitor.h"
 #include "core/State.h"
@@ -207,12 +210,31 @@ std::vector<Match> matchesAt(const std::vector<Leaf>& leaves, const SurfaceHit& 
 class LeafCollector : public NodeVisitor
 {
 public:
-  LeafCollector(const Tree& tree, const AbstractNode& start) : start(start), evaluator(tree) {}
+  LeafCollector(const Tree& tree, const AbstractNode& start, bool evaluateWhole)
+    : start(start), evaluator(tree), evaluateWhole(evaluateWhole)
+  {
+  }
 
   Response visit(State& state, const AbstractNode& node) override
   {
-    if (state.isPrefix() && isBackground(node)) return Response::PruneTraversal;
+    if (state.isPrefix()) {
+      if (isBackground(node)) return Response::PruneTraversal;
+      enter(state, node);
+    }
     return Response::ContinueTraversal;
+  }
+
+  Response visit(State& state, const CsgOpNode& node) override
+  {
+    if (state.isPrefix() && !isBackground(node) && node.type == OpenSCADOperator::DIFFERENCE) {
+      // Everything after the first operand cuts it.
+      bool first = true;
+      for (const auto *operand : operands(node)) {
+        if (!first) this->cutters.insert(operand);
+        first = false;
+      }
+    }
+    return visit(state, static_cast<const AbstractNode&>(node));
   }
 
   Response visit(State& state, const TransformNode& node) override
@@ -223,6 +245,7 @@ public:
       if (matrix_contains_infinity(node.matrix) || matrix_contains_nan(node.matrix)) {
         return Response::PruneTraversal;
       }
+      enter(state, node);
       state.setMatrix(state.matrix() * node.matrix);
     }
     return Response::ContinueTraversal;
@@ -242,19 +265,49 @@ public:
 
 private:
   // `%` subtrees are not part of the geometry. The start node's own modifier is ignored, so a
-  // `%render()` drawn in preview can still be looked into.
+  // `%render()` can still be looked into.
   [[nodiscard]] bool isBackground(const AbstractNode& node) const
   {
     return &node != &this->start && node.modinst && node.modinst->isBackground();
+  }
+
+  // The operands GeometryEvaluator combines: the node's children, with lists flattened into them
+  // (lazy union) and `%` ones left out.
+  std::vector<const AbstractNode *> operands(const AbstractNode& node) const
+  {
+    std::vector<const AbstractNode *> result;
+    for (const auto& child : node.getChildren()) {
+      if (isBackground(*child)) continue;
+      if (dynamic_cast<const ListNode *>(child.get())) {
+        const auto inner = operands(*child);
+        result.insert(result.end(), inner.begin(), inner.end());
+      } else {
+        result.push_back(child.get());
+      }
+    }
+    return result;
+  }
+
+  // Records whether `node` cuts material away: its parent does, or it cuts its parent difference().
+  void enter(const State& state, const AbstractNode& node)
+  {
+    bool subtracted = this->cutters.count(&node) > 0;
+    if (const auto parent = state.parent()) {
+      if (const auto it = this->subtracted.find(parent.get()); it != this->subtracted.end()) {
+        subtracted = subtracted != it->second;
+      }
+    }
+    this->subtracted[&node] = subtracted;
   }
 
   Response addLeaf(const State& state, const AbstractNode& node, bool cachedOnly)
   {
     if (!state.isPrefix()) return Response::ContinueTraversal;
     if (isBackground(node)) return Response::PruneTraversal;
+    enter(state, node);
     // A hull() or physics() can take long to evaluate; a right-click must not re-run one the
     // cache has dropped.
-    if (!cachedOnly || this->evaluator.isSmartCached(node)) {
+    if (!cachedOnly || this->evaluateWhole || this->evaluator.isSmartCached(node)) {
       const auto ps =
         std::dynamic_pointer_cast<const PolySet>(this->evaluator.evaluateGeometry(node, false));
       if (ps && !ps->isEmpty() && ps->getDimension() == 3) {
@@ -262,6 +315,7 @@ private:
         leaf.index = node.index();
         leaf.mesh = {drawable(ps), state.matrix()};
         leaf.bbox = worldBox(leaf.mesh);
+        leaf.subtracted = this->subtracted[&node];
         this->leaves.push_back(std::move(leaf));
       }
     }
@@ -270,6 +324,9 @@ private:
 
   const AbstractNode& start;
   GeometryEvaluator evaluator;
+  bool evaluateWhole;
+  std::unordered_set<const AbstractNode *> cutters;  // operands after the first of a difference()
+  std::unordered_map<const AbstractNode *, bool> subtracted;
 };
 
 void appendSurface(const std::shared_ptr<const Geometry>& geom, std::vector<PlacedMesh>& out)
@@ -336,10 +393,11 @@ Vector3d closestPointOnTriangle(const Vector3d& p, const Vector3d& a, const Vect
   return a + ab * (vb * denom) + ac * (vc * denom);
 }
 
-std::vector<Leaf> collectLeaves(const Tree& tree, const AbstractNode& node, const Transform3d& matrix)
+std::vector<Leaf> collectLeaves(const Tree& tree, const AbstractNode& node, const Transform3d& matrix,
+                                bool evaluateWhole)
 {
   const PrintSuppressGuard quiet;
-  LeafCollector collector(tree, node);
+  LeafCollector collector(tree, node, evaluateWhole);
   State state(nullptr);
   state.setMatrix(matrix);
   collector.traverse(node, state);
