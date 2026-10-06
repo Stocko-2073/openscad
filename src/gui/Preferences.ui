@@ -2255,7 +2255,7 @@
                <item>
                 <widget class="QCheckBox" name="enableClearConsoleCheckBox">
                  <property name="text">
-                  <string>Clear console before Preview/Render</string>
+                  <string>Clear console before Render</string>
                  </property>
                  <property name="checked">
                   <bool>false</bool>

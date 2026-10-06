@@ -164,7 +164,7 @@ double Polygon2d::area() const
 
    This is used for various purposes:
    * Geometry evaluation for roof, linear_extrude, rotate_extrude
-   * Rendering (both preview and render mode)
+   * Rendering
    * Polygon area calculation
    *
    * One use-case is special: For geometry construction in Manifold mode, we require this function to

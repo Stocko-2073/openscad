@@ -790,7 +790,7 @@ void MainWindow::compile(bool reload, bool forcedone)
     }
 
     // Rather than evaluate the design without a file still in iCloud, wait for
-    // it to download; then this preview or render runs again.
+    // it to download; then this render runs again.
     if (downloadDeferredFiles(true)) {
       compileDone(false);
       return;
@@ -3098,7 +3098,7 @@ void MainWindow::onTabManagerEditorContentReloaded(EditorInterface *reloadedEdit
     // so the customizer panels are ok.
     parseDocument(reloadedEditor);
     // The customizer only reads the file itself, so a skipped include does not
-    // matter here; fetch it now so the first preview has it.
+    // matter here; fetch it now so the first render has it.
     downloadDeferredFiles(false);
   } catch (const HardWarningException&) {
     exceptionCleanup();
