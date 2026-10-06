@@ -324,5 +324,22 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
               << *withTable / (1024 * 1024) << " MB)";
   }
   std::cout << "\n";
+  if (geometry) {
+    // What the geometry caches hold, as they count it (a Manifold's size is an estimate), and
+    // what emptying them gives back.
+    const size_t entries = GeometryCache::instance()->size() + CGALCache::instance()->size();
+    const size_t counted = GeometryCache::instance()->totalCost() + CGALCache::instance()->totalCost();
+    GeometryCache::instance()->clear();
+    CGALCache::instance()->clear();
+    const auto withoutCaches = footprintBytes();
+    std::cout << "caches: " << entries << " entries, counted " << counted / (1024 * 1024) << " MB";
+    if (withoutTree && withoutCaches) {
+      std::cout << ", freeing them gives back "
+                << static_cast<long>((static_cast<double>(*withoutTree) - static_cast<double>(*withoutCaches)) /
+                                     (1024 * 1024))
+                << " MB (footprint " << *withoutCaches / (1024 * 1024) << " MB left)";
+    }
+    std::cout << "\n";
+  }
   return failures ? 1 : 0;
 }
