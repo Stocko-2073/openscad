@@ -274,6 +274,16 @@ std::string TransformNode::toString() const
   return stream.str();
 }
 
+bool TransformNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("multmatrix");
+  for (int j = 0; j < 4; ++j) {
+    for (int i = 0; i < 4; ++i) h.f64(this->matrix(j, i));
+  }
+  return true;
+}
+
 TransformNode::TransformNode(const ModuleInstantiation *mi, std::string verbose_name)
   : AbstractNode(mi), matrix(Transform3d::Identity()), _name(std::move(verbose_name))
 {

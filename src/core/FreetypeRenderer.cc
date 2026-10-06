@@ -274,6 +274,21 @@ std::ostream& operator<<(std::ostream& stream, const FreetypeRenderer::Params& p
   return stream;
 }
 
+void FreetypeRenderer::Params::hash(Hasher128& h) const
+{
+  h.str(this->text);
+  h.f64(this->size);
+  h.f64(this->spacing);
+  h.str(this->font);
+  h.str(this->direction);
+  h.str(this->language);
+  h.str(this->script);
+  h.str(this->halign);
+  h.str(this->valign);
+  h.u64(this->discretizer != nullptr);
+  if (this->discretizer) this->discretizer->hash(h);
+}
+
 const FontFacePtr FreetypeRenderer::Params::get_font_face() const
 {
   FontCache *cache = FontCache::instance();

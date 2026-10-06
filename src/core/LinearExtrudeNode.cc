@@ -152,6 +152,25 @@ std::string LinearExtrudeNode::toString() const
   return stream.str();
 }
 
+bool LinearExtrudeNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("linear_extrude");
+  for (int i = 0; i < 3; ++i) h.f64(this->height[i]);
+  h.u64(this->center);
+  h.u64(this->has_twist);
+  h.f64(this->twist);
+  h.u64(this->has_slices);
+  h.u64(this->slices);
+  h.u64(this->has_segments);
+  h.u64(this->segments);
+  h.f64(this->scale_x);
+  h.f64(this->scale_y);
+  this->discretizer.hash(h);
+  h.u64(this->convexity);
+  return true;
+}
+
 void register_builtin_linear_extrude()
 {
   Builtins::init("linear_extrude", new BuiltinModule(builtin_linear_extrude),

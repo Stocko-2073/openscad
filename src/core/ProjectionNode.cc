@@ -62,6 +62,15 @@ std::string ProjectionNode::toString() const
              ")");
 }
 
+bool ProjectionNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("projection");
+  h.u64(this->cut_mode);
+  h.u64(static_cast<uint64_t>(this->convexity));
+  return true;
+}
+
 void register_builtin_projection()
 {
   Builtins::init("projection", new BuiltinModule(builtin_projection),

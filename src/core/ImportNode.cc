@@ -293,6 +293,27 @@ std::string ImportNode::toString() const
   return stream.str();
 }
 
+bool ImportNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("import");
+  h.u64(static_cast<uint64_t>(this->type));
+  h.str(this->filename);
+  h.u64(this->id.has_value());
+  if (this->id) h.str(this->id.get());
+  h.u64(this->layer.has_value());
+  if (this->layer) h.str(this->layer.get());
+  h.f64(this->origin_x);
+  h.f64(this->origin_y);
+  if (this->type == ImportType::SVG) h.f64(this->dpi);
+  h.f64(this->scale);
+  h.u64(this->center);
+  h.u64(static_cast<uint64_t>(this->convexity));
+  this->discretizer.hash(h);
+  h.fileTime(this->filename);
+  return true;
+}
+
 std::string ImportNode::name() const
 {
   return "import";

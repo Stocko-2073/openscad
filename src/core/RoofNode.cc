@@ -58,6 +58,16 @@ std::string RoofNode::toString() const
   return stream.str();
 }
 
+bool RoofNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("roof");
+  h.str(this->method);
+  this->discretizer.hash(h);
+  h.u64(static_cast<uint64_t>(this->convexity));
+  return true;
+}
+
 std::set<std::string> RoofNode::knownMethods = {"voronoi", "straight"};
 
 void register_builtin_roof()

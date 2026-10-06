@@ -72,6 +72,7 @@ public:
   VISITABLE();
   SurfaceNode(const ModuleInstantiation *mi) : LeafNode(mi) {}
   std::string toString() const override;
+  bool hashContent(NodeHasher& h) const override;
   std::string name() const override { return "surface"; }
   std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
 

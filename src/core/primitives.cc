@@ -31,6 +31,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <memory>
 #include <sstream>
@@ -176,6 +177,15 @@ std::string SphereNode::toString() const
   return stream.str();
 }
 
+bool SphereNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("sphere");
+  discretizer.hash(h);
+  h.f64(r);
+  return true;
+}
+
 std::unique_ptr<const Geometry> SphereNode::createGeometry() const
 {
   if (this->r <= 0 || !std::isfinite(this->r)) {
@@ -250,6 +260,18 @@ std::string CylinderNode::toString() const
   stream << "cylinder(" << discretizer << ", h = " << h << ", r1 = " << r1 << ", r2 = " << r2
          << ", center = " << (center ? "true" : "false") << ")";
   return stream.str();
+}
+
+bool CylinderNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("cylinder");
+  discretizer.hash(h);
+  h.f64(this->h);
+  h.f64(r1);
+  h.f64(r2);
+  h.u64(center);
+  return true;
 }
 
 std::unique_ptr<const Geometry> CylinderNode::createGeometry() const
@@ -399,6 +421,25 @@ std::string PolyhedronNode::toString() const
   }
   stream << "], convexity = " << this->convexity << ")";
   return stream.str();
+}
+
+bool PolyhedronNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("polyhedron");
+  h.u64(this->points.size());
+  for (const auto& point : this->points) {
+    h.f64(point[0]);
+    h.f64(point[1]);
+    h.f64(point[2]);
+  }
+  h.u64(this->faces.size());
+  for (const auto& face : this->faces) {
+    h.u64(face.size());
+    for (const auto& index : face) h.u64(static_cast<uint64_t>(index));
+  }
+  h.u64(static_cast<uint64_t>(this->convexity));
+  return true;
 }
 
 std::unique_ptr<const Geometry> PolyhedronNode::createGeometry() const
@@ -564,6 +605,15 @@ std::string CircleNode::toString() const
   return stream.str();
 }
 
+bool CircleNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("circle");
+  discretizer.hash(h);
+  h.f64(r);
+  return true;
+}
+
 std::unique_ptr<const Geometry> CircleNode::createGeometry() const
 {
   if (this->r <= 0 || !std::isfinite(this->r)) {
@@ -640,6 +690,24 @@ std::string PolygonNode::toString() const
   }
   stream << ", convexity = " << this->convexity << ")";
   return stream.str();
+}
+
+bool PolygonNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("polygon");
+  h.u64(this->points.size());
+  for (const auto& point : this->points) {
+    h.f64(point[0]);
+    h.f64(point[1]);
+  }
+  h.u64(this->paths.size());
+  for (const auto& path : this->paths) {
+    h.u64(path.size());
+    for (const auto& index : path) h.u64(index);
+  }
+  h.u64(static_cast<uint64_t>(this->convexity));
+  return true;
 }
 
 std::unique_ptr<const Geometry> PolygonNode::createGeometry() const

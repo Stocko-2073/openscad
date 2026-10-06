@@ -21,6 +21,7 @@ public:
   {
   }
   std::string toString() const override;
+  bool hashContent(NodeHasher& h) const override;
   std::string name() const override { return "roof"; }
   std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
 

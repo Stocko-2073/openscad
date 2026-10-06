@@ -994,6 +994,7 @@ set(CORE_SOURCES
   src/core/LocalScope.cc
   src/core/ModifierOverlays.cc
   src/core/ModuleInstantiation.cc
+  src/core/NodeDigest.cc
   src/core/NodeDumper.cc
   src/core/NodeVisitor.cc
   src/core/OffsetNode.cc

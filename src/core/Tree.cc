@@ -67,6 +67,7 @@ void Tree::setRoot(const std::shared_ptr<const AbstractNode>& root)
 {
   this->root_node = root;
   this->nodecachemap.clear();
+  this->digests.clear();
 }
 
 void Tree::setDocumentPath(const std::string& path)

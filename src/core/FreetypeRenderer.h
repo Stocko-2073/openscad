@@ -75,6 +75,8 @@ public:
     [[nodiscard]] const FontFacePtr get_font_face() const;
     void detect_properties();
     friend std::ostream& operator<<(std::ostream& stream, const FreetypeRenderer::Params& params);
+    // For a text node's geometry digest: what operator<< writes, numbers exactly.
+    void hash(Hasher128& h) const;
 
   private:
     // Left in these methods in case an actual need arises to have different checks than !NULL

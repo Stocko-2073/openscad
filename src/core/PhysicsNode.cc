@@ -49,6 +49,20 @@ std::string PhysicsNode::toString() const
              ", convexity = ", convexity, ")");
 }
 
+bool PhysicsNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("physics");
+  h.f64(density);
+  h.f64(friction);
+  h.f64(restitution);
+  h.f64(gravity);
+  h.f64(max_time);
+  h.u64(nudge);
+  h.u64(static_cast<uint64_t>(convexity));
+  return true;
+}
+
 void register_builtin_physics()
 {
   Builtins::init("physics", new BuiltinModule(builtin_physics),

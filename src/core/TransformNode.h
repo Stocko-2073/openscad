@@ -13,6 +13,7 @@ public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   TransformNode(const ModuleInstantiation *mi, std::string verbose_name);
   std::string toString() const override;
+  bool hashContent(NodeHasher& h) const override;
   std::string name() const override;
   std::string verbose_name() const override;
   std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }

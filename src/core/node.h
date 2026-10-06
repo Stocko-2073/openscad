@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <ostream>
@@ -13,6 +14,7 @@
 #include "core/AST.h"
 #include "core/BaseVisitable.h"
 #include "core/ModuleInstantiation.h"
+#include "utils/Hash128.h"
 
 extern int progress_report_count;
 extern void (*progress_report_f)(const std::shared_ptr<const AbstractNode>&, void *, int);
@@ -22,6 +24,22 @@ void progress_report_prep(const std::shared_ptr<AbstractNode>& root,
                           void (*f)(const std::shared_ptr<const AbstractNode>& node, void *vp, int mark),
                           void *vp);
 void progress_report_fin();
+
+/*
+ * What AbstractNode::hashContent() hashes a node's own data into, for its geometry digest
+ * (core/NodeDigest.h).
+ */
+class NodeHasher : public Hasher128
+{
+public:
+  // A file's modification time, read now. A digest that includes one is good only until the next
+  // refresh, which may find the file changed.
+  void fileTime(const std::string& path);
+  [[nodiscard]] bool readFiles() const { return this->files; }
+
+private:
+  bool files{false};
+};
 
 /*!
 
@@ -89,8 +107,22 @@ public:
   // A deep copy of this subtree under fresh indices, or null if some node in it cannot be copied.
   [[nodiscard]] std::shared_ptr<AbstractNode> clone() const;
 
+  /*
+   * Hashes this node's own data for its geometry digest (core/NodeDigest.h): what toString()
+   * writes, numbers exactly, and not the children. Every concrete class implements it next to its
+   * toString(), first checking hashAs(*this): a subclass without a hashContent() of its own is
+   * refused rather than hashed as its base, and its digest is then unlike any other node's.
+   */
+  [[nodiscard]] virtual bool hashContent(NodeHasher& h) const = 0;
+
+  // Gives a copy the digest of the subtree it copies, which copy() does not: only a deep copy
+  // whose children are copies of the original's may have it.
+  void takeDigest(const AbstractNode& original);
+  // Whether the node keeps its digest, computed or taken.
+  [[nodiscard]] bool hasDigest() const;
+
 protected:
-  // What copy() copies: everything but the children and the index.
+  // What copy() copies: everything but the children, the index and the digest.
   AbstractNode(const AbstractNode& other);
   AbstractNode& operator=(const AbstractNode&) = delete;
 
@@ -100,6 +132,21 @@ protected:
     if (typeid(node) != typeid(T)) return nullptr;
     return std::make_shared<T>(node);
   }
+
+  // For hashContent(): false if `node` is of a subclass of T.
+  template <class T>
+  static bool hashAs(const T& node)
+  {
+    return typeid(node) == typeid(T);
+  }
+
+private:
+  friend class NodeDigests;
+  // The subtree's digest, kept once computed unless it depends on files (core/NodeDigest.h).
+  // Atomic, since the GUI may ask for it while the render thread computes it.
+  mutable std::atomic<uint64_t> digest_a{0};
+  mutable std::atomic<uint64_t> digest_b{0};
+  mutable std::atomic<uint8_t> digest_state{0};
 };
 
 class AbstractIntersectionNode : public AbstractNode
@@ -110,6 +157,7 @@ public:
   std::string toString() const override;
   std::string name() const override;
   std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
+  bool hashContent(NodeHasher& h) const override;
 };
 
 class AbstractPolyNode : public AbstractNode
@@ -131,6 +179,8 @@ public:
   ListNode(const ModuleInstantiation *mi) : AbstractNode(mi) {}
   std::string name() const override;
   std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
+  // Nothing of its own: its digest is that of its children (core/NodeDigest.h).
+  bool hashContent(NodeHasher&) const override { return hashAs(*this); }
 };
 
 /*!
@@ -148,6 +198,8 @@ public:
   std::string name() const override;
   std::string verbose_name() const override;
   std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
+  // Nothing of its own: its digest is that of its children (core/NodeDigest.h).
+  bool hashContent(NodeHasher&) const override { return hashAs(*this); }
 
 private:
   const std::string _name;
@@ -165,6 +217,8 @@ public:
   RootNode(const RootNode&) = delete;
   std::string name() const override;
   std::shared_ptr<AbstractNode> copy() const override;
+  // Nothing of its own: its digest is that of its children (core/NodeDigest.h).
+  bool hashContent(NodeHasher&) const override { return hashAs(*this); }
 
 private:
   ModuleInstantiation mi;

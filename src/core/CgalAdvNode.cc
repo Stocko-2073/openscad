@@ -135,6 +135,25 @@ std::string CgalAdvNode::toString() const
   return stream.str();
 }
 
+bool CgalAdvNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  // What toString() writes for each type: the others leave newsize and autosize unset.
+  h.str(this->name());
+  switch (type) {
+  case CgalAdvType::MINKOWSKI: h.u64(this->convexity); break;
+  case CgalAdvType::HULL:
+  case CgalAdvType::FILL:      break;
+  case CgalAdvType::RESIZE:
+    for (int i = 0; i < 3; ++i) h.f64(this->newsize[i]);
+    for (int i = 0; i < 3; ++i) h.u64(this->autosize[i]);
+    h.u64(this->convexity);
+    break;
+  default: return false;
+  }
+  return true;
+}
+
 void register_builtin_cgaladv()
 {
   Builtins::init("minkowski", new BuiltinModule(builtin_minkowski),

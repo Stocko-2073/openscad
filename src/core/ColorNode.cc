@@ -95,6 +95,17 @@ std::string ColorNode::toString() const
              this->color.a(), "])");
 }
 
+bool ColorNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("color");
+  h.f64(this->color.r());
+  h.f64(this->color.g());
+  h.f64(this->color.b());
+  h.f64(this->color.a());
+  return true;
+}
+
 std::string ColorNode::name() const
 {
   return "color";

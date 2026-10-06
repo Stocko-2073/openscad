@@ -13,6 +13,7 @@ public:
   VISITABLE();
   ColorNode(const ModuleInstantiation *mi) : AbstractNode(mi) {}
   std::string toString() const override;
+  bool hashContent(NodeHasher& h) const override;
   std::string name() const override;
   std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
 

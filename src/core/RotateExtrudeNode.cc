@@ -100,6 +100,17 @@ std::string RotateExtrudeNode::toString() const
   return stream.str();
 }
 
+bool RotateExtrudeNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("rotate_extrude");
+  h.f64(this->angle);
+  h.f64(this->start);
+  h.u64(static_cast<uint64_t>(this->convexity));
+  this->discretizer.hash(h);
+  return true;
+}
+
 void register_builtin_rotate_extrude()
 {
   Builtins::init("rotate_extrude", new BuiltinModule(builtin_rotate_extrude),

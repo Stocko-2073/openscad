@@ -7,11 +7,14 @@
 #include <utility>
 
 #include "core/NodeCache.h"
+#include "core/NodeDigest.h"
 #include "core/node.h"
+#include "utils/Hash128.h"
 
 /*!
    For now, just an abstraction of the node tree which keeps a dump
-   cache based on node indices around.
+   cache based on node indices around, and the geometry digests that
+   depend on files.
 
    Note that since node trees don't survive a recompilation, the tree cannot either.
  */
@@ -29,12 +32,19 @@ public:
   const std::shared_ptr<const AbstractNode>& root() const { return this->root_node; }
 
   const std::string getString(const AbstractNode& node, const std::string& indent) const;
+  // The text key that geometry digests replace, for debugging: dumps the whole tree.
   const std::string getIdString(const AbstractNode& node) const;
   const std::string getDocumentPath() const;
+
+  // What the geometry caches keep `node`'s geometry under (core/NodeDigest.h).
+  Hash128 digest(const AbstractNode& node) const { return this->digests.digest(node); }
+  // Whether a node below `node` has a # or % modifier.
+  bool hasModifierBelow(const AbstractNode& node) const { return this->digests.hasModifierBelow(node); }
 
 private:
   std::shared_ptr<const AbstractNode> root_node;
   // keep a separate nodecache per tuple of NodeDumper constructor parameters
   mutable std::map<std::tuple<std::string, bool>, NodeCache> nodecachemap;
+  mutable NodeDigests digests;
   std::string document_path;
 };

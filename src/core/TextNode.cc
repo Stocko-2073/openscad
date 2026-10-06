@@ -69,6 +69,14 @@ std::string TextNode::toString() const
   return STR(name(), "(", this->params, ")");
 }
 
+bool TextNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("text");
+  this->params.hash(h);
+  return true;
+}
+
 void register_builtin_text()
 {
   Builtins::init(

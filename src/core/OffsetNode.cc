@@ -92,6 +92,18 @@ std::string OffsetNode::toString() const
   return stream.str();
 }
 
+bool OffsetNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("offset");
+  h.u64(static_cast<uint64_t>(this->join_type));
+  h.f64(this->delta);
+  h.u64(this->chamfer);
+  h.f64(this->miter_limit);
+  this->discretizer.hash(h);
+  return true;
+}
+
 void register_builtin_offset()
 {
   Builtins::init("offset", new BuiltinModule(builtin_offset),

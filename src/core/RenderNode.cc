@@ -57,6 +57,14 @@ std::string RenderNode::toString() const
   return STR(this->name(), "(convexity = ", convexity, ")");
 }
 
+bool RenderNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("render");
+  h.u64(static_cast<uint64_t>(this->convexity));
+  return true;
+}
+
 void register_builtin_render()
 {
   Builtins::init("render", new BuiltinModule(builtin_render),

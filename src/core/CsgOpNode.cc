@@ -64,6 +64,13 @@ std::string CsgOpNode::toString() const
   return this->name() + "()";
 }
 
+bool CsgOpNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str(this->name());
+  return true;
+}
+
 std::string CsgOpNode::name() const
 {
   switch (this->type) {

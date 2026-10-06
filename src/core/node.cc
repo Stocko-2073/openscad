@@ -66,6 +66,7 @@ std::shared_ptr<AbstractNode> AbstractNode::clone() const
     if (!child_copy) return nullptr;
     copy->children.push_back(std::move(child_copy));
   }
+  copy->takeDigest(*this);
   return copy;
 }
 
@@ -179,6 +180,13 @@ std::shared_ptr<AbstractNode> RootNode::copy() const
 std::string AbstractIntersectionNode::toString() const
 {
   return this->name() + "()";
+}
+
+bool AbstractIntersectionNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("intersection");
+  return true;
 }
 
 std::string AbstractIntersectionNode::name() const

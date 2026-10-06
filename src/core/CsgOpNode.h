@@ -13,6 +13,7 @@ public:
   OpenSCADOperator type;
   CsgOpNode(const ModuleInstantiation *mi, OpenSCADOperator type) : AbstractNode(mi), type(type) {}
   std::string toString() const override;
+  bool hashContent(NodeHasher& h) const override;
   std::string name() const override;
   std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
 };

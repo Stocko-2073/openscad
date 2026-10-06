@@ -49,6 +49,16 @@ public:
            << "], center = " << (center ? "true" : "false") << ")";
     return stream.str();
   }
+  bool hashContent(NodeHasher& h) const override
+  {
+    if (!hashAs(*this)) return false;
+    h.str("cube");
+    h.f64(x);
+    h.f64(y);
+    h.f64(z);
+    h.u64(center);
+    return true;
+  }
   std::string name() const override { return "cube"; }
   std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
   std::unique_ptr<const Geometry> createGeometry() const override;
@@ -65,6 +75,7 @@ public:
   {
   }
   std::string toString() const override;
+  bool hashContent(NodeHasher& h) const override;
   std::string name() const override { return "sphere"; }
   std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
   std::unique_ptr<const Geometry> createGeometry() const override;
@@ -81,6 +92,7 @@ public:
   {
   }
   std::string toString() const override;
+  bool hashContent(NodeHasher& h) const override;
   std::string name() const override { return "cylinder"; }
   std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
   std::unique_ptr<const Geometry> createGeometry() const override;
@@ -95,6 +107,7 @@ class PolyhedronNode : public LeafNode
 public:
   PolyhedronNode(const ModuleInstantiation *mi) : LeafNode(mi) {}
   std::string toString() const override;
+  bool hashContent(NodeHasher& h) const override;
   std::string name() const override { return "polyhedron"; }
   std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
   std::unique_ptr<const Geometry> createGeometry() const override;
@@ -115,6 +128,15 @@ public:
            << ")";
     return stream.str();
   }
+  bool hashContent(NodeHasher& h) const override
+  {
+    if (!hashAs(*this)) return false;
+    h.str("square");
+    h.f64(x);
+    h.f64(y);
+    h.u64(center);
+    return true;
+  }
   std::string name() const override { return "square"; }
   std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
   std::unique_ptr<const Geometry> createGeometry() const override;
@@ -131,6 +153,7 @@ public:
   {
   }
   std::string toString() const override;
+  bool hashContent(NodeHasher& h) const override;
   std::string name() const override { return "circle"; }
   std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
   std::unique_ptr<const Geometry> createGeometry() const override;
@@ -144,6 +167,7 @@ class PolygonNode : public LeafNode
 public:
   PolygonNode(const ModuleInstantiation *mi) : LeafNode(mi) {}
   std::string toString() const override;
+  bool hashContent(NodeHasher& h) const override;
   std::string name() const override { return "polygon"; }
   std::shared_ptr<AbstractNode> copy() const override { return copyAs(*this); }
   std::unique_ptr<const Geometry> createGeometry() const override;

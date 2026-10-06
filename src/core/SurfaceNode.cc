@@ -314,6 +314,18 @@ std::string SurfaceNode::toString() const
   return stream.str();
 }
 
+bool SurfaceNode::hashContent(NodeHasher& h) const
+{
+  if (!hashAs(*this)) return false;
+  h.str("surface");
+  h.str(this->filename);
+  h.u64(this->center);
+  h.u64(this->invert);
+  h.u64(static_cast<uint64_t>(this->convexity));
+  h.fileTime(this->filename);
+  return true;
+}
+
 void register_builtin_surface()
 {
   Builtins::init("surface", new BuiltinModule(builtin_surface),
