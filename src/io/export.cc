@@ -92,7 +92,6 @@ Containers& containers()
     add_item(*containers, {FileFormat::CSG, "csg", "csg", "CSG"});
     add_item(*containers, {FileFormat::PARAM, "param", "param", "param"});
     add_item(*containers, {FileFormat::AST, "ast", "ast", "AST"});
-    add_item(*containers, {FileFormat::TERM, "term", "term", "term"});
     add_item(*containers, {FileFormat::ECHO, "echo", "echo", "echo"});
     add_item(*containers, {FileFormat::PNG, "png", "png", "PNG"});
     add_item(*containers, {FileFormat::PDF, "pdf", "pdf", "PDF"});
@@ -156,12 +155,6 @@ bool fromIdentifier(const std::string& identifier, FileFormat& format)
 const std::string& toSuffix(FileFormat format)
 {
   return containers().fileFormatToInfo[format].suffix;
-}
-
-bool canPreview(FileFormat format)
-{
-  return (format == FileFormat::AST || format == FileFormat::CSG || format == FileFormat::PARAM ||
-          format == FileFormat::ECHO || format == FileFormat::TERM || format == FileFormat::PNG);
 }
 
 bool is3D(FileFormat format)

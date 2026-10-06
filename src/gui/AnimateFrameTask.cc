@@ -89,7 +89,6 @@ void FrameTask::run()
     ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(&session)};
 
     const RenderVariables r = {
-      .preview = false,
       .time = frame_->t,
       .camera = camera_,
     };

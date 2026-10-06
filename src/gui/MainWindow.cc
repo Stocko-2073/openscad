@@ -1541,7 +1541,6 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
 void MainWindow::setRenderVariables(ContextHandle<BuiltinContext>& context)
 {
   const RenderVariables r = {
-    .preview = false,
     .time = this->animateWidget->getAnimTval(),
     .camera = qglview->cam,
   };

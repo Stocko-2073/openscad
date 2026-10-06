@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/ModifierOverlays.h"
 #include "core/Settings.h"
 #include "core/SourceFile.h"
 #include "core/Tree.h"
@@ -39,7 +40,6 @@ enum class FileFormat {
   NEF3,
   CSG,
   AST,
-  TERM,
   ECHO,
   PNG,
   PDF,
@@ -65,7 +65,6 @@ std::vector<FileFormat> all3D();
 const FileFormatInfo& info(FileFormat fileFormat);
 bool fromIdentifier(const std::string& identifier, FileFormat& format);
 const std::string& toSuffix(FileFormat format);
-bool canPreview(FileFormat format);
 bool is3D(FileFormat format);
 bool is2D(FileFormat format);
 
@@ -325,8 +324,8 @@ void export_pdf(const std::shared_ptr<const Geometry>& geom, std::ostream& outpu
 void export_nefdbg(const std::shared_ptr<const Geometry>& geom, std::ostream& output);
 void export_nef3(const std::shared_ptr<const Geometry>& geom, std::ostream& output);
 
-enum class Previewer { OPENCSG, THROWNTOGETHER };
-enum class RenderType { GEOMETRY, BACKEND_SPECIFIC, OPENCSG, THROWNTOGETHER };
+// BACKEND_SPECIFIC converts the result to the 3D backend's own geometry (--render=force).
+enum class RenderType { GEOMETRY, BACKEND_SPECIFIC };
 
 struct ViewOption {
   const std::string name;
@@ -334,8 +333,7 @@ struct ViewOption {
 };
 
 struct ViewOptions {
-  Previewer previewer{Previewer::OPENCSG};
-  RenderType renderer{RenderType::OPENCSG};
+  RenderType renderer{RenderType::GEOMETRY};
 
   std::map<std::string, bool> flags{
     {"axes", false},
@@ -356,14 +354,13 @@ struct ViewOptions {
   bool operator[](const std::string& name) const { return flags.at(name); }
 };
 
-class OffscreenView;
-
 std::string get_current_iso8601_date_time_utc();
 
-std::unique_ptr<OffscreenView> prepare_preview(Tree& tree, const ViewOptions& options, Camera& camera);
-bool export_png(const std::shared_ptr<const class Geometry>& root_geom, const ViewOptions& options,
-                Camera& camera, std::ostream& output);
-bool export_png(const OffscreenView& glview, std::ostream& output);
+// Draws `root_geom` as the 3D view does after a render, with `overlays` (see core/ModifierOverlays.h)
+// over it.
+bool export_png(const std::shared_ptr<const class Geometry>& root_geom,
+                const std::vector<overlay::Mesh>& overlays, const ViewOptions& options, Camera& camera,
+                std::ostream& output);
 bool export_param(SourceFile *root, const fs::path& path, std::ostream& output);
 
 std::unique_ptr<PolySet> createSortedPolySet(const PolySet& ps);

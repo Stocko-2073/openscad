@@ -86,9 +86,9 @@
 #include "core/BOSL2Library.h"
 #include "core/BuiltinContext.h"
 #include "core/Builtins.h"
-#include "core/CSGTreeEvaluator.h"
 #include "core/Context.h"
 #include "core/EvaluationSession.h"
+#include "core/ModifierOverlays.h"
 #include "core/RenderVariables.h"
 #include "core/ScopeContext.h"
 #include "core/ScriptProfile.h"
@@ -495,54 +495,37 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
   } else if (export_format == FileFormat::PARAM) {
     with_output(cmd.is_stdout, filename_str,
                 [&root_file, &fpath](std::ostream& stream) { export_param(root_file, fpath, stream); });
-  } else if (export_format == FileFormat::TERM) {
-    CSGTreeEvaluator csgRenderer(tree);
-    auto root_raw_term = csgRenderer.buildCSGTree(*root_node);
-    with_output(cmd.is_stdout, filename_str, [root_raw_term](std::ostream& stream) {
-      if (!root_raw_term || root_raw_term->isEmptySet()) {
-        stream << "No top-level CSG object\n";
-      } else {
-        stream << root_raw_term->dump() << "\n";
-      }
-    });
   } else if (export_format == FileFormat::ECHO) {
     // echo -> don't need to evaluate any geometry
   } else {
     evaluated_geometry = true;
     GeometryEvaluator geomevaluator(tree);
-    std::unique_ptr<OffscreenView> glview;
     const RenderStatistic::ScopedPhase geometryPhase(renderStatistic,
                                                      RenderStatistic::PHASE_GEOMETRY);
-    if ((export_format == FileFormat::ECHO || export_format == FileFormat::PNG) &&
-        (cmd.viewOptions.renderer == RenderType::OPENCSG ||
-         cmd.viewOptions.renderer == RenderType::THROWNTOGETHER)) {
-      // OpenCSG or throwntogether png -> just render a preview
-      glview = prepare_preview(tree, cmd.viewOptions, camera);
-      if (!glview) return 1;
-    } else {
-      // Force creation of concrete geometry (mostly for testing)
-      // FIXME: Consider adding MANIFOLD as a valid --render argument and ViewOption, to be able to
-      // distinguish from CGAL
-
-      constexpr bool allownef = true;
-      root_geom = geomevaluator.evaluateGeometry(*tree.root(), allownef);
-      if (!root_geom) root_geom = std::make_shared<PolySet>(3);
-      if (cmd.viewOptions.renderer == RenderType::BACKEND_SPECIFIC && root_geom->getDimension() == 3) {
-        if (auto geomlist = std::dynamic_pointer_cast<const GeometryList>(root_geom)) {
-          auto flatlist = geomlist->flatten();
-          for (auto& child : flatlist) {
-            if (child.second->getDimension() == 3) {
-              child.second = GeometryUtils::getBackendSpecificGeometry(child.second);
-            }
+    // FIXME: Consider adding MANIFOLD as a valid --render argument and ViewOption, to be able to
+    // distinguish from CGAL
+    constexpr bool allownef = true;
+    root_geom = geomevaluator.evaluateGeometry(*tree.root(), allownef);
+    if (!root_geom) root_geom = std::make_shared<PolySet>(3);
+    // Force creation of concrete geometry (mostly for testing)
+    if (cmd.viewOptions.renderer == RenderType::BACKEND_SPECIFIC && root_geom->getDimension() == 3) {
+      if (auto geomlist = std::dynamic_pointer_cast<const GeometryList>(root_geom)) {
+        auto flatlist = geomlist->flatten();
+        for (auto& child : flatlist) {
+          if (child.second->getDimension() == 3) {
+            child.second = GeometryUtils::getBackendSpecificGeometry(child.second);
           }
-          root_geom = std::make_shared<GeometryList>(flatlist);
-        } else {
-          root_geom = GeometryUtils::getBackendSpecificGeometry(root_geom);
-          assert(root_geom != nullptr);
         }
-        LOG("Converted to backend-specific geometry");
+        root_geom = std::make_shared<GeometryList>(flatlist);
+      } else {
+        root_geom = GeometryUtils::getBackendSpecificGeometry(root_geom);
+        assert(root_geom != nullptr);
       }
+      LOG("Converted to backend-specific geometry");
     }
+    // A picture shows the # and % subtrees over the result, as the 3D view does.
+    std::vector<overlay::Mesh> overlays;
+    if (export_format == FileFormat::PNG) overlays = overlay::collect(tree, *tree.root());
     renderStatistic.endPhase(RenderStatistic::PHASE_GEOMETRY);
 
     const std::string input_filename = cmd.is_stdin ? "<stdin>" : cmd.filename;
@@ -558,13 +541,8 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
       bool success = true;
       bool const wrote = with_output(
         cmd.is_stdout, filename_str,
-        [&success, &root_geom, &cmd, &camera, &glview](std::ostream& stream) {
-          if (cmd.viewOptions.renderer == RenderType::BACKEND_SPECIFIC ||
-              cmd.viewOptions.renderer == RenderType::GEOMETRY) {
-            success = export_png(root_geom, cmd.viewOptions, camera, stream);
-          } else {
-            success = export_png(*glview, stream);
-          }
+        [&success, &root_geom, &overlays, &cmd, &camera](std::ostream& stream) {
+          success = export_png(root_geom, overlays, cmd.viewOptions, camera, stream);
         },
         std::ios::out | std::ios::binary);
       if (!success || !wrote) {
@@ -576,7 +554,7 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
 
   /*
    * Outside the export_format chain above, so that the formats which need no
-   * geometry -- echo, csg, ast, param, term -- can report their phase times
+   * geometry -- echo, csg, ast, param -- can report their phase times
    * too: `--summary time -o x.echo` used to print nothing at all, and the echo
    * path is the cheapest way to time script evaluation on its own, with no
    * geometry stage and no export write to add noise. printAll already tolerates
@@ -708,10 +686,6 @@ int cmdline(const CommandLine& cmd)
   root_file->handleDependencies();
 
   RenderVariables render_variables = {
-    .preview = fileformat::canPreview(export_format)
-                 ? (cmd.viewOptions.renderer == RenderType::OPENCSG ||
-                    cmd.viewOptions.renderer == RenderType::THROWNTOGETHER)
-                 : false,
     .camera = cmd.camera,
   };
 
@@ -935,7 +909,7 @@ int openscad_main(int argc, char **argv)
       "default so asciistl should be explicitly specified in scripts when needed.\n")
     ("o,o", po::value<std::vector<std::string>>(),
       "output specified file instead of running the GUI. The file extension specifies the type: stl, "
-      "off, wrl, amf, 3mf, csg, dxf, svg, pdf, png, echo, ast, term, nef3, nefdbg, param, pov. May be "
+      "off, wrl, amf, 3mf, csg, dxf, svg, pdf, png, echo, ast, nef3, nefdbg, param, pov. May be "
       "used multiple times for different exports. Use '-' for stdout.\n")
     ("O,O", po::value<std::vector<std::string>>(),
       "pass settings value to the file export using the format section/key=value, e.g "
@@ -963,9 +937,8 @@ int openscad_main(int argc, char **argv)
       "3D rendering backend to use: 'CGAL' (old/slow) or 'Manifold' (new/fast) [default]")
     ("imgsize", po::value<std::string>(), "=width,height of exported png")
     ("render", po::value<std::string>()->implicit_value(""),
-      "for full geometry evaluation when exporting png")
-    ("preview", po::value<std::string>()->implicit_value(""),
-      "[=throwntogether] -for ThrownTogether preview png")
+      "[=force] -convert the result to the 3D backend's own geometry before exporting png "
+      "(a png is always rendered)")
     ("animate", po::value<unsigned>(), "export N animated frames")
     ("animate_sharding", po::value<std::string>(),
       "Parameter <shard>/<num_shards> - Divide work into <num_shards> and only output frames for "
@@ -974,7 +947,6 @@ int openscad_main(int argc, char **argv)
     ("view", po::value<CommaSeparatedVector>(),
       ("=view options: " + boost::algorithm::join(viewOptions.names(), " | ")).c_str())
     ("projection", po::value<std::string>(), "=(o)rtho or (p)erspective when exporting png")
-    ("csglimit", po::value<unsigned int>(), "=n -stop rendering at n CSG elements when exporting png")
     ("summary", po::value<std::vector<std::string>>(),
       "enable additional render summary and statistics: all | cache | time | camera | geometry | "
       "bounding-box | area")
@@ -1157,10 +1129,7 @@ int openscad_main(int argc, char **argv)
     RenderSettings::inst()->backend3D = backend.value();
   }
 
-  if (vm.count("preview")) {
-    if (vm["preview"].as<std::string>() == "throwntogether")
-      viewOptions.renderer = RenderType::THROWNTOGETHER;
-  } else if (vm.count("render")) {
+  if (vm.count("render")) {
     // Note: "cgal" is here for backwards compatibility, can probably be removed soon
     if (vm["render"].as<std::string>() == "cgal" || vm["render"].as<std::string>() == "force") {
       viewOptions.renderer = RenderType::BACKEND_SPECIFIC;
@@ -1169,9 +1138,6 @@ int openscad_main(int argc, char **argv)
     }
   }
 
-  viewOptions.previewer = (viewOptions.renderer == RenderType::THROWNTOGETHER)
-                            ? Previewer::THROWNTOGETHER
-                            : Previewer::OPENCSG;
   if (vm.count("view")) {
     const auto& viewOptionValues = vm["view"].as<CommaSeparatedVector>();
 
@@ -1182,10 +1148,6 @@ int openscad_main(int argc, char **argv)
         LOG("Unknown --view option '%1$s' ignored. Use -h to list available options.", option);
       }
     }
-  }
-
-  if (vm.count("csglimit")) {
-    RenderSettings::inst()->openCSGTermLimit = vm["csglimit"].as<unsigned int>();
   }
 
   if (vm.count("o")) {
