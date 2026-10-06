@@ -252,11 +252,12 @@ void CGALRenderer::prepare(const ShaderUtils::ShaderInfo * /*shaderinfo*/)
 #ifdef ENABLE_CGAL
   if (!this->nefPolyhedrons_.empty() && this->polyhedrons_.empty()) createPolyhedrons();
 #endif
+  prepareOverlays();
 
   PRINTD("prepare() end");
 }
 
-void CGALRenderer::draw(bool showedges, const ShaderUtils::ShaderInfo * /*shaderinfo*/) const
+void CGALRenderer::draw(bool showedges, const ShaderUtils::ShaderInfo *shaderinfo) const
 {
   PRINTD("draw()");
   // grab current state to restore after
@@ -289,6 +290,7 @@ void CGALRenderer::draw(bool showedges, const ShaderUtils::ShaderInfo * /*shader
     p->draw(showedges);
   }
 #endif
+  drawOverlays(shaderinfo);
 
   PRINTD("draw() end");
 }
@@ -310,5 +312,6 @@ BoundingBox CGALRenderer::getBoundingBox() const
   for (const auto& [polygon, polyset] : this->polygons_) {
     bbox.extend(polygon->getBoundingBox());
   }
+  bbox.extend(overlayBoundingBox());
   return bbox;
 }

@@ -60,10 +60,11 @@
 #include "geometry/manifold/ManifoldGeometry.h"
 #endif
 
-// This renderer is used in Manifold mode (F6 with Manifold as geometry engine)
+// This renderer is used in Manifold mode (F6 with Manifold as geometry engine). Without geometry it
+// draws only its overlays.
 PolySetRenderer::PolySetRenderer(const std::shared_ptr<const class Geometry>& geom)
 {
-  this->addGeometry(geom);
+  if (geom) this->addGeometry(geom);
 }
 
 void PolySetRenderer::addGeometry(const std::shared_ptr<const Geometry>& geom)
@@ -225,12 +226,14 @@ void PolySetRenderer::prepare(const ShaderUtils::ShaderInfo *shaderinfo)
       createPolygonStates();
     }
   }
+  prepareOverlays();
 }
 
 void PolySetRenderer::draw(bool showedges, const ShaderUtils::ShaderInfo *shaderinfo) const
 {
   drawPolySets(showedges, shaderinfo);
   drawPolygons();
+  drawOverlays(shaderinfo);
 }
 
 void PolySetRenderer::drawPolySets(bool showedges, const ShaderUtils::ShaderInfo *shaderinfo) const
@@ -298,6 +301,7 @@ BoundingBox PolySetRenderer::getBoundingBox() const
   for (const auto& [polygon, polyset] : this->polygons_) {
     bbox.extend(polygon->getBoundingBox());
   }
+  bbox.extend(overlayBoundingBox());
   return bbox;
 }
 

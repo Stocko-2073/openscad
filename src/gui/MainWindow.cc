@@ -118,6 +118,7 @@
 #include "geometry/GeometryEvaluator.h"
 #include "glview/PolySetRenderer.h"
 #include "glview/RenderSettings.h"
+#include "glview/VBORenderer.h"
 #if not defined(USE_POLYSET_FOR_CGAL)
 #include "glview/cgal/CGALRenderer.h"
 #endif
@@ -2172,13 +2173,14 @@ void MainWindow::cgalRender()
   this->cgalworker->start(this->tree);
 }
 
-void MainWindow::actionRenderDone(const std::shared_ptr<const Geometry>& root_geom)
+void MainWindow::actionRenderDone(const std::shared_ptr<const RenderResult>& result)
 {
   renderStatistic.endPhase(RenderStatistic::PHASE_GEOMETRY);
 #ifdef ENABLE_PYTHON
   python_lock();
 #endif
   progress_report_fin();
+  const std::shared_ptr<const Geometry>& root_geom = result->geometry;
   if (root_geom) {
     std::vector<std::string> options;
     if (Settings::Settings::summaryCamera.value()) {
@@ -2194,19 +2196,22 @@ void MainWindow::actionRenderDone(const std::shared_ptr<const Geometry>& root_ge
     LOG("Rendering finished.");
 
     this->rootGeom = root_geom;
+    std::shared_ptr<VBORenderer> renderer;
 #if defined(USE_POLYSET_FOR_CGAL)
-    this->geomRenderer = std::make_shared<PolySetRenderer>(this->rootGeom);
+    renderer = std::make_shared<PolySetRenderer>(this->rootGeom);
 #else
     // Choose PolySetRenderer for PolySet and Polygon2d, and for Manifold since we
     // know that all geometries are convertible to PolySet.
     if (RenderSettings::inst()->backend3D == RenderBackend3D::ManifoldBackend ||
         std::dynamic_pointer_cast<const PolySet>(this->rootGeom) ||
         std::dynamic_pointer_cast<const Polygon2d>(this->rootGeom)) {
-      this->geomRenderer = std::make_shared<PolySetRenderer>(this->rootGeom);
+      renderer = std::make_shared<PolySetRenderer>(this->rootGeom);
     } else {
-      this->geomRenderer = std::make_shared<CGALRenderer>(this->rootGeom);
+      renderer = std::make_shared<CGALRenderer>(this->rootGeom);
     }
 #endif
+    renderer->setOverlays(result->overlays);
+    this->geomRenderer = renderer;
 
     // Go to CGAL view mode
     viewModeRender();
@@ -2214,6 +2219,13 @@ void MainWindow::actionRenderDone(const std::shared_ptr<const Geometry>& root_ge
   } else {
     resetMeasurementsState(false, "No top level geometry; render something to enable measurements");
     LOG(message_group::UI_Warning, "No top level geometry to render");
+    // A design of only % subtrees still shows them.
+    if (!result->overlays.empty()) {
+      auto renderer = std::make_shared<PolySetRenderer>(nullptr);
+      renderer->setOverlays(result->overlays);
+      this->geomRenderer = renderer;
+      viewModeRender();
+    }
   }
 
   updateStatusBar(nullptr);

@@ -49,13 +49,13 @@ void CGALWorker::work()
 #ifdef ENABLE_PYTHON
   python_lock();
 #endif
-  std::shared_ptr<const Geometry> root_geom;
+  auto result = std::make_shared<RenderResult>();
   try {
     GeometryEvaluator evaluator(*this->tree);
-    root_geom = evaluator.evaluateGeometry(*this->tree->root(), true);
+    result->geometry = evaluator.evaluateGeometry(*this->tree->root(), true);
 
 #ifdef ENABLE_MANIFOLD
-    if (auto manifold = std::dynamic_pointer_cast<const ManifoldGeometry>(root_geom)) {
+    if (auto manifold = std::dynamic_pointer_cast<const ManifoldGeometry>(result->geometry)) {
       // calling status forces evaluation
       // we should complete evaluation within the worker thread, so computation
       // will not block the GUI.
@@ -63,6 +63,9 @@ void CGALWorker::work()
         LOG(message_group::Error, "Rendering cancelled due to unknown manifold error.");
     }
 #endif
+
+    // After the result, so the # subtrees come from the cache. Failing here keeps the result.
+    result->overlays = overlay::collect(*this->tree, *this->tree->root());
   } catch (const ProgressCancelException& e) {
     LOG("Rendering cancelled.");
   } catch (const HardWarningException& e) {
@@ -75,6 +78,6 @@ void CGALWorker::work()
 #ifdef ENABLE_PYTHON
   python_unlock();
 #endif
-  emit done(root_geom);
+  emit done(result);
   thread->quit();
 }

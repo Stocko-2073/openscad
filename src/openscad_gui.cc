@@ -55,6 +55,7 @@
 #include "geometry/Geometry.h"
 #include "gui/AppleEvents.h"
 #include "gui/BOSL2Updater.h"
+#include "gui/CGALWorker.h"
 #include "gui/input/InputDriverManager.h"
 #include "version.h"
 #ifdef ENABLE_HIDAPI
@@ -87,6 +88,7 @@
 
 Q_DECLARE_METATYPE(Message);
 Q_DECLARE_METATYPE(std::shared_ptr<const Geometry>);
+Q_DECLARE_METATYPE(std::shared_ptr<const RenderResult>);
 
 extern std::string arg_colorscheme;
 
@@ -223,6 +225,7 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
   // Other global settings
   qRegisterMetaType<Message>();
   qRegisterMetaType<std::shared_ptr<const Geometry>>();
+  qRegisterMetaType<std::shared_ptr<const RenderResult>>();
 
   FontCache::registerProgressHandler(dialogInitHandler);
 

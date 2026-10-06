@@ -39,6 +39,7 @@
 #include <utility>
 #include <memory>
 #include <cstddef>
+#include <vector>
 
 namespace VBOUtils {
 
@@ -168,4 +169,69 @@ void VBORenderer::add_shader_pointers(VBOBuilder& vbo_builder, const ShaderUtils
   }
 
   vbo_builder.states().emplace_back(std::move(ss));
+}
+
+void VBORenderer::setOverlays(std::vector<overlay::Mesh> overlays)
+{
+  overlays_ = std::move(overlays);
+  overlay_vertex_state_containers_.clear();
+}
+
+void VBORenderer::prepareOverlays()
+{
+  if (overlays_.empty() || !overlay_vertex_state_containers_.empty()) return;
+
+  VertexStateContainer& container = overlay_vertex_state_containers_.emplace_back();
+  VBOBuilder vbo_builder(std::make_unique<VertexStateFactory>(), container);
+  vbo_builder.addSurfaceData();
+
+  size_t num_vertices = 0;
+  for (const auto& mesh : overlays_) num_vertices += calcNumVertices(*mesh.polyset);
+  vbo_builder.allocateBuffers(num_vertices);
+
+  for (const auto& mesh : overlays_) {
+    Color4f color;
+    getColorSchemeColor(
+      mesh.kind == overlay::Kind::Highlight ? ColorMode::HIGHLIGHT : ColorMode::BACKGROUND, color);
+    vbo_builder.writeSurface();
+    vbo_builder.create_surface(*mesh.polyset, Transform3d::Identity(), color, false, true);
+  }
+
+  vbo_builder.createInterleavedVBOs();
+}
+
+void VBORenderer::drawOverlays(const ShaderUtils::ShaderInfo *shaderinfo) const
+{
+  // Picking sees the geometry only.
+  if (shaderinfo && shaderinfo->type == ShaderUtils::ShaderType::SELECT_RENDERING) return;
+  if (overlay_vertex_state_containers_.empty()) return;
+
+  // Translucent: tested against the geometry's depth without writing any, and pulled forward so a
+  // # subtree lying on the surface tints it.
+  GL_TRACE0("glDepthMask(GL_FALSE)");
+  GL_CHECKD(glDepthMask(GL_FALSE));
+  GL_TRACE0("glDepthFunc(GL_LEQUAL)");
+  GL_CHECKD(glDepthFunc(GL_LEQUAL));
+  GL_TRACE0("glEnable(GL_POLYGON_OFFSET_FILL)");
+  GL_CHECKD(glEnable(GL_POLYGON_OFFSET_FILL));
+  GL_TRACE0("glPolygonOffset(-1, -1)");
+  GL_CHECKD(glPolygonOffset(-1.0f, -1.0f));
+
+  for (const auto& container : overlay_vertex_state_containers_) {
+    for (const auto& vertex_state : container.states()) vertex_state->draw();
+  }
+
+  GL_TRACE0("glDisable(GL_POLYGON_OFFSET_FILL)");
+  GL_CHECKD(glDisable(GL_POLYGON_OFFSET_FILL));
+  GL_TRACE0("glDepthFunc(GL_LESS)");
+  GL_CHECKD(glDepthFunc(GL_LESS));
+  GL_TRACE0("glDepthMask(GL_TRUE)");
+  GL_CHECKD(glDepthMask(GL_TRUE));
+}
+
+BoundingBox VBORenderer::overlayBoundingBox() const
+{
+  BoundingBox bbox;
+  for (const auto& mesh : overlays_) bbox.extend(mesh.polyset->getBoundingBox());
+  return bbox;
 }

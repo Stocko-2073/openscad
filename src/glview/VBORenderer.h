@@ -4,6 +4,8 @@
 #include <utility>
 #include <memory>
 #include <cstddef>
+#include <vector>
+#include "core/ModifierOverlays.h"
 #include "glview/Renderer.h"
 #include "glview/ShaderUtils.h"
 #include "geometry/linalg.h"
@@ -50,14 +52,24 @@ public:
     const ShaderUtils::ShaderInfo
       *shaderinfo);  // This could stay protected, were it not for VertexStateManager
 
+  // Meshes drawn translucent over the geometry, such as the # and % subtrees. They are not picked.
+  void setOverlays(std::vector<overlay::Mesh> overlays);
+
 protected:
   void add_shader_data(VBOBuilder& vbo_builder);
   void shader_attribs_enable(const ShaderUtils::ShaderInfo&) const;
   void shader_attribs_disable(const ShaderUtils::ShaderInfo&) const;
+
+  // For prepare(), draw() and getBoundingBox() to call after handling the geometry.
+  void prepareOverlays();
+  void drawOverlays(const ShaderUtils::ShaderInfo *shaderinfo) const;
+  [[nodiscard]] BoundingBox overlayBoundingBox() const;
 
   mutable std::unordered_map<std::pair<const PolySet *, const Transform3d *>, int,
                              boost::hash<std::pair<const PolySet *, const Transform3d *>>>
     geom_visit_mark_;
 
 private:
+  std::vector<overlay::Mesh> overlays_;
+  std::vector<VertexStateContainer> overlay_vertex_state_containers_;
 };
