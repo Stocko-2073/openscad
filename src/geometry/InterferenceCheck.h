@@ -1,6 +1,6 @@
 #pragma once
 
-// Static interference check shared by the GUI preview and the command line.
+// Static interference check shared by the GUI render (F6) and the command line.
 //
 // Each direct child of the root node is treated as one "part". Pairs whose
 // bounding boxes touch are confirmed with an exact Manifold intersection, and a
@@ -13,7 +13,6 @@
 #include <memory>
 #include <ostream>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "geometry/linalg.h"
@@ -85,6 +84,7 @@ struct Collision {
   int partA = 0;
   int partB = 0;
   double volume = 0.0;
+  std::shared_ptr<const ManifoldGeometry> overlap;  // where the parts overlap, for drawing
   std::vector<Primitive> primitives;
 };
 
@@ -114,9 +114,6 @@ Report run(const Tree& tree, const Options& opts);
 // Logs one Warning per colliding pair plus an Echo summary, exactly as the GUI
 // console has always shown them.
 void logReport(const Report& report, const Tree& tree);
-
-// Node indices of every node inside a colliding part (used to recolor leaves).
-std::unordered_set<int> conflictingNodeIndices(const Report& report);
 
 // Writes the agent-oriented JSON document (pretty-printed, trailing newline).
 void writeJson(const Report& report, const Tree& tree, const Options& opts, std::ostream& out);

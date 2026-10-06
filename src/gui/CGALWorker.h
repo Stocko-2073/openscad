@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <chrono>
 #include <memory>
 #include <vector>
 
@@ -8,11 +9,17 @@
 
 class Geometry;
 class Tree;
+namespace interference {
+struct Report;
+}
 
 // What a render hands the 3D view.
 struct RenderResult {
   std::shared_ptr<const Geometry> geometry;  // null if there is none or the render failed
   std::vector<overlay::Mesh> overlays;
+  std::chrono::steady_clock::duration geometryTime{};        // evaluating the geometry and the overlays
+  std::shared_ptr<const interference::Report> interference;  // when the check ran
+  std::chrono::steady_clock::duration interferenceTime{};
 };
 
 class CGALWorker : public QObject
@@ -24,7 +31,9 @@ public:
   ~CGALWorker() override;
 
 public slots:
-  void start(const Tree& tree);
+  // Renders on the worker thread; with `checkInterference`, also checks the top-level parts for
+  // overlaps and draws them.
+  void start(const Tree& tree, bool checkInterference);
 
 protected slots:
   void work();
@@ -35,4 +44,5 @@ signals:
 protected:
   class QThread *thread;
   const class Tree *tree;
+  bool checkInterference{false};
 };

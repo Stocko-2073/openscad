@@ -91,7 +91,6 @@
 #include <memory>
 #include <sstream>
 #include <string>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -1070,44 +1069,6 @@ void MainWindow::instantiateRoot()
    Generates CSG tree for OpenCSG evaluation.
    Assumes that the design has been parsed and evaluated (this->root_node is set)
  */
-#ifdef ENABLE_MANIFOLD
-// Color applied to every leaf of a part that interferes with another part.
-static const Color4f kInterferenceColor(1.0f, 0.25f, 0.25f, 1.0f);  // red
-
-// Scene-wide static interference check, run on every preview/reload from within
-// compileCSG() (before the renderers are built, so recoloring takes effect).
-// The pair test itself lives in geometry/InterferenceCheck so the command line
-// shares it; here we only need the colliding pairs, not the per-primitive
-// attribution, so that is switched off. Colliding pairs are logged to the
-// console, and every part involved in a collision is recolored in the preview.
-void MainWindow::runInterferenceCheck()
-{
-  if (!this->viewActionShowInterference->isChecked()) return;
-  if (!this->rootNode) return;
-
-  const RenderStatistic::ScopedPhase phase(renderStatistic, RenderStatistic::PHASE_INTERFERENCE);
-
-  interference::Options opts;
-  opts.primitives = false;
-  const interference::Report report = interference::run(this->tree, opts);
-  interference::logReport(report, this->tree);
-
-  // Recolor every leaf belonging to a conflicting part so the overlap is visible
-  // in the preview. The renderers bake leaf colors into their VBOs at
-  // construction, so this must run before they are built.
-  if (report.collisions.empty() || !this->rootProduct) return;
-  const std::unordered_set<int> conflictingIndices = interference::conflictingNodeIndices(report);
-  for (auto& product : this->rootProduct->products) {
-    for (auto *chain : {&product.intersections, &product.subtractions}) {
-      for (auto& csgobj : *chain) {
-        if (csgobj.leaf && conflictingIndices.count(csgobj.leaf->index)) {
-          csgobj.leaf->color = kInterferenceColor;
-        }
-      }
-    }
-  }
-}
-#endif  // ENABLE_MANIFOLD
 
 void MainWindow::compileCSG()
 {
@@ -1199,11 +1160,6 @@ void MainWindow::compileCSG()
       this->backgroundProducts.reset();
     }
     renderStatistic.endPhase(RenderStatistic::PHASE_CSG_NORMALIZATION);
-
-#ifdef ENABLE_MANIFOLD
-    // Detect interfering parts and recolor them before the renderers bake colors.
-    runInterferenceCheck();
-#endif
 
     renderStatistic.beginPhase(RenderStatistic::PHASE_RENDERERS);
     if (this->rootProduct && (this->rootProduct->size() >
@@ -2167,19 +2123,28 @@ void MainWindow::cgalRender()
   if (!isClosing) progress_report_prep(this->rootNode, report_func, this);
   else return;
 
-  // Ended in actionRenderDone(), which the worker's done() signal delivers back
-  // on this thread, so the phase is only ever touched from the GUI thread.
-  renderStatistic.beginPhase(RenderStatistic::PHASE_GEOMETRY);
-  this->cgalworker->start(this->tree);
+#ifdef ENABLE_MANIFOLD
+  const bool checkInterference = this->viewActionShowInterference->isChecked();
+#else
+  const bool checkInterference = false;
+#endif
+  this->cgalworker->start(this->tree, checkInterference);
 }
 
 void MainWindow::actionRenderDone(const std::shared_ptr<const RenderResult>& result)
 {
-  renderStatistic.endPhase(RenderStatistic::PHASE_GEOMETRY);
+  // Timed on the worker, since the statistic is only touched on this thread.
+  renderStatistic.addPhaseTime(RenderStatistic::PHASE_GEOMETRY, result->geometryTime);
 #ifdef ENABLE_PYTHON
   python_lock();
 #endif
   progress_report_fin();
+#ifdef ENABLE_MANIFOLD
+  if (result->interference) {
+    renderStatistic.addPhaseTime(RenderStatistic::PHASE_INTERFERENCE, result->interferenceTime);
+    interference::logReport(*result->interference, this->tree);
+  }
+#endif
   const std::shared_ptr<const Geometry>& root_geom = result->geometry;
   if (root_geom) {
     std::vector<std::string> options;
@@ -3078,9 +3043,8 @@ void MainWindow::on_viewActionShowInterference_toggled(bool checked)
 {
   QSettingsCached settings;
   settings.setValue("view/showInterference", checked);
-  // The interference recolor is baked into the CSG products during compileCSG(),
-  // so a full preview recompile is needed to apply or clear it.
-  actionRenderPreview();
+  // The check runs with the render.
+  on_designActionRender_triggered();
 }
 
 bool MainWindow::isEmpty()

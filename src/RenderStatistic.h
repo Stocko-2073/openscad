@@ -104,6 +104,11 @@ public:
   void endPhase(const std::string& name);
 
   /**
+   * Add time measured elsewhere, such as on a worker thread, to the named phase.
+   */
+  void addPhaseTime(const std::string& name, std::chrono::steady_clock::duration elapsed);
+
+  /**
    * The phases recorded since @ref start, in the order they were first begun.
    * A phase still running is reported with the time accumulated so far.
    */

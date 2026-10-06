@@ -177,34 +177,50 @@ void VBORenderer::setOverlays(std::vector<overlay::Mesh> overlays)
   overlay_vertex_state_containers_.clear();
 }
 
+namespace {
+
+// Interference overlaps are drawn through the geometry; the rest is depth-tested against it.
+bool isXRay(const overlay::Mesh& mesh) { return mesh.kind == overlay::Kind::Interference; }
+
+}  // namespace
+
 void VBORenderer::prepareOverlays()
 {
   if (overlays_.empty() || !overlay_vertex_state_containers_.empty()) return;
 
-  VertexStateContainer& container = overlay_vertex_state_containers_.emplace_back();
-  VBOBuilder vbo_builder(std::make_unique<VertexStateFactory>(), container);
-  vbo_builder.addSurfaceData();
+  for (const bool xray : {false, true}) {
+    VertexStateContainer& container = overlay_vertex_state_containers_.emplace_back();
+    VBOBuilder vbo_builder(std::make_unique<VertexStateFactory>(), container);
+    vbo_builder.addSurfaceData();
 
-  size_t num_vertices = 0;
-  for (const auto& mesh : overlays_) num_vertices += calcNumVertices(*mesh.polyset);
-  vbo_builder.allocateBuffers(num_vertices);
+    size_t num_vertices = 0;
+    for (const auto& mesh : overlays_) {
+      if (isXRay(mesh) == xray) num_vertices += calcNumVertices(*mesh.polyset);
+    }
+    if (num_vertices == 0) continue;
+    vbo_builder.allocateBuffers(num_vertices);
 
-  for (const auto& mesh : overlays_) {
-    Color4f color;
-    getColorSchemeColor(
-      mesh.kind == overlay::Kind::Highlight ? ColorMode::HIGHLIGHT : ColorMode::BACKGROUND, color);
-    vbo_builder.writeSurface();
-    vbo_builder.create_surface(*mesh.polyset, Transform3d::Identity(), color, false, true);
+    for (const auto& mesh : overlays_) {
+      if (isXRay(mesh) != xray) continue;
+      Color4f color;
+      switch (mesh.kind) {
+      case overlay::Kind::Highlight:    getColorSchemeColor(ColorMode::HIGHLIGHT, color); break;
+      case overlay::Kind::Background:   getColorSchemeColor(ColorMode::BACKGROUND, color); break;
+      case overlay::Kind::Interference: color = Color4f(1.0f, 0.25f, 0.25f, 0.6f); break;
+      }
+      vbo_builder.writeSurface();
+      vbo_builder.create_surface(*mesh.polyset, Transform3d::Identity(), color, false, true);
+    }
+
+    vbo_builder.createInterleavedVBOs();
   }
-
-  vbo_builder.createInterleavedVBOs();
 }
 
 void VBORenderer::drawOverlays(const ShaderUtils::ShaderInfo *shaderinfo) const
 {
   // Picking sees the geometry only.
   if (shaderinfo && shaderinfo->type == ShaderUtils::ShaderType::SELECT_RENDERING) return;
-  if (overlay_vertex_state_containers_.empty()) return;
+  if (overlay_vertex_state_containers_.size() != 2) return;
 
   // Translucent: tested against the geometry's depth without writing any, and pulled forward so a
   // # subtree lying on the surface tints it.
@@ -216,13 +232,19 @@ void VBORenderer::drawOverlays(const ShaderUtils::ShaderInfo *shaderinfo) const
   GL_CHECKD(glEnable(GL_POLYGON_OFFSET_FILL));
   GL_TRACE0("glPolygonOffset(-1, -1)");
   GL_CHECKD(glPolygonOffset(-1.0f, -1.0f));
-
-  for (const auto& container : overlay_vertex_state_containers_) {
-    for (const auto& vertex_state : container.states()) vertex_state->draw();
-  }
-
+  for (const auto& vertex_state : overlay_vertex_state_containers_[0].states()) vertex_state->draw();
   GL_TRACE0("glDisable(GL_POLYGON_OFFSET_FILL)");
   GL_CHECKD(glDisable(GL_POLYGON_OFFSET_FILL));
+
+  // Overlaps are inside the geometry, so they are drawn through it.
+  if (!overlay_vertex_state_containers_[1].states().empty()) {
+    GL_TRACE0("glDisable(GL_DEPTH_TEST)");
+    GL_CHECKD(glDisable(GL_DEPTH_TEST));
+    for (const auto& vertex_state : overlay_vertex_state_containers_[1].states()) vertex_state->draw();
+    GL_TRACE0("glEnable(GL_DEPTH_TEST)");
+    GL_CHECKD(glEnable(GL_DEPTH_TEST));
+  }
+
   GL_TRACE0("glDepthFunc(GL_LESS)");
   GL_CHECKD(glDepthFunc(GL_LESS));
   GL_TRACE0("glDepthMask(GL_TRUE)");

@@ -1,16 +1,20 @@
 #include "gui/CGALWorker.h"
 
 #include <QThread>
+#include <chrono>
 #include <exception>
 #include <memory>
+#include <utility>
 
 #ifdef ENABLE_MANIFOLD
+#include "geometry/InterferenceCheck.h"
 #include "geometry/manifold/ManifoldGeometry.h"
 #endif
 
 #include "core/Tree.h"
 #include "core/progress.h"
 #include "geometry/GeometryEvaluator.h"
+#include "geometry/PolySet.h"
 #include "utils/exceptions.h"
 #include "utils/printutils.h"
 
@@ -34,12 +38,13 @@ CGALWorker::~CGALWorker()
   delete this->thread;
 }
 
-void CGALWorker::start(const Tree& tree)
+void CGALWorker::start(const Tree& tree, bool checkInterference)
 {
 #ifdef ENABLE_PYTHON
   python_unlock();
 #endif
   this->tree = &tree;
+  this->checkInterference = checkInterference;
   this->thread->start();
 }
 
@@ -50,6 +55,7 @@ void CGALWorker::work()
   python_lock();
 #endif
   auto result = std::make_shared<RenderResult>();
+  const auto renderStart = std::chrono::steady_clock::now();
   try {
     GeometryEvaluator evaluator(*this->tree);
     result->geometry = evaluator.evaluateGeometry(*this->tree->root(), true);
@@ -66,6 +72,23 @@ void CGALWorker::work()
 
     // After the result, so the # subtrees come from the cache. Failing here keeps the result.
     result->overlays = overlay::collect(*this->tree, *this->tree->root());
+    result->geometryTime = std::chrono::steady_clock::now() - renderStart;
+
+#ifdef ENABLE_MANIFOLD
+    if (this->checkInterference) {
+      const auto checkStart = std::chrono::steady_clock::now();
+      interference::Options opts;
+      opts.primitives = false;  // the console names the parts; the overlaps show where
+      auto report = std::make_shared<interference::Report>(interference::run(*this->tree, opts));
+      for (const auto& collision : report->collisions) {
+        if (auto ps = collision.overlap->toPolySet(); ps && !ps->isEmpty()) {
+          result->overlays.push_back({overlay::Kind::Interference, std::move(ps)});
+        }
+      }
+      result->interference = std::move(report);
+      result->interferenceTime = std::chrono::steady_clock::now() - checkStart;
+    }
+#endif
   } catch (const ProgressCancelException& e) {
     LOG("Rendering cancelled.");
   } catch (const HardWarningException& e) {
@@ -74,6 +97,9 @@ void CGALWorker::work()
     LOG(message_group::Error, "Rendering cancelled by exception %1$s", e.what());
   } catch (...) {
     LOG(message_group::Error, "Rendering cancelled by unknown exception.");
+  }
+  if (result->geometryTime == std::chrono::steady_clock::duration::zero()) {
+    result->geometryTime = std::chrono::steady_clock::now() - renderStart;
   }
 #ifdef ENABLE_PYTHON
   python_unlock();

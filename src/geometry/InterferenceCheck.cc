@@ -7,7 +7,6 @@
 #include <ostream>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -36,17 +35,6 @@ namespace {
 double manifoldVolume(const ManifoldGeometry& geom)
 {
   return geom.isEmpty() ? 0.0 : geom.getManifold().Volume();
-}
-
-// Collects the node indices of an entire subtree. CSGLeaf::index records the
-// index of the leaf primitive node, so to recolor a whole top-level part we need
-// the indices of all its descendants.
-void collectSubtreeIndices(const std::shared_ptr<const AbstractNode>& node,
-                           std::unordered_set<int>& out)
-{
-  if (!node) return;
-  out.insert(node->index());
-  for (const auto& child : node->getChildren()) collectSubtreeIndices(child, out);
 }
 
 // Gathers the CSG leaves that add material to a term. A leaf is subtracted
@@ -330,17 +318,18 @@ Report run(const Tree& tree, const Options& opts)
       if (parts[j].status != PartStatus::Checked) continue;
       if (!parts[i].bbox.intersects(parts[j].bbox)) continue;  // cheap cull
       ++report.pairsTested;
-      const ManifoldGeometry overlap = *parts[i].manifold * *parts[j].manifold;
-      const double vol = manifoldVolume(overlap);
+      auto overlap = std::make_shared<const ManifoldGeometry>(*parts[i].manifold * *parts[j].manifold);
+      const double vol = manifoldVolume(*overlap);
       if (vol <= kVolumeEps) continue;  // flush faces / numerical noise
       Collision collision;
       collision.partA = parts[i].number;
       collision.partB = parts[j].number;
       collision.volume = vol;
       if (attributor) {
-        attributor->attribute(parts[i], overlap, collision);
-        attributor->attribute(parts[j], overlap, collision);
+        attributor->attribute(parts[i], *overlap, collision);
+        attributor->attribute(parts[j], *overlap, collision);
       }
+      collision.overlap = std::move(overlap);
       report.collisions.push_back(std::move(collision));
     }
   }
@@ -362,20 +351,6 @@ void logReport(const Report& report, const Tree& tree)
   LOG(message_group::Echo, "%1$s",
       STR("Interference check: ", report.checkedParts(), " part(s), ", report.collisions.size(),
           " overlapping pair(s)."));
-}
-
-std::unordered_set<int> conflictingNodeIndices(const Report& report)
-{
-  std::unordered_set<int> conflicting;
-  std::unordered_set<int> numbers;
-  for (const auto& collision : report.collisions) {
-    numbers.insert(collision.partA);
-    numbers.insert(collision.partB);
-  }
-  for (const int number : numbers) {
-    if (const Part *part = report.part(number)) collectSubtreeIndices(part->node, conflicting);
-  }
-  return conflicting;
 }
 
 void writeJson(const Report& report, const Tree& tree, const Options& opts, std::ostream& out)

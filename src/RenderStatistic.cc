@@ -231,6 +231,16 @@ void RenderStatistic::endPhase(const std::string& name)
   phase->running = false;
 }
 
+void RenderStatistic::addPhaseTime(const std::string& name, std::chrono::steady_clock::duration elapsed)
+{
+  auto *phase = findPhase(name);
+  if (!phase) {
+    phase = &phases.emplace_back();
+    phase->name = name;
+  }
+  phase->elapsed += elapsed;
+}
+
 std::vector<RenderStatistic::PhaseTime> RenderStatistic::phaseTimes() const
 {
   const auto now = std::chrono::steady_clock::now();

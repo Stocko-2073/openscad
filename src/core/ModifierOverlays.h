@@ -17,8 +17,9 @@ class Tree;
 namespace overlay {
 
 enum class Kind : std::uint8_t {
-  Highlight,   // `#`: drawn pink, and part of the result
-  Background,  // `%`: drawn grey, and not part of the result
+  Highlight,     // `#`: drawn pink, and part of the result
+  Background,    // `%`: drawn grey, and not part of the result
+  Interference,  // where two top-level parts overlap: drawn red, through the result
 };
 
 struct Mesh {
