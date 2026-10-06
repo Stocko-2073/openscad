@@ -183,10 +183,11 @@ public:
   [[nodiscard]] const Identifier& get_name() const { return name; }
 
   /*
-   * Set by incremental evaluation when this reads a $ variable only to assign
-   * the same variable, as in BOSL2's `$transform = $transform * m`. The value
-   * it sees does not reach the output unless something reads the variable
-   * for real. See core/EvalMemo.h.
+   * Whether this reads a $ variable only to assign the same variable, as in
+   * BOSL2's `$transform = $transform * m`: the value it sees does not reach
+   * the output unless something reads the variable for real. Set once right
+   * after parsing, by memo::annotate() (mutable only because that walk is
+   * the const hashing visitor), and only read afterwards. See core/EvalMemo.h.
    */
   mutable bool accumulator = false;
 

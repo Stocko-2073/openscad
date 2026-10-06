@@ -448,33 +448,6 @@ void EvalMemoSession::noteDollarRead(const Identifier& name, size_t index, const
   if (outside) r.add(r.reads, name, index, value);
 }
 
-void EvalMemoSession::prepare(const SourceFile& root)
-{
-  if (std::find(preparedScopes.begin(), preparedScopes.end(), &root) != preparedScopes.end()) return;
-  preparedScopes.push_back(&root);
-  markAccumulators(*root.scope);
-  for (const auto& path : root.usedlibs) {
-    if (const SourceFile *used = SourceFileCache::instance()->lookup(path)) prepare(*used);
-  }
-}
-
-void EvalMemoSession::markAccumulators(const LocalScope& scope)
-{
-  for (const auto& assignment : scope.assignments) {
-    if (!assignment || !assignment->getExpr() || !assignment->getName().isConfigVariable()) continue;
-    ASTHasher h;
-    h.accumulatorOf = &assignment->getName();
-    h.expr(assignment->getExpr().get());
-  }
-  for (const auto& [name, module] : scope.moduleDefinitions()) markAccumulators(*module->body);
-  for (const auto& inst : scope.moduleInstantiations) {
-    markAccumulators(*inst->scope);
-    if (const auto *ifelse = dynamic_cast<const IfElseModuleInstantiation *>(inst.get())) {
-      if (const auto& else_scope = ifelse->getElseScope()) markAccumulators(*else_scope);
-    }
-  }
-}
-
 bool EvalMemoSession::isUserFile(const ModuleInstantiation *inst)
 {
   const fs::path& path = inst->location().filePath();

@@ -78,7 +78,6 @@ Run evaluate(SourceFile *file, const fs::path& dir, memo::MemoTable *table, uint
       memo.emplace(*table, generation);
       session.setMemo(&*memo);
     }
-    if (memo) memo->prepare(*file);
     std::shared_ptr<const FileContext> fileContext;
     run.root = file->instantiate(*builtin, &fileContext);
     fileContext.reset();

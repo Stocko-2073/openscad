@@ -36,6 +36,7 @@
 #include <unistd.h>
 #endif
 
+#include "core/EvalMemo.h"
 #include "core/SourceFile.h"
 #include "core/UserModule.h"
 #include "core/ModuleInstantiation.h"
@@ -842,5 +843,7 @@ bool parse(SourceFile *&file, const std::string& text, const std::string &filena
   scope_stack.pop();
   assert(scope_stack.size()==0);
 
+  // Once, before anything can evaluate the file; see core/EvalMemo.h.
+  memo::annotate(*rootfile);
   return true;
 }

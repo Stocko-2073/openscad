@@ -15,6 +15,7 @@
 #include "core/Expression.h"
 #include "core/LocalScope.h"
 #include "core/ModuleInstantiation.h"
+#include "core/SourceFile.h"
 #include "core/UserModule.h"
 #include "core/Value.h"
 #include "core/function.h"
@@ -131,6 +132,33 @@ void ASTHasher::literal(const Value& value)
     u64(kUnhashableLiteral);
     str(value.toString());
   }
+}
+
+namespace {
+
+void annotateScope(LocalScope& scope)
+{
+  for (const auto& assignment : scope.assignments) {
+    if (!assignment || !assignment->getExpr() || !assignment->getName().isConfigVariable()) continue;
+    // Hashing walks the expression; the hash itself is not needed.
+    ASTHasher h;
+    h.accumulatorOf = &assignment->getName();
+    h.expr(assignment->getExpr().get());
+  }
+  for (const auto& [name, module] : scope.moduleDefinitions()) annotateScope(*module->body);
+  for (const auto& inst : scope.moduleInstantiations) {
+    annotateScope(*inst->scope);
+    if (const auto *ifelse = dynamic_cast<const IfElseModuleInstantiation *>(inst.get())) {
+      if (const auto& else_scope = ifelse->getElseScope()) annotateScope(*else_scope);
+    }
+  }
+}
+
+}  // namespace
+
+void annotate(SourceFile& file)
+{
+  annotateScope(*file.scope);
 }
 
 }  // namespace memo

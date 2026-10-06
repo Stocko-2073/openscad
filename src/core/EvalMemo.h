@@ -154,10 +154,22 @@ public:
   std::vector<Identifier> modules;
 
   // When set, marks every read of this $ name as an accumulator read; see
-  // EvalMemoSession::prepare(). Not inside function literals, whose reads
-  // happen when they are called.
+  // annotate(). Not inside function literals, whose reads happen when they
+  // are called.
   const Identifier *accumulatorOf = nullptr;
 };
+
+/*
+ * Prepares a freshly parsed file for incremental evaluation. The parser calls
+ * it on every file it parses successfully, the main file and each `use`d
+ * one, before anything can evaluate it: it writes to the syntax tree, which
+ * the GUI's animation prefetch evaluates on several threads at once.
+ *
+ * Marks accumulator reads: in `$x = <expr>`, each read of $x inside <expr>
+ * (Lookup::accumulator), which a recording call treats as pending rather
+ * than as a dependency; see Recorder.
+ */
+void annotate(SourceFile& file);
 
 class EvalMemoSession;
 
@@ -255,10 +267,6 @@ public:
   EvalMemoSession(const EvalMemoSession&) = delete;
   EvalMemoSession& operator=(const EvalMemoSession&) = delete;
 
-  // Marks accumulator reads in `root` and the files it uses. Call before
-  // instantiating it.
-  void prepare(const SourceFile& root);
-
   // Instantiates `module` for `inst`, reusing a stored result when the key
   // matches. `arguments` were evaluated by the caller with the module name
   // already pushed, exactly as UserModule::instantiate does.
@@ -318,7 +326,6 @@ private:
   Hash128 fileHash(const SourceFile& file);
   std::shared_ptr<AbstractNode> cloneTree(const AbstractNode& node, size_t& count);
   void replay(const std::vector<Message>& messages);
-  void markAccumulators(const LocalScope& scope);
 
   MemoTable& table;
   uint64_t generation;
@@ -370,7 +377,6 @@ private:
   std::vector<Recorder *> recorders;
   int suspendRecording = 0;  // validation lookups are not reads of the enclosing call
   std::vector<const FunctionType *> hashingFunctions;  // cycle guard for hashFunction()
-  std::vector<const void *> preparedScopes;
   friend class Recorder;
 };
 
