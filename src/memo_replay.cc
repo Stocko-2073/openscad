@@ -12,6 +12,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -155,20 +156,29 @@ std::string compareMessages(const std::vector<Message>& memo, const std::vector<
 }
 
 // The process's memory as the system counts it, once the allocator has
-// returned what it can: Activity Monitor's "Memory" on macOS.
+// returned what it can: Activity Monitor's "Memory" on macOS. Manifold frees
+// large buffers on a thread of its own, so what was just released keeps
+// arriving for a while: collect until the footprint stops falling.
 std::optional<size_t> footprintBytes()
 {
-#ifdef USE_MIMALLOC
-  mi_collect(true);
-#endif
 #ifdef __APPLE__
-  task_vm_info_data_t info;
-  mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
-  if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count) !=
-      KERN_SUCCESS) {
-    return std::nullopt;
+  std::optional<size_t> last;
+  for (int i = 0; i < 40; ++i) {
+#ifdef USE_MIMALLOC
+    mi_collect(true);
+#endif
+    task_vm_info_data_t info;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count) !=
+        KERN_SUCCESS) {
+      return std::nullopt;
+    }
+    const auto footprint = static_cast<size_t>(info.phys_footprint);
+    if (last && footprint + (1 << 20) > *last) return footprint;  // fell by less than 1 MB
+    last = footprint;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
-  return static_cast<size_t>(info.phys_footprint);
+  return last;
 #else
   return std::nullopt;
 #endif
