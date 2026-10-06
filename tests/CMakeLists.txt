@@ -459,7 +459,6 @@ list(APPEND RENDERFORCETEST_FILES
 )
 
 set(PRUNE_TEST ${TEST_SCAD_DIR}/misc/intersection-prune-test.scad)
-list(APPEND ALL_PREVIEW_FILES ${3MF_IMPORT_FILES} ${OBJ_IMPORT_FILES} ${OFF_IMPORT_FILES} ${STL_IMPORT_FILES} ${ALL_RENDER_FILES} ${PRUNE_TEST} ${PREVIEW_ONLY_FILES})
 
 list(APPEND COLOR_3D_TEST_FILES
   ${TEST_SCAD_DIR}/misc/color-cubes.scad
@@ -620,35 +619,10 @@ if(EXAMPLES_DIR)
     ${EXAMPLES_DIR}/Old/example016.scad)
 endif(EXAMPLES_DIR)
 
-# Preview in CGAL and Manifold should be the same, except for objects with color
-# ..but there are some exceptions.
-list(APPEND PREVIEW_DIFFERENT_EXPECTATIONS
-  # Manifold can construct geometry which isn't representable in CGAL mode,
-  # causing CGAL-based operations like minkowski() to fail.
-  ${TEST_SCAD_DIR}/3D/issues/issue1137.scad
-
-  # render() in manifold mode preserves colors
-  ${TEST_SCAD_DIR}/3D/features/render-preserve-colors.scad
-
-  # TODO(kintel): Run bugs files
-  # ${TEST_SCAD_DIR}/bugs/issue1000.scad
-  # ${TEST_SCAD_DIR}/bugs/issue802.scad
-  # ${TEST_SCAD_DIR}/bugs2D/issue2220.scad
-)
-if(EXAMPLES_DIR)
-  list(APPEND PREVIEW_DIFFERENT_EXPECTATIONS
-    ${EXAMPLES_DIR}/Old/example009.scad) # Really this only differs on throwntogether, but then we'd need to make THROWNTOGETHER_DIFFERENT_EXPECTATIONS just for this one thing.
-endif(EXAMPLES_DIR)
-
 list(APPEND RENDER_COMMON_FILES ${ALL_RENDER_FILES})
 list(REMOVE_ITEM RENDER_COMMON_FILES
   ${SCAD_NEF3_FILES}       # Nef3 import not supported in Manifold mode
   ${RENDER_DIFFERENT_EXPECTATIONS}
-)
-
-list(APPEND PREVIEW_COMMON_FILES ${ALL_PREVIEW_FILES})
-list(REMOVE_ITEM PREVIEW_COMMON_FILES
-  ${PREVIEW_DIFFERENT_EXPECTATIONS}
 )
 
 # This is a list of tests that are expected to generate errors when the
@@ -656,21 +630,6 @@ list(REMOVE_ITEM PREVIEW_COMMON_FILES
 # inaccessible).  It only needs to be tested against one preview variation.
 list(APPEND PREVIEW_ERRORS
   ${TEST_SCAD_DIR}/misc/utf8-import.scad
-)
-
-list(APPEND ALL_THROWNTOGETHER_FILES ${ALL_RENDER_FILES})
-list(REMOVE_ITEM ALL_THROWNTOGETHER_FILES
-  ${PREVIEW_DIFFERENT_EXPECTATIONS}
-  ${SCAD_NEF3_FILES}
-  ${TEST_SCAD_DIR}/3D/features/color-tests2.scad
-  ${TEST_SCAD_DIR}/3D/features/minkowski3-erosion.scad
-  ${TEST_SCAD_DIR}/3D/features/nullspace-difference.scad
-  ${TEST_SCAD_DIR}/misc/internal-cavity-polyhedron.scad
-  ${TEST_SCAD_DIR}/3D/issues/issue1165.scad
-	${TEST_SCAD_DIR}/3D/issues/issue1803.scad
-	${TEST_SCAD_DIR}/3D/issues/issue2090.scad
-	${TEST_SCAD_DIR}/3D/issues/issue2841.scad
-	${TEST_SCAD_DIR}/3D/issues/issue2841b.scad
 )
 
 list(APPEND MANIFOLDHARDWARNING_FILES
@@ -734,7 +693,7 @@ set_test_config(Heavy FILES
 
 # Bugs
 set_test_config(Bugs FILES ${BUGS_FILES} ${BUGS_2D_FILES} PREFIXES
- render-cgal render-manifold render-csg-cgal preview-cgal preview-manifold throwntogether-cgal throwntogether-manifold)
+ render-cgal render-manifold render-csg-cgal)
 set_test_config(Bugs FILES ${BUGS_FILES} PREFIXES
   preview-off render-monotone 
   preview-stl 
@@ -762,7 +721,6 @@ remove_test_config(Bugs FILES
 if(EXAMPLES_DIR)
   set_test_config(Examples FILES ${EXAMPLE_FILES} PREFIXES
     render-cgal render-manifold
-    preview-cgal preview-manifold preview-manifold preview throwntogether-cgal throwntogether-manifold 
     render-csg-cgal render-monotone 
     preview-off render-off dump-examples)
   set_test_config(Examples FILES ${EXAMPLE_2D_FILES} PREFIXES render-dxf)
@@ -782,10 +740,6 @@ set_directory_properties(PROPERTIES TEST_INCLUDE_FILES "${CCSD}/cmake/EnforceCon
 # o render-force-cgal: Export to PNG using --render=force
 # o render-manifold: Export to PNG using --render with --backend=manifold
 # o render-force-manifold: Export to PNG using --render=force with --backend=manifold
-# o preview-cgal: Export to PNG using OpenCSG
-# o preview-manifold: Export to PNG in preview mode with --backend=manifold
-# o throwntogether-cgal: Export to PNG using the Throwntogether renderer
-# o throwntogether-manifold
 # o render-csg-cgal: 1) Export to .csg, 2) import .csg and export to PNG (--render)
 # o render-monotone: Same as render-cgal but with the "Monotone" color scheme
 # o preview-stl: Export to STL, Re-import and render to PNG (--render)
@@ -853,9 +807,6 @@ if(ENABLE_PHYSICS)
     ${TEST_SCAD_DIR}/physics/physics-empty.scad)
   add_cmdline_test(physics OPENSCAD SUFFIX png FILES ${PHYSICS_TEST_FILES} ARGS --render)
   add_cmdline_test(dump    OPENSCAD SUFFIX csg FILES ${TEST_SCAD_DIR}/physics/physics-params.scad)
-  # Preview-only: background (%) and highlight (#) ghosts must follow the
-  # simulated transform.
-  add_cmdline_test(physics-preview OPENSCAD SUFFIX png FILES ${TEST_SCAD_DIR}/physics/physics-background.scad)
 endif()
 
 # --interference-check tests. The echo run captures the Warning/summary lines
@@ -889,18 +840,6 @@ add_cmdline_test(render-force-manifold      OPENSCAD SUFFIX png FILES ${RENDERFO
 # This tests that no warnings are issued when using Manifold for converting or processing geometry
 add_cmdline_test(render-force-manifold-hardwarnings OPENSCAD SUFFIX png FILES ${MANIFOLDHARDWARNING_FILES} EXPECTEDDIR render ARGS --render=force --backend=manifold --hardwarnings)
 endif()
-
-add_cmdline_test(preview-cgal    OPENSCAD FILES ${PREVIEW_COMMON_FILES} EXPECTEDDIR preview SUFFIX png ARGS --backend=cgal)
-add_cmdline_test(preview-cgal    OPENSCAD FILES ${PREVIEW_DIFFERENT_EXPECTATIONS} SUFFIX png ARGS --backend=cgal)
-add_cmdline_test(preview-cgal    OPENSCAD FILES ${PREVIEW_ERRORS} SUFFIX png ARGS --backend=cgal)
-if (ENABLE_MANIFOLD_TESTS)
-add_cmdline_test(preview-manifold OPENSCAD SUFFIX png FILES ${PREVIEW_COMMON_FILES} EXPECTEDDIR preview ARGS --backend=manifold)
-add_cmdline_test(preview-manifold OPENSCAD SUFFIX png FILES ${PREVIEW_DIFFERENT_EXPECTATIONS} ARGS --backend=manifold)
-endif()
-
-# Note: we're missing coverage for ${PREVIEW_DIFFERENT_EXPECTATIONS} files for throwntogether
-add_cmdline_test(throwntogether-cgal  OPENSCAD FILES ${ALL_THROWNTOGETHER_FILES} SUFFIX png EXPECTEDDIR throwntogether ARGS --preview=throwntogether --backend=cgal)
-add_cmdline_test(throwntogether-manifold  OPENSCAD FILES ${ALL_THROWNTOGETHER_FILES} SUFFIX png EXPECTEDDIR throwntogether ARGS --preview=throwntogether --backend=manifold)
 
 set(VIEWBOX_TEST "${TEST_SCAD_DIR}/svg/extruded/viewbox-test.scad")
 foreach(TEST ${SVG_VIEWBOX_TESTS})
@@ -1246,7 +1185,6 @@ endif()
 # --enable=lazyunion tests
 #
 add_cmdline_test(lazyunion-export-csg  EXPERIMENTAL OPENSCAD SUFFIX csg FILES ${LAZYUNION_FILES} ARGS --enable=lazy-union)
-add_cmdline_test(lazyunion-preview     EXPERIMENTAL OPENSCAD SUFFIX png FILES ${LAZYUNION_FILES} ARGS --enable=lazy-union)
 add_cmdline_test(lazyunion-render      EXPERIMENTAL OPENSCAD SUFFIX png FILES ${LAZYUNION_FILES} ARGS --enable=lazy-union --render)
 add_cmdline_test(lazyunion-render-stl  EXPERIMENTAL SCRIPT ${EXPORT_IMPORT_PNGTEST_PY} SUFFIX png FILES ${LAZYUNION_3D_FILES} ARGS ${OPENSCAD_EXE_ARG} --format=STL --enable=lazy-union --render=force)
 add_cmdline_test(lazyunion-render-dxf  EXPERIMENTAL SCRIPT ${EXPORT_IMPORT_PNGTEST_PY} SUFFIX png FILES ${LAZYUNION_2D_FILES} EXPECTEDDIR lazyunion-render ARGS ${OPENSCAD_EXE_ARG} --format=DXF --enable=lazy-union --render=force)
@@ -1260,9 +1198,6 @@ if(EXAMPLES_DIR)
   add_cmdline_test(dump-examples    EXPERIMENTAL OPENSCAD SUFFIX csg FILES ${EXPERIMENTAL_ROOF_FILES} ARGS --enable=roof)
   add_cmdline_test(render-cgal      EXPERIMENTAL OPENSCAD SUFFIX png FILES ${EXPERIMENTAL_ROOF_FILES} ARGS --render --enable=roof --backend=cgal)
   add_cmdline_test(render-manifold  EXPERIMENTAL OPENSCAD SUFFIX png FILES ${EXPERIMENTAL_ROOF_FILES} EXPECTEDDIR render ARGS --render --enable=roof --backend=manifold)
-  add_cmdline_test(preview-cgal     EXPERIMENTAL OPENSCAD SUFFIX png FILES ${EXPERIMENTAL_ROOF_FILES} EXPECTEDDIR preview ARGS --enable=roof --backend=cgal)
-  add_cmdline_test(preview-manifold EXPERIMENTAL OPENSCAD SUFFIX png FILES ${EXPERIMENTAL_ROOF_FILES} ARGS --enable=roof --backend=manifold)
-  add_cmdline_test(throwntogether   EXPERIMENTAL OPENSCAD SUFFIX png FILES ${EXPERIMENTAL_ROOF_FILES} ARGS --preview=throwntogether --enable=roof)
   add_cmdline_test(render-csg-cgal        EXPERIMENTAL SCRIPT ${EXPORT_IMPORT_PNGTEST_PY} SUFFIX png FILES ${EXPERIMENTAL_ROOF_FILES} EXPECTEDDIR render ARGS ${OPENSCAD_EXE_ARG} --format=csg --render --enable=roof)
 endif(EXAMPLES_DIR)
 
@@ -1287,8 +1222,6 @@ list(APPEND EXPERIMENTAL_TEXTMETRICS_FILES
 )
 add_cmdline_test(echo           EXPERIMENTAL OPENSCAD SUFFIX echo FILES ${EXPERIMENTAL_TEXTMETRICS_ECHO_FILES} ARGS --enable=textmetrics)
 add_cmdline_test(dump           EXPERIMENTAL OPENSCAD SUFFIX csg  FILES ${EXPERIMENTAL_TEXTMETRICS_FILES} ARGS --enable=textmetrics)
-add_cmdline_test(preview-cgal   EXPERIMENTAL OPENSCAD SUFFIX png  FILES ${EXPERIMENTAL_TEXTMETRICS_FILES} EXPECTEDDIR preview ARGS --enable=textmetrics --backend=cgal)
-add_cmdline_test(throwntogether EXPERIMENTAL OPENSCAD SUFFIX png  FILES ${EXPERIMENTAL_TEXTMETRICS_FILES} ARGS --preview=throwntogether --enable=textmetrics)
 add_cmdline_test(render-csg-cgal      EXPERIMENTAL SCRIPT ${EXPORT_IMPORT_PNGTEST_PY} SUFFIX png FILES ${EXPERIMENTAL_TEXTMETRICS_FILES} EXPECTEDDIR render ARGS ${OPENSCAD_EXE_ARG} --format=csg --render --enable=textmetrics)
 add_cmdline_test(render-cgal    EXPERIMENTAL OPENSCAD SUFFIX png FILES ${EXPERIMENTAL_TEXTMETRICS_FILES} EXPECTEDDIR render ARGS --render --enable=textmetrics --backend=cgal)
 add_cmdline_test(render-dxf      EXPERIMENTAL SCRIPT ${EXPORT_IMPORT_PNGTEST_PY} SUFFIX png ARGS ${OPENSCAD_EXE_ARG} --format=DXF --render=force --enable=textmetrics EXPECTEDDIR render FILES ${EXPERIMENTAL_TEXTMETRICS_FILES})
@@ -1363,16 +1296,6 @@ disable_tests_safe(
   render-svg_text-empty-tests
   render-svg_nullspace-2d
 
-  # z-fighting different on different machines
-  preview-cgal_issue1165
-  preview-cgal_issue1215
-  throwntogether-cgal_issue1089
-  throwntogether-manifold_issue1089
-  throwntogether-cgal_issue1215
-  throwntogether-manifold_issue1215
-  throwntogether-cgal_render-tests
-  throwntogether-manifold_render-tests
-
   # The inf/nan tests fail when exporting CSG and rendering that output again
   # as currently inf/nan is written directly to the CSG file (e.g. r = inf)
   # which is not valid or even misleading in case a variable inf exists.
@@ -1401,7 +1324,6 @@ disable_tests_safe(
   # in rendering.
   render-cgal_minkowski3-difference-test
   render-csg-cgal_minkowski3-difference-test
-  preview-cgal_minkowski3-difference-test
 
   # https://github.com/openscad/openscad/issues/909
   preview-amf_polyhedron-single-triangle
@@ -1416,26 +1338,17 @@ disable_tests_safe(
 
   # https://github.com/openscad/openscad/issues/2301
   render-cgal_issue2301
-  preview-cgal_issue2301
   render-csg-cgal_issue2301
-  throwntogether-cgal_issue2301
 
   # https://github.com/openscad/openscad/issues/2090
   render-cgal_issue2090
-  preview-cgal_issue2090
   render-csg-cgal_issue2090
 
   # https://github.com/openscad/openscad/issues/2841
   render-cgal_issue2841
-  preview-cgal_issue2841
   render-csg-cgal_issue2841
   render-cgal_issue2841b
-  preview-cgal_issue2841b
   render-csg-cgal_issue2841b
-  
-  # OpenCSG z fighting
-  preview-cgal_surface_image
-  throwntogether-cgal_surface_image
 
   # https://github.com/openscad/openscad/issues/5159
   render-cgal_projection
@@ -1443,14 +1356,9 @@ disable_tests_safe(
 
   # https://github.com/openscad/openscad/issues/5158
   #render-cgal_example017 
-  #throwntogether-cgal_example017
   
   # https://github.com/openscad/openscad/issues/4398
   render-csg-cgal_logo_and_text
-
-  # z-fighting different on different machines
-  preview-manifold_issue1165
-  preview-manifold_issue1215
 
   # Manifold triangle order not stable, causes transparent
   # objects to render differently on different machines
@@ -1464,31 +1372,13 @@ disable_tests_safe(
 
   # https://github.com/openscad/openscad/issues/2841
   render-manifold_issue2841b
-  preview-manifold_issue2841b
 
   # https://github.com/openscad/openscad/issues/5135
   render-force-manifold_issue5135-bad
 
-  # https://github.com/openscad/openscad/issues/5218
-  throwntogether-manifold_issue5218
-  throwntogether-manifold_issue913
-  throwntogether-cgal_issue913
-
-  # z-fighting different on different machines
-  preview-cgal_example017
-  preview-manifold_example017
-
-  # OpenCSG z fighting
-  preview-manifold_surface_image
-  throwntogether-manifold_surface_image
-
   # Manifold triangle order not stable, causes transparent
   # objects to render differently on different machines
   render-manifold_projection
-
-  # https://github.com/openscad/openscad/issues/5218
-  throwntogether-manifold_example016
-  throwntogether-cgal_example016
 
   # https://github.com/openscad/openscad/issues/5220
   render-cgal_roof
@@ -1499,27 +1389,14 @@ disable_tests_safe(
 
   # For some reason, only failing on Linux
   render-manifold_import_3mf-tests
-  preview-cgal_3mf-import-centered
-  preview-manifold_3mf-import-centered
-  preview-manifold_import_3mf-tests
   render-off-manifold_issue5216
   export-3mf_3mf-export
   render-3mf-cgal_bad-stl-tardis
   render-3mf-cgal_bad-stl-wing
   render-3mf-manifold_issue5216
 
-  preview-cgal_import_3mf-tests
   render-cgal_import_3mf-tests
   render-csg-cgal_import_3mf-tests
-  throwntogether-cgal_import_3mf-tests
-  throwntogether-manifold_import_3mf-tests
-)
-
-list(APPEND NEF3_BROKEN_TESTS
-  render-cgal_nef3_broken
-  preview-cgal_nef3_broken
-  throwntogether-cgal_nef3_broken
-  render-csg-cgal_nef3_broken
 )
 
 # Platform specific test disable
@@ -1538,7 +1415,6 @@ endif()
 
 if(NOT ENABLE_MANIFOLD)
   disable_tests_safe(
-    throwntogether-manifold_issue2301
     export-pov-as-is_pov-export
     export-pov-translate-1_pov-export
     export-pov-translate-2_pov-export
