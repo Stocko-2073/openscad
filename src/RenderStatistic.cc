@@ -147,12 +147,14 @@ static std::string formatDuration(const std::chrono::milliseconds ms)
 // One itemized phase line, indented under the total. The name is padded to the
 // widest of the phases so the durations and percentages line up in a column.
 static void logPhase(const std::string& name, const std::chrono::milliseconds ms,
-                     const std::chrono::milliseconds total, const size_t width)
+                     const std::chrono::milliseconds total, const size_t width,
+                     const std::string& note = {})
 {
   std::string label = name + ":";
   label.resize(width + 1, ' ');
   const double percent = total.count() > 0 ? 100.0 * ms.count() / total.count() : 0.0;
-  LOG("   %1$s %2$s (%3$4.1f%)", label, formatDuration(ms), percent);
+  LOG("   %1$s %2$s (%3$4.1f%)%4$s", label, formatDuration(ms), percent,
+      note.empty() ? "" : ", " + note);
 }
 
 static nlohmann::json getBoundingBox2d(const Geometry& geometry)
@@ -211,16 +213,20 @@ RenderStatistic::Phase *RenderStatistic::findPhase(const std::string& name)
   return it == phases.end() ? nullptr : &*it;
 }
 
+RenderStatistic::Phase& RenderStatistic::phase(const std::string& name)
+{
+  if (auto *found = findPhase(name)) return *found;
+  auto& added = phases.emplace_back();
+  added.name = name;
+  return added;
+}
+
 void RenderStatistic::beginPhase(const std::string& name)
 {
-  auto *phase = findPhase(name);
-  if (!phase) {
-    phase = &phases.emplace_back();
-    phase->name = name;
-  }
-  if (phase->running) return;  // already timing; keep the earlier start
-  phase->begin = std::chrono::steady_clock::now();
-  phase->running = true;
+  auto& phase = this->phase(name);
+  if (phase.running) return;  // already timing; keep the earlier start
+  phase.begin = std::chrono::steady_clock::now();
+  phase.running = true;
 }
 
 void RenderStatistic::endPhase(const std::string& name)
@@ -233,12 +239,12 @@ void RenderStatistic::endPhase(const std::string& name)
 
 void RenderStatistic::addPhaseTime(const std::string& name, std::chrono::steady_clock::duration elapsed)
 {
-  auto *phase = findPhase(name);
-  if (!phase) {
-    phase = &phases.emplace_back();
-    phase->name = name;
-  }
-  phase->elapsed += elapsed;
+  phase(name).elapsed += elapsed;
+}
+
+void RenderStatistic::setPhaseNote(const std::string& name, std::string note)
+{
+  phase(name).note = std::move(note);
 }
 
 std::vector<RenderStatistic::PhaseTime> RenderStatistic::phaseTimes() const
@@ -249,7 +255,8 @@ std::vector<RenderStatistic::PhaseTime> RenderStatistic::phaseTimes() const
   for (const auto& phase : phases) {
     auto elapsed = phase.elapsed;
     if (phase.running) elapsed += now - phase.begin;
-    result.push_back({phase.name, std::chrono::duration_cast<std::chrono::milliseconds>(elapsed)});
+    result.push_back(
+      {phase.name, std::chrono::duration_cast<std::chrono::milliseconds>(elapsed), phase.note});
   }
   return result;
 }
@@ -413,7 +420,7 @@ void LogVisitor::printRenderingTime(const std::chrono::milliseconds ms,
   auto accounted = std::chrono::milliseconds::zero();
   for (const auto& phase : phases) {
     accounted += phase.ms;
-    logPhase(phase.name, phase.ms, ms, width);
+    logPhase(phase.name, phase.ms, ms, width, phase.note);
   }
 
   // Whatever the itemized phases don't cover: startup, event processing, time

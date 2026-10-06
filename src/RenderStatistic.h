@@ -83,6 +83,7 @@ public:
   struct PhaseTime {
     std::string name;
     std::chrono::milliseconds ms;
+    std::string note;
   };
 
   /**
@@ -103,6 +104,12 @@ public:
    * Add time measured elsewhere, such as on a worker thread, to the named phase.
    */
   void addPhaseTime(const std::string& name, std::chrono::steady_clock::duration elapsed);
+
+  /**
+   * A remark printed after the named phase's time, such as how much of the
+   * evaluation was reused. Replaces any earlier one.
+   */
+  void setPhaseNote(const std::string& name, std::string note);
 
   /**
    * The phases recorded since @ref start, in the order they were first begun.
@@ -153,9 +160,11 @@ private:
     std::chrono::steady_clock::time_point begin;
     std::chrono::steady_clock::duration elapsed{0};
     bool running{false};
+    std::string note;
   };
 
   Phase *findPhase(const std::string& name);
+  Phase& phase(const std::string& name);  // found or added
 
   std::chrono::steady_clock::time_point begin;
   std::vector<Phase> phases;
