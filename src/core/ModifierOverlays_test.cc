@@ -111,6 +111,23 @@ TEST_CASE("A background subtree is drawn under its transforms", "[overlay]")
   requireBox(meshes[0], {-1, 5, 0}, {0, 7, 1});
 }
 
+TEST_CASE("Only the branches with modifiers are walked, however deep", "[overlay]")
+{
+  // A call chain makes a chain of groups; modules without modifiers are passed over.
+  const auto scene = instantiate(
+    "module plain(n) if (n > 0) plain(n - 1); else cube(1);\n"
+    "module marked(n) if (n > 0) translate([1, 0, 0]) marked(n - 1); else #cube(1);\n"
+    "plain(50);\n"
+    "marked(50);\n");
+  const auto meshes = overlays(*scene);
+  REQUIRE(meshes.size() == 1);
+  CHECK(meshes[0].kind == Kind::Highlight);
+  requireBox(meshes[0], {50, 0, 0}, {51, 1, 1});
+  const AbstractNode& plain = *scene->root->children.at(0);
+  CHECK(!scene->tree->hasModifierBelow(plain));
+  CHECK(scene->tree->hasModifierBelow(*scene->root->children.at(1)));
+}
+
 TEST_CASE("Modifiers inside a highlighted subtree", "[overlay]")
 {
   // The # union draws its cubes at 0 and 10 together. The % cube at 5 is not part of it.

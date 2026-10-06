@@ -35,14 +35,6 @@ bool isHighlight(const AbstractNode& node)
   return node.modinst && node.modinst->isHighlight();
 }
 
-[[maybe_unused]] bool hasModifierBelow(const AbstractNode& node)
-{
-  for (const auto& child : node.getChildren()) {
-    if (isBackground(*child) || isHighlight(*child) || hasModifierBelow(*child)) return true;
-  }
-  return false;
-}
-
 // A subtree to draw. `matrix` places the node's parent: evaluateGeometry() applies the node's own
 // transform.
 struct Target {
@@ -51,7 +43,8 @@ struct Target {
   Transform3d matrix;
 };
 
-// Walks the tree the way GeometryEvaluator places it, collecting the `#` and `%` subtrees.
+// Walks the tree the way GeometryEvaluator places it, collecting the `#` and `%` subtrees. It
+// goes only where there are some, which the tree knows from computing the geometry digests.
 class TargetCollector : public NodeVisitor
 {
 public:
@@ -84,7 +77,7 @@ public:
   Response visit(State& state, const PhysicsNode& node) override
   {
     const Response response = enter(state, node, true);
-    if (state.isPrefix() && hasModifierBelow(node)) {
+    if (state.isPrefix() && this->tree.hasModifierBelow(node)) {
       const Hash128 key = this->tree.digest(node);
       Transform3d pose;
       // Simulating publishes the pose. F6 has normally done that already.
@@ -109,7 +102,8 @@ private:
     } else if (isHighlight(node) && this->open.empty()) {
       record(Kind::Highlight, node, state.matrix());
     }
-    return lookInside ? Response::ContinueTraversal : Response::PruneTraversal;
+    if (!lookInside || !this->tree.hasModifierBelow(node)) return Response::PruneTraversal;
+    return Response::ContinueTraversal;
   }
 
   void record(Kind kind, const AbstractNode& node, const Transform3d& matrix)
