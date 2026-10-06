@@ -111,6 +111,7 @@
 #include "glview/RenderSettings.h"
 #include "handle_dep.h"
 #include "io/export.h"
+#include "memo_replay.h"
 #include "openscad_gui.h"
 #include "openscad_mimalloc.h"
 #include "platform/PlatformUtils.h"
@@ -979,6 +980,16 @@ int openscad_main(int argc, char **argv)
       "per source location, and report them after evaluation")
     ("profile-file", po::value<std::string>(),
       "write the full per-location profile to the given file as TSV (implies --profile)")
+    ("memo-replay", po::value<std::vector<std::string>>()->multitoken(),
+      "incremental evaluation harness: evaluate the given .scad files in order with one memo "
+      "table, as a series of saves would, and report the reuse at each step")
+    ("memo-verify", "with --memo-replay, also evaluate each step from scratch and compare the "
+      "node trees and messages; exit nonzero on any difference")
+    ("memo-geometry", "with --memo-replay, also time each step's geometry evaluation, keeping the "
+      "geometry caches across steps as the GUI does")
+    ("memo-selftest", po::value<std::string>(),
+      "evaluate a .scad file twice with incremental evaluation and compare each run with a "
+      "fresh evaluation (--memo-replay FILE FILE --memo-verify)")
     ("interference-check",
       "AI-agent tool: detect parts that overlap (interfere) and report exactly which source "
       "lines produced the overlapping material. Runs alongside any export, e.g.\n"
@@ -1235,6 +1246,22 @@ int openscad_main(int argc, char **argv)
   }
 
   PRINTDB("Application location detected as %s", applicationPath);
+
+  if (vm.count("memo-replay") || vm.count("memo-selftest")) {
+    std::vector<std::string> files;
+    if (vm.count("memo-selftest")) {
+      const auto file = vm["memo-selftest"].as<std::string>();
+      files = {file, file};
+    } else {
+      files = vm["memo-replay"].as<std::vector<std::string>>();
+    }
+    const bool verify = vm.count("memo-verify") || vm.count("memo-selftest");
+    try {
+      return memo_replay(files, commandline_commands, verify, vm.count("memo-geometry") > 0);
+    } catch (const HardWarningException&) {
+      return 1;
+    }
+  }
 
   auto cmdlinemode = false;
   if (!output_files.empty()) {  // cmd-line mode

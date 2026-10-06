@@ -1498,6 +1498,7 @@ if (ENABLE_MANIFOLD AND ENABLE_CGAL)
   list(APPEND Sources ${MANIFOLD_CGAL_SOURCES})
 endif()
 list(APPEND Sources
+  src/memo_replay.cc
   src/openscad.cc
   ${CMAKE_BINARY_DIR}/version.cc
   ${CORE_SOURCES}
