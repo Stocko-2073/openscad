@@ -19,6 +19,7 @@
 #include "core/node.h"
 #include "openscad.h"
 #include "platform/PlatformUtils.h"
+#include "utils/exceptions.h"
 #include "utils/printutils.h"
 
 namespace fs = std::filesystem;
@@ -283,6 +284,58 @@ TEST_CASE("A call that ran rands() is not stored", "[memo]")
   CHECK(first.stats.stored == 0);
   const Run second = evaluate(*file, &table);
   CHECK(second.stats.hits == 0);
+}
+
+TEST_CASE("An evaluation that throws leaves the table usable", "[memo]")
+{
+  // As the GUI's "Stop on first warning" does: the warning throws out of the
+  // whole evaluation, once while noisy() records, once while its reuse
+  // replays the warning.
+  const auto file = parseScript(R"(
+module part(n) cube(n);
+module noisy() { part(1); part(2); echo(no_such_variable); part(3); }
+part(1);
+noisy();
+)");
+  const auto evaluateStopping = [&](memo::MemoTable& table) {
+    resetSuppressedMessages();
+    std::vector<Message> messages;
+    g_message_capture.push_back(&messages);
+    set_output_handler([](const Message&, void *) {}, [](const Message&, void *) {}, nullptr);
+    OpenSCAD::hardwarnings = true;
+    bool threw = false;
+    try {
+      EvaluationSession session{fs::temp_directory_path().generic_string()};
+      ContextHandle<BuiltinContext> builtin{Context::create<BuiltinContext>(&session)};
+      memo::EvalMemoSession memo{table, *file};
+      session.setMemo(&memo);
+      std::shared_ptr<const FileContext> fileContext;
+      file->instantiate(*builtin, &fileContext);
+    } catch (const HardWarningException&) {
+      threw = true;
+    }
+    OpenSCAD::hardwarnings = false;
+    set_output_handler(nullptr, nullptr, nullptr);
+    g_message_capture.pop_back();
+    return threw;
+  };
+  const Run fresh = evaluate(*file, nullptr);
+
+  memo::MemoTable recording;
+  CHECK(evaluateStopping(recording));
+  CHECK(recording.size() == 2);  // part(1) and part(2), not noisy()
+  const Run afterRecording = evaluate(*file, &recording);
+  CHECK(afterRecording.stats.hits == 3);
+  CHECK(afterRecording.tree == fresh.tree);
+  CHECK(afterRecording.messages == fresh.messages);
+
+  memo::MemoTable replaying;
+  evaluate(*file, &replaying);
+  CHECK(evaluateStopping(replaying));
+  const Run afterReplaying = evaluate(*file, &replaying);
+  CHECK(afterReplaying.stats.hits == 2);
+  CHECK(afterReplaying.tree == fresh.tree);
+  CHECK(afterReplaying.messages == fresh.messages);
 }
 
 TEST_CASE("A function value hashes as its syntax and the values it captures", "[memo]")
