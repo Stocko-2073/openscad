@@ -116,7 +116,8 @@ bool enclosingChildren(const Context& context, std::vector<const LocalScope *>& 
 /*
  * Copies an entry's stored subtree, pointing each copy at its statement in the
  * current parse, and the nested entries' parts with the statements of their
- * sites translated. The entries take their copies only once all is done.
+ * sites translated. The entries take their copies only once all is done. The
+ * copies keep the geometry digests the stored nodes have (core/NodeDigest.h).
  */
 struct TreeCopy {
   uint64_t generation;
@@ -137,6 +138,7 @@ struct TreeCopy {
       result->children.push_back(std::move(child_copy));
     }
     if (next != entry.nodeCodes.size()) return nullptr;
+    result->takeDigest(root);
     copies.emplace_back(&entry, result);
     return result;
   }
@@ -172,6 +174,7 @@ struct TreeCopy {
       if (!child_copy) return nullptr;
       result->children.push_back(std::move(child_copy));
     }
+    result->takeDigest(node);
     return result;
   }
 };

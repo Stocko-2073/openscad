@@ -16,6 +16,7 @@
 #include "core/ModuleInstantiation.h"
 #include "core/ScopeContext.h"
 #include "core/SourceFile.h"
+#include "core/Tree.h"
 #include "core/node.h"
 #include "openscad.h"
 #include "platform/PlatformUtils.h"
@@ -165,6 +166,46 @@ part(3);
   CHECK(first.tree == fresh.tree);
   CHECK(second.tree == fresh.tree);
   CHECK(second.messages == fresh.messages);
+}
+
+TEST_CASE("Reused nodes keep their geometry digests", "[memo]")
+{
+  const std::string text = R"(
+module part(size) translate([size, 0, 0]) cube(size);
+module pair() { part(1); part(2); }
+pair();
+part(3);
+)";
+  memo::MemoTable table;
+  const auto file = parseScript(text);
+  const Run first = evaluate(*file, &table);
+  const Hash128 digest = Tree(first.root).digest(*first.root);
+
+  // The root is new on every evaluation; what was reused under it comes with its digests.
+  const Run second = evaluate(*parseScript(text), &table);
+  CHECK(!second.root->hasDigest());
+  for (const auto& call : second.root->children) {
+    std::vector<const AbstractNode *> nodes{call.get()};
+    while (!nodes.empty()) {
+      const AbstractNode *node = nodes.back();
+      nodes.pop_back();
+      CHECK(node->hasDigest());
+      for (const auto& child : node->children) nodes.push_back(child.get());
+    }
+  }
+  CHECK(Tree(second.root).digest(*second.root) == digest);
+
+  // A call that runs again makes new nodes, which have none yet.
+  const auto changed = parseScript(R"(
+module part(size) translate([size, 0, 0]) cube(size);
+module pair() { part(1); part(2); }
+pair();
+part(4);
+)");
+  const Run third = evaluate(*changed, &table);
+  CHECK(third.root->children.at(0)->hasDigest());
+  CHECK(!third.root->children.at(1)->hasDigest());
+  CHECK(Tree(third.root).digest(*third.root) != digest);
 }
 
 TEST_CASE("Calls are counted as a fresh evaluation makes them, reused or not", "[memo]")
