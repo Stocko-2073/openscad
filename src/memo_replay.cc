@@ -99,7 +99,10 @@ Run evaluate(SourceFile *file, const fs::path& dir, memo::MemoTable *table)
   }
   run.ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
   g_message_capture.pop_back();
-  run.messages = std::move(captured);
+  // What was printed: repeated deprecations are captured, not printed.
+  for (auto& message : captured) {
+    if (!message.repeat) run.messages.push_back(std::move(message));
+  }
   if (run.root) {
     std::ostringstream out;
     dumpTree(*run.root, out, run.nodes);

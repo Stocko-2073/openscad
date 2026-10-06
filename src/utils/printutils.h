@@ -80,6 +80,9 @@ struct Message {
   Location loc;
   std::string docPath;
   enum message_group group;
+  // A deprecation printed once already and not again, which g_message_capture
+  // still receives; see make_message_obj().
+  bool repeat = false;
 
   Message() : msg(""), loc(Location::NONE), docPath(""), group(message_group::NONE) {}
 
@@ -145,9 +148,11 @@ private:
 
 /*
  * While non-empty, every message PRINT emits is also appended to the innermost
- * vector, whether or not printing is suppressed on this thread. Incremental
+ * vector, whether or not printing is suppressed on this thread, and so is each
+ * repeated deprecation that is not printed (Message::repeat). Incremental
  * evaluation (core/EvalMemo.h) records a call's output this way so that it can
- * replay it when the call is reused instead of run.
+ * replay it when the call is reused instead of run, including the deprecations
+ * that were printed before the call ran but may not be where it is reused.
  */
 extern thread_local std::vector<std::vector<Message> *> g_message_capture;
 
@@ -287,8 +292,14 @@ std::optional<Message> make_message_obj(const message_group& msgGroup, Location 
 
   // check for deprecations
   if (msgGroup == message_group::Deprecated &&
-      printedDeprecations.find(formatted + loc.toRelativeString(docPath)) != printedDeprecations.end())
+      printedDeprecations.find(formatted + loc.toRelativeString(docPath)) != printedDeprecations.end()) {
+    if (!g_message_capture.empty()) {
+      Message repeat(std::move(formatted), msgGroup, std::move(loc), std::move(docPath));
+      repeat.repeat = true;
+      g_message_capture.back()->push_back(std::move(repeat));
+    }
     return {};
+  }
   if (msgGroup == message_group::Deprecated)
     printedDeprecations.insert(formatted + loc.toRelativeString(docPath));
 

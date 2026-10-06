@@ -902,9 +902,24 @@ void EvalMemoSession::replay(const std::vector<Message>& messages)
 {
   for (const auto& message : messages) {
     if (message.group == message_group::Deprecated) {
-      // make_message_obj de-duplicates these before PRINT ever sees them.
+      // As make_message_obj() does: printed the first time only, but always
+      // handed to whoever records, who may replay it where it is the first.
       const std::string seen = message.msg + message.loc.toRelativeString(message.docPath);
-      if (!printedDeprecations.insert(seen).second) continue;
+      if (!printedDeprecations.insert(seen).second) {
+        if (!g_message_capture.empty()) {
+          Message repeat = message;
+          repeat.repeat = true;
+          g_message_capture.back()->push_back(std::move(repeat));
+        }
+        continue;
+      }
+      if (message.repeat) {
+        Message first = message;
+        first.repeat = false;
+        ++stats_.messagesReplayed;
+        PRINT(first);
+        continue;
+      }
     }
     ++stats_.messagesReplayed;
     PRINT(message);
