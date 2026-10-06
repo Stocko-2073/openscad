@@ -2082,6 +2082,16 @@
                  </item>
                 </layout>
                </item>
+               <item>
+                <widget class="QCheckBox" name="checkBoxReuseModuleResults">
+                 <property name="toolTip">
+                  <string>Reuse what a module call in your files produced while its code, its arguments and the $ variables it reads are unchanged, so that a small edit evaluates only what it affects.</string>
+                 </property>
+                 <property name="text">
+                  <string>Reuse unchanged module results between renders</string>
+                 </property>
+                </widget>
+               </item>
               </layout>
              </widget>
             </item>

@@ -51,6 +51,7 @@ public slots:
   void on_syntaxHighlight_currentTextChanged(const QString&);
   void on_cgalCacheSizeMBEdit_textChanged(const QString&);
   void on_polysetCacheSizeMBEdit_textChanged(const QString&);
+  void on_checkBoxReuseModuleResults_toggled(bool);
   void on_mouseWheelZoomBox_toggled(bool);
   void on_localizationCheckBox_toggled(bool);
   void on_autoReloadRaiseCheckBox_toggled(bool);
@@ -172,6 +173,7 @@ signals:
   void stepSizeChanged(int val) const;
   void toolbarExportChanged() const;
   void renderBackend3DChanged(RenderBackend3D backend) const;
+  void reuseModuleResultsChanged(bool state) const;
 
 private slots:
   void on_lineEditStepSize_textChanged(const QString& arg1);

@@ -428,6 +428,7 @@ public:
 
   static SettingsEntryBool manifoldEnabled;
   static SettingsEntryEnum<std::string> renderBackend3D;
+  static SettingsEntryBool reuseModuleResults;
   static SettingsEntryEnum<std::string> toolbarExport3D;
   static SettingsEntryEnum<std::string> toolbarExport2D;
 

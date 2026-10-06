@@ -1028,10 +1028,13 @@ void MainWindow::instantiateRoot()
     AbstractNode::resetIndexCounter();
 
     // Reuse what the document's last renders evaluated (core/EvalMemo.h). Printing processes
-    // events, so Flush Caches or closing the tab may drop the editor's table while this
-    // evaluation uses it: hold on to it here too.
-    if (!activeEditor->memoTable) activeEditor->memoTable = std::make_shared<memo::MemoTable>();
-    const std::shared_ptr<memo::MemoTable> memoTable = activeEditor->memoTable;
+    // events, so Flush Caches, the preference or closing the tab may drop the editor's table
+    // while this evaluation uses it: hold on to it here too.
+    std::shared_ptr<memo::MemoTable> memoTable;
+    if (Settings::Settings::reuseModuleResults.value()) {
+      if (!activeEditor->memoTable) activeEditor->memoTable = std::make_shared<memo::MemoTable>();
+      memoTable = activeEditor->memoTable;
+    }
 
     EvaluationSession session{doc.parent_path().string()};
     ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(&session)};
@@ -3539,6 +3542,9 @@ void MainWindow::setupPreferences()
           &QGLView::setMouseCentricZoom);
   connect(GlobalPreferences::inst(), &Preferences::updateSimplifyViewerToolbar, this,
           &MainWindow::applySimplifyViewerToolbar);
+  connect(GlobalPreferences::inst(), &Preferences::reuseModuleResultsChanged, this, [this](bool on) {
+    if (!on) dropMemoTables();
+  });
   applySimplifyViewerToolbar(Settings::Settings::simplifyViewerToolbar.value());
   connect(GlobalPreferences::inst()->MouseConfig, &MouseConfigWidget::updateMouseActions, this,
           &MainWindow::setAllMouseViewActions);

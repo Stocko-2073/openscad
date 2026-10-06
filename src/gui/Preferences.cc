@@ -564,6 +564,13 @@ void Preferences::on_polysetCacheSizeMBEdit_textChanged(const QString& text)
   GeometryCache::instance()->setMaxSizeMB(text.toULong());
 }
 
+void Preferences::on_checkBoxReuseModuleResults_toggled(bool val)
+{
+  Settings::Settings::reuseModuleResults.setValue(val);
+  writeSettings();
+  emit reuseModuleResultsChanged(val);
+}
+
 void Preferences::on_localizationCheckBox_toggled(bool state)
 {
   QSettingsCached settings;
@@ -1437,6 +1444,7 @@ void Preferences::updateGUI()
   initUpdateCheckBox(this->checkBoxMouseCentricZoom, Settings::Settings::mouseCentricZoom);
   initUpdateCheckBox(this->checkBoxSimplifyViewerToolbar, Settings::Settings::simplifyViewerToolbar);
   initUpdateCheckBox(this->checkBoxPickMenuCurrentFileOnly, Settings::Settings::pickMenuCurrentFileOnly);
+  initUpdateCheckBox(this->checkBoxReuseModuleResults, Settings::Settings::reuseModuleResults);
   initUpdateCheckBox(this->checkBoxEnableLineNumbers, Settings::Settings::enableLineNumbers);
 
   /* Next Line disables the Indent Spin-Box,for 'Same' and 'Indented' LineWrapStyle selection from

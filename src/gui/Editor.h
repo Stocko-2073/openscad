@@ -109,6 +109,6 @@ public:
   std::vector<IndicatorData> indicatorData;
   ParameterWidget *parameterWidget;
   // What this document's renders evaluated, for the next ones to reuse (core/EvalMemo.h):
-  // made by its first render, dropped by Flush Caches.
+  // made by its first render, dropped by Flush Caches and by turning the preference off.
   std::shared_ptr<memo::MemoTable> memoTable;
 };
