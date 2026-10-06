@@ -60,8 +60,7 @@ bool idle()
   return !GuiLocker::isLocked();
 }
 
-// Does what starts a render, and waits for that render to end. (A QSignalSpy on
-// compilationDone aborted with qBadAlloc, in Qt 6.11, during renders of a large design.)
+// Does what starts a render, and waits for that render to end.
 template <typename Start>
 bool rendered(MainWindow *window, Start start)
 {

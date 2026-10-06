@@ -1,5 +1,6 @@
 #include "TestModuleCache.h"
 
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QString>
 #include <QStringList>
@@ -37,8 +38,11 @@ void TestModuleCache::testBasicCache()
   QString filename = QString::fromStdString("test-tmp.scad");
   SourceFile *previousFile{nullptr};
   SourceFile *currentFile{nullptr};
-  connect(window, &MainWindow::compilationDone,
-          [&currentFile](SourceFile *file) { currentFile = file; });
+  // Disconnected however the test ends: later renders would otherwise write into this frame,
+  // long gone, and corrupt whatever the stack holds there then.
+  const auto connection = connect(window, &MainWindow::compilationDone,
+                                  [&currentFile](SourceFile *file) { currentFile = file; });
+  const auto guard = qScopeGuard([connection]() { QObject::disconnect(connection); });
 
   window->designActionAutoReload->setChecked(false);  // Disable auto-reload  & render
   window->tabManager->open(filename);                 // Open use.scad
