@@ -209,6 +209,11 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
   QCoreApplication::setOrganizationName("OpenSCAD");
   QCoreApplication::setOrganizationDomain("openscad.org");
   QCoreApplication::setApplicationName("OpenSCAD");
+#ifdef ENABLE_GUI_TESTS
+  // Tests open files, toggle actions and change preferences, all of which are saved: keep them
+  // out of the settings of the OpenSCAD the user runs.
+  if (gui_test != "none") QCoreApplication::setApplicationName("OpenSCAD GUI Tests");
+#endif
   QCoreApplication::setApplicationVersion(QString::fromStdString(std::string(openscad_versionnumber)));
   QGuiApplication::setApplicationDisplayName("OpenSCAD");
   QGuiApplication::setDesktopFileName(DESKTOP_FILENAME);
