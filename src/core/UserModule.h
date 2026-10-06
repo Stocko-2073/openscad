@@ -53,4 +53,6 @@ public:
   std::string name;
   AssignmentList parameters;
   const std::shared_ptr<LocalScope> body;
+  // The scope that defines this module. See LocalScope::origin.
+  const LocalScope *parent_scope{nullptr};
 };

@@ -136,8 +136,10 @@ void ASTHasher::literal(const Value& value)
 
 namespace {
 
-void annotateScope(LocalScope& scope)
+void annotateScope(LocalScope& scope, const LocalScope::Origin& origin)
 {
+  using Kind = LocalScope::Origin::Kind;
+  scope.origin = origin;
   for (const auto& assignment : scope.assignments) {
     if (!assignment || !assignment->getExpr() || !assignment->getName().isConfigVariable()) continue;
     // Hashing walks the expression; the hash itself is not needed.
@@ -145,11 +147,19 @@ void annotateScope(LocalScope& scope)
     h.accumulatorOf = &assignment->getName();
     h.expr(assignment->getExpr().get());
   }
-  for (const auto& [name, module] : scope.moduleDefinitions()) annotateScope(*module->body);
-  for (const auto& inst : scope.moduleInstantiations) {
-    annotateScope(*inst->scope);
-    if (const auto *ifelse = dynamic_cast<const IfElseModuleInstantiation *>(inst.get())) {
-      if (const auto& else_scope = ifelse->getElseScope()) annotateScope(*else_scope);
+  for (const auto& [name, module] : scope.moduleDefinitions()) {
+    module->parent_scope = &scope;
+    annotateScope(*module->body, {Kind::ModuleBody, nullptr, module.get(), nullptr});
+  }
+  for (size_t i = 0; i < scope.moduleInstantiations.size(); ++i) {
+    ModuleInstantiation& inst = *scope.moduleInstantiations[i];
+    inst.parent_scope = &scope;
+    inst.parent_index = static_cast<uint32_t>(i);
+    annotateScope(*inst.scope, {Kind::Children, nullptr, nullptr, &inst});
+    if (const auto *ifelse = dynamic_cast<const IfElseModuleInstantiation *>(&inst)) {
+      if (const auto& else_scope = ifelse->getElseScope()) {
+        annotateScope(*else_scope, {Kind::Else, nullptr, nullptr, &inst});
+      }
     }
   }
 }
@@ -158,7 +168,7 @@ void annotateScope(LocalScope& scope)
 
 void annotate(SourceFile& file)
 {
-  annotateScope(*file.scope);
+  annotateScope(*file.scope, {LocalScope::Origin::Kind::File, &file, nullptr, nullptr});
 }
 
 }  // namespace memo

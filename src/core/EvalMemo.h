@@ -31,9 +31,25 @@
  * which are replayed on reuse, and whether it touched anything impure (rands(),
  * file reads at evaluation time), which keeps it out of the table.
  *
- * Reuse clones the stored subtree with fresh node indices. The clone keeps
- * pointing into the syntax tree that produced it, so whoever owns the table
- * must keep those SourceFiles alive.
+ * Reuse copies the stored subtree with fresh node indices. Every node points
+ * at the statement that made it (AbstractNode::modinst), for its location in
+ * the GUI and for the ! # % tags that geometry reads, and the stored nodes
+ * point into the parse that produced them. The copies must point into the
+ * current parse instead, so an entry records, when it is stored, the way to
+ * each of its statements (Anchor, Site), and follows it in the current parse
+ * on reuse. The entry then keeps the copy, as do the entries nested inside
+ * it, so the table shares its nodes with the latest tree.
+ *
+ * Nothing ever reads the statements of a stored node, so a parse can be freed
+ * as soon as its own caller is done with it: the table holds on to none.
+ *
+ * Using it: keep one MemoTable per document across evaluations. For each
+ * evaluation, construct an EvalMemoSession on the table and the parsed main
+ * file, attach it with EvaluationSession::setMemo() while that file is
+ * instantiated, and destroy it before the EvaluationSession. Every file must
+ * come from parse(), which prepares it (annotate()). MemoTable::evict() drops
+ * what recent evaluations did not use; EvalMemoSession::stats() says what an
+ * evaluation reused.
  */
 
 #include <chrono>
@@ -165,9 +181,10 @@ public:
  * one, before anything can evaluate it: it writes to the syntax tree, which
  * the GUI's animation prefetch evaluates on several threads at once.
  *
- * Marks accumulator reads: in `$x = <expr>`, each read of $x inside <expr>
- * (Lookup::accumulator), which a recording call treats as pending rather
- * than as a dependency; see Recorder.
+ * Links each scope, statement and module definition to what contains it
+ * (LocalScope::origin), which locate() follows. Marks accumulator reads: in
+ * `$x = <expr>`, each read of $x inside <expr> (Lookup::accumulator), which a
+ * recording call treats as pending rather than as a dependency; see Recorder.
  */
 void annotate(SourceFile& file);
 
@@ -198,8 +215,11 @@ struct Stats {
   size_t misses = 0;
   size_t stored = 0;
   size_t impure = 0;
+  size_t unlocatable = 0;     // not stored: a statement had no place to record
+  size_t relocateFailed = 0;  // matched, but a statement was not found in this parse
   size_t cloneFailed = 0;
   size_t nodesCloned = 0;
+  size_t nodesLocated = 0;  // walked to store entries; nested entries' nodes are not
   size_t messagesReplayed = 0;
   size_t staleDollar = 0;  // key matched, but a $ variable it reads differs
   // Why a boundary was not eligible
@@ -211,6 +231,8 @@ struct Stats {
   size_t unhashableDollar = 0;  // a $ variable it read could not be hashed
   std::chrono::nanoseconds keyTime{0};
   std::chrono::nanoseconds closureTime{0};
+  std::chrono::nanoseconds locateTime{0};  // recording where stored statements are
+  std::chrono::nanoseconds reuseTime{0};   // finding them again, and copying
   void add(const Stats& other);
 };
 
@@ -221,7 +243,41 @@ struct DollarRead {
   bool absent = false;
 };
 
+/*
+ * Where a statement is, in terms that survive a reparse: a scope to start from
+ * and a path down from it. Inserting lines or statements outside that scope
+ * does not move the statement. Children blocks are anchored at the call that
+ * runs them, so editing a caller does not invalidate what is beneath it.
+ */
+struct Anchor {
+  enum class Kind : uint8_t {
+    Definition,         // the body of a file-scope module definition
+    OwnChildren,        // the children block of the reused call itself
+    EnclosingChildren,  // that of the depth-th enclosing user-module call, nearest first
+  };
+  Kind kind = Kind::Definition;
+  uint32_t file = 0;   // Definition: 0 for the main file, else MemoTable::fileId()
+  uint32_t later = 0;  // Definition: definitions of the same name after it in that file
+  uint32_t depth = 0;  // EnclosingChildren
+  Identifier name;     // Definition
+  Hash128 hash;        // the scope's structural hash, which it must still have
+};
+
+/*
+ * A statement under an anchor: a path of words in Entry::paths, top down.
+ * Each word is an index into the current scope with what to do there in its
+ * low two bits (kPathChildren etc. in EvalMemoSites.cc). `check` fingerprints
+ * the statement itself; the anchor's hash already covers the path.
+ */
+struct Site {
+  uint32_t anchor = 0;
+  uint32_t begin = 0;
+  uint32_t end = 0;
+  uint64_t check = 0;
+};
+
 struct Entry {
+  // Never read a stored node's modinst: the parse it points into may be gone.
   std::shared_ptr<AbstractNode> root;
   std::vector<Message> messages;
   std::vector<DollarRead> reads;        // must match for reuse
@@ -229,28 +285,61 @@ struct Entry {
   std::vector<Identifier> realNames;    // $ names read for real anywhere inside
   bool readsModuleStack = false;
   Hash128 moduleStack;
-  size_t nodes = 0;
+  size_t nodes = 0;       // in the subtree, the root included
   uint64_t lastUsed = 0;  // generation
+
+  // Where the nodes' statements are. The root's is the call site; nodeCodes
+  // has a code for each node after it, in preorder: its site, or for the root
+  // of a nested entry kNested plus the index in `nested`, a code that stands
+  // for that node's whole subtree.
+  std::vector<Anchor> anchors;
+  std::vector<Site> sites;
+  std::vector<uint32_t> paths;
+  std::vector<Identifier> names;  // module definitions nested inside others, on paths
+  std::vector<uint32_t> nodeCodes;
+  static constexpr uint32_t kNested = 0x80000000u;
+
+  // Entries stored or reused while this call ran. Their results are part of
+  // this one: reusing it gives them its copies, so they follow it from tree
+  // to tree, and their own codes describe their part of the subtree.
+  struct Nested {
+    std::shared_ptr<Entry> entry;
+    uint32_t site = 0;             // its root's, which is its call site
+    std::vector<uint32_t> sites;   // the site here of each of its sites
+  };
+  std::vector<Nested> nested;
 };
 
-// Survives across evaluations; owned by whoever keeps the SourceFiles alive.
+/*
+ * Survives across evaluations. Reads nothing from a parse once the evaluation
+ * of it is over, so its owner frees each parse whenever it is done with it.
+ * One evaluation at a time: nothing in it is synchronized.
+ */
 class MemoTable
 {
 public:
-  std::vector<Entry> *find(const Hash128& key);
-  void store(const Hash128& key, Entry entry);
   [[nodiscard]] size_t size() const { return count; }
+  // Evaluations begun with this table so far.
+  [[nodiscard]] uint64_t generation() const { return generation_; }
   void clear()
   {
     entries.clear();
     count = 0;
   }
-  // Drop entries not used in the last `keep` generations.
-  size_t evict(uint64_t generation, uint64_t keep);
+  // Drops the entries not used by the last `keep` evaluations; returns how many.
+  size_t evict(uint64_t keep);
 
 private:
-  std::unordered_map<Hash128, std::vector<Entry>, Hash128Hash> entries;
+  friend class EvalMemoSession;
+  std::vector<std::shared_ptr<Entry>> *find(const Hash128& key);
+  void store(const Hash128& key, std::shared_ptr<Entry> entry);
+  // A small number for a `use`d file's path, starting at 1.
+  uint32_t fileId(const std::string& path);
+
+  std::unordered_map<Hash128, std::vector<std::shared_ptr<Entry>>, Hash128Hash> entries;
   size_t count = 0;
+  uint64_t generation_ = 0;
+  std::unordered_map<std::string, uint32_t> fileIds;
 };
 
 struct DefInfo;
@@ -264,12 +353,16 @@ enum class Call {
   Recording,  // run it with childrenKey(), then leave(), or abandon() if it throws
 };
 
-// One evaluation's view of the table. Must be destroyed before the
-// EvaluationSession it is attached to (it holds Values from that session).
+/*
+ * One evaluation's view of the table: give it to an EvaluationSession with
+ * setMemo() before instantiating `root`, and destroy it before that session
+ * (it holds Values from it). `root` must be the file being instantiated; the
+ * memo finds the statements of reused nodes in it and in the files it uses.
+ */
 class EvalMemoSession
 {
 public:
-  EvalMemoSession(MemoTable& table, uint64_t generation);
+  EvalMemoSession(MemoTable& table, const SourceFile& root);
   ~EvalMemoSession();
   EvalMemoSession(const EvalMemoSession&) = delete;
   EvalMemoSession& operator=(const EvalMemoSession&) = delete;
@@ -305,13 +398,53 @@ public:
   bool accumulatorRead = false;
 
   [[nodiscard]] const Stats& stats() const { return stats_; }
+  /*
+   * The trees that reused entries held before they took this evaluation's
+   * copies. Freeing a large tree takes a while, so a caller in a hurry holds
+   * on to these until its result is on screen; dropped with the session
+   * otherwise.
+   */
+  std::vector<std::shared_ptr<AbstractNode>> takeReplaced() { return std::move(replaced); }
   // With OPENSCAD_MEMO_DEBUG set: why boundaries were not reused, by reason and name.
   [[nodiscard]] const std::unordered_map<std::string, size_t>& reasons() const { return reasons_; }
 
 private:
   std::shared_ptr<AbstractNode> reuse(EvaluationSession& session, Entry& entry,
-                                      const ModuleInstantiation *inst);
+                                      const ModuleInstantiation *inst, const Context& context,
+                                      std::vector<const ModuleInstantiation *>& statements);
   void store(const std::shared_ptr<AbstractNode>& node, Recorder& recorder);
+
+  /*
+   * A boundary's result inside the call being recorded: its entry, and the
+   * statement in the current parse of each of the entry's sites.
+   */
+  struct NestedResult {
+    const AbstractNode *root;
+    std::shared_ptr<Entry> entry;
+    std::vector<const ModuleInstantiation *> statements;
+  };
+
+  // In EvalMemoSites.cc. locate() records in `entry` where the statements of
+  // `root`'s nodes are, for a call at `inst` from `context`, and leaves each
+  // site's statement in `statements`; relocate() finds the sites again in the
+  // current parse, for a call there.
+  struct Located;
+  bool locate(const AbstractNode& root, const ModuleInstantiation *inst, const Context& context,
+              const std::vector<NestedResult>& nested, Entry& entry,
+              std::vector<const ModuleInstantiation *>& statements);
+  bool relocate(const Entry& entry, const ModuleInstantiation *inst, const Context& context,
+                std::vector<const ModuleInstantiation *>& statements);
+  const Anchor *definitionAnchor(const UserModule& module, const SourceFile& file);
+  const LocalScope *definitionBody(const Anchor& anchor);
+  const SourceFile *usedFile(uint32_t id);
+  // Copies the stored subtree, pointing each copy at its statement (by site),
+  // the root at `inst`, and gives the copies to the entry and the entries
+  // nested in it. Null if it cannot, and then nothing has changed.
+  std::shared_ptr<AbstractNode> copyTree(Entry& entry,
+                                         const std::vector<const ModuleInstantiation *>& statements,
+                                         const ModuleInstantiation *inst);
+  Hash128 scopeHash(const LocalScope& scope);
+  Hash128 moduleHash(const UserModule& module);
   // Starts recording a call whose $ reads come from frames below `base`.
   Recorder& pushRecorder(size_t base);
   // Ends the innermost recording and hands what it saw to the one around it.
@@ -337,10 +470,10 @@ private:
   const DefInfo& defInfo(const void *def, bool isModule);
   const Closure& closure(const void *def, bool isModule, const SourceFile& file);
   Hash128 fileHash(const SourceFile& file);
-  std::shared_ptr<AbstractNode> cloneTree(const AbstractNode& node, size_t& count);
   void replay(const std::vector<Message>& messages);
 
   MemoTable& table;
+  const SourceFile& root;
   uint64_t generation;
   Stats stats_;
   ValueHashCache values;
@@ -392,6 +525,32 @@ private:
   std::vector<std::unique_ptr<Recorder>> recorders;
   std::vector<std::unique_ptr<Recorder>> spareRecorders;
   std::shared_ptr<AbstractNode> reused;  // see takeReused()
+  std::vector<std::shared_ptr<AbstractNode>> replaced;  // see takeReplaced()
+  // For relocate(), per evaluation: anchors of definitions by their module,
+  // and definitions' bodies by anchor (null where not found).
+  std::unordered_map<const UserModule *, Anchor> definitionAnchors;
+  struct DefinitionKey {
+    uint32_t file;
+    uint32_t later;
+    size_t name;
+    bool operator==(const DefinitionKey& o) const
+    {
+      return file == o.file && later == o.later && name == o.name;
+    }
+  };
+  struct DefinitionKeyHash {
+    size_t operator()(const DefinitionKey& k) const noexcept
+    {
+      return (k.name * 31 + k.file) * 31 + k.later;
+    }
+  };
+  struct FoundDefinition {
+    const LocalScope *body;
+    Hash128 hash;
+  };
+  std::unordered_map<DefinitionKey, FoundDefinition, DefinitionKeyHash> definitionBodies;
+  std::unordered_map<uint32_t, const SourceFile *> usedFiles;
+  bool usedFilesKnown = false;
   int suspendRecording = 0;  // validation lookups are not reads of the enclosing call
   std::vector<const FunctionType *> hashingFunctions;  // cycle guard for hashFunction()
   friend class Recorder;

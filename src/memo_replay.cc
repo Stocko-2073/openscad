@@ -19,6 +19,7 @@
 #include "core/Context.h"
 #include "core/EvalMemo.h"
 #include "core/EvaluationSession.h"
+#include "core/ModuleInstantiation.h"
 #include "core/RenderVariables.h"
 #include "core/ScopeContext.h"
 #include "core/SourceFile.h"
@@ -40,6 +41,7 @@ namespace {
 struct Run {
   std::vector<std::pair<std::string, size_t>> reasons;
   std::shared_ptr<AbstractNode> root;
+  std::vector<std::shared_ptr<AbstractNode>> replaced;  // see EvalMemoSession::takeReplaced()
   std::string tree;  // structural dump, every node and group name
   std::vector<Message> messages;
   double ms = 0;
@@ -47,10 +49,14 @@ struct Run {
   memo::Stats stats;
 };
 
+// Includes each node's statement, so that both runs of one parse compare equal
+// only if every reused node points at the statement a fresh one would.
 void dumpTree(const AbstractNode& node, std::ostringstream& out, size_t& count)
 {
   ++count;
-  out << node.verbose_name() << ':' << node.toString();
+  out << node.verbose_name() << ':' << node.toString() << '@';
+  if (node.modinst && node.modinst->parent_scope) out << static_cast<const void *>(node.modinst);
+  else out << '-';
   if (!node.children.empty()) {
     out << '{';
     for (const auto& child : node.children) dumpTree(*child, out, count);
@@ -59,7 +65,7 @@ void dumpTree(const AbstractNode& node, std::ostringstream& out, size_t& count)
   out << ';';
 }
 
-Run evaluate(SourceFile *file, const fs::path& dir, memo::MemoTable *table, uint64_t generation)
+Run evaluate(SourceFile *file, const fs::path& dir, memo::MemoTable *table)
 {
   Run run;
   resetSuppressedMessages();
@@ -75,7 +81,7 @@ Run evaluate(SourceFile *file, const fs::path& dir, memo::MemoTable *table, uint
     AbstractNode::resetIndexCounter();
     std::optional<memo::EvalMemoSession> memo;
     if (table) {
-      memo.emplace(*table, generation);
+      memo.emplace(*table, *file);
       session.setMemo(&*memo);
     }
     std::shared_ptr<const FileContext> fileContext;
@@ -84,6 +90,7 @@ Run evaluate(SourceFile *file, const fs::path& dir, memo::MemoTable *table, uint
     if (memo) {
       run.stats = memo->stats();
       run.reasons.assign(memo->reasons().begin(), memo->reasons().end());
+      run.replaced = memo->takeReplaced();
       std::sort(run.reasons.begin(), run.reasons.end(),
                 [](const auto& x, const auto& y) { return x.second > y.second; });
       session.setMemo(nullptr);
@@ -186,6 +193,9 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
     CGALCache::instance()->setMaxSizeMB(5000);
   }
   uint64_t generation = 0;
+  // The tree on screen: a refresh replaces it only once the new one is ready,
+  // so its nodes are freed after evaluating the next step, not during it.
+  std::shared_ptr<AbstractNode> shown;
 
   for (const auto& name : files) {
     ++generation;
@@ -209,7 +219,7 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
     keep.emplace_back(parsed);
     parsed->handleDependencies();
 
-    Run memoRun = evaluate(parsed, path.parent_path(), &table, generation);
+    Run memoRun = evaluate(parsed, path.parent_path(), &table);
     total.add(memoRun.stats);
     const memo::Stats& s = memoRun.stats;
     const size_t uncacheable =
@@ -218,7 +228,8 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
               << static_cast<long>(memoRun.ms) << " ms, " << memoRun.nodes << " nodes | boundaries "
               << s.boundaries << ": hit " << s.hits << ", miss " << s.misses << " (stored " << s.stored
               << ", impure " << s.impure << ", $-unhashable " << s.unhashableDollar << ", $-differ "
-              << s.staleDollar << "), uncacheable " << uncacheable << " [arg " << s.unhashableArg
+              << s.staleDollar << ", unlocatable " << s.unlocatable << ", not relocated "
+              << s.relocateFailed << "), uncacheable " << uncacheable << " [arg " << s.unhashableArg
               << ", env " << s.unhashableEnv
               << ", child-local " << s.childrenLocalDef << ", child-nokey " << s.childrenNoKey
               << ", child-var " << s.unhashableChildrenVar << "] | cloned " << s.nodesCloned
@@ -226,7 +237,11 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
               << std::chrono::duration_cast<std::chrono::milliseconds>(s.keyTime).count()
               << " ms (closures "
               << std::chrono::duration_cast<std::chrono::milliseconds>(s.closureTime).count()
-              << " ms) | table " << table.size() << "\n";
+              << " ms), locate "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(s.locateTime).count() << " ms ("
+              << s.nodesLocated << " nodes), reuse "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(s.reuseTime).count() << " ms | table "
+              << table.size() << "\n";
 
     for (size_t i = 0; i < memoRun.reasons.size(); ++i) {
       std::cout << "        " << memoRun.reasons[i].second << "  " << memoRun.reasons[i].first << "\n";
@@ -236,7 +251,7 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
                 << " ms (caches kept across steps)\n";
     }
     if (verify) {
-      Run fresh = evaluate(parsed, path.parent_path(), nullptr, 0);
+      Run fresh = evaluate(parsed, path.parent_path(), nullptr);
       bool messagesOk = false;
       bool locationsOnly = false;
       const std::string messages =
@@ -247,6 +262,7 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
       if (!treeOk) std::cout << "      " << firstTreeDifference(memoRun.tree, fresh.tree) << "\n";
       if (!treeOk || !messagesOk) ++failures;
     }
+    shown = memoRun.root;
     fs::current_path(original);
   }
 

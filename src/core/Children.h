@@ -36,6 +36,7 @@ public:
   bool empty() const;
   size_t size() const;
   [[nodiscard]] const std::shared_ptr<const Context>& getContext() const { return context; }
+  [[nodiscard]] const std::shared_ptr<const LocalScope>& getScope() const { return children_scope; }
 
 private:
   std::shared_ptr<const LocalScope> children_scope;

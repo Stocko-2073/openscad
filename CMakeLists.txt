@@ -983,6 +983,7 @@ set(CORE_SOURCES
   src/core/DrawingCallback.cc
   src/core/EvalMemo.cc
   src/core/EvalMemoAST.cc
+  src/core/EvalMemoSites.cc
   src/core/EvaluationSession.cc
   src/core/Expression.cc
   src/core/FreetypeRenderer.cc

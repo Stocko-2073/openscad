@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
@@ -97,13 +98,6 @@ const SourceFile *usedFileDefining(const SourceFile& file, const Identifier& nam
     if (defined) return used;
   }
   return nullptr;
-}
-
-size_t countNodes(const AbstractNode& node)
-{
-  size_t n = 1;
-  for (const auto& child : node.children) n += countNodes(*child);
-  return n;
 }
 
 }  // namespace
@@ -208,8 +202,11 @@ void Stats::add(const Stats& o)
   misses += o.misses;
   stored += o.stored;
   impure += o.impure;
+  unlocatable += o.unlocatable;
+  relocateFailed += o.relocateFailed;
   cloneFailed += o.cloneFailed;
   nodesCloned += o.nodesCloned;
+  nodesLocated += o.nodesLocated;
   messagesReplayed += o.messagesReplayed;
   staleDollar += o.staleDollar;
   unhashableArg += o.unhashableArg;
@@ -220,15 +217,17 @@ void Stats::add(const Stats& o)
   unhashableDollar += o.unhashableDollar;
   keyTime += o.keyTime;
   closureTime += o.closureTime;
+  locateTime += o.locateTime;
+  reuseTime += o.reuseTime;
 }
 
-std::vector<Entry> *MemoTable::find(const Hash128& key)
+std::vector<std::shared_ptr<Entry>> *MemoTable::find(const Hash128& key)
 {
   auto it = entries.find(key);
   return it == entries.end() ? nullptr : &it->second;
 }
 
-void MemoTable::store(const Hash128& key, Entry entry)
+void MemoTable::store(const Hash128& key, std::shared_ptr<Entry> entry)
 {
   auto& variants = entries[key];
   variants.push_back(std::move(entry));
@@ -239,14 +238,23 @@ void MemoTable::store(const Hash128& key, Entry entry)
   }
 }
 
-size_t MemoTable::evict(uint64_t generation, uint64_t keep)
+uint32_t MemoTable::fileId(const std::string& path)
+{
+  auto [it, inserted] = fileIds.try_emplace(path, 0);
+  if (inserted) it->second = static_cast<uint32_t>(fileIds.size());
+  return it->second;
+}
+
+size_t MemoTable::evict(uint64_t keep)
 {
   size_t dropped = 0;
   for (auto it = entries.begin(); it != entries.end();) {
     auto& variants = it->second;
     const size_t before = variants.size();
     variants.erase(std::remove_if(variants.begin(), variants.end(),
-                                  [&](const Entry& e) { return e.lastUsed + keep < generation; }),
+                                  [&](const std::shared_ptr<Entry>& e) {
+                                    return e->lastUsed + keep < generation_;
+                                  }),
                    variants.end());
     dropped += before - variants.size();
     if (variants.empty()) it = entries.erase(it);
@@ -314,6 +322,7 @@ public:
     pending.clear();
     realNames.clear();
     messages.clear();
+    nested.clear();
     g_message_capture.push_back(&messages);
   }
 
@@ -384,10 +393,14 @@ public:
     for (const auto& n : realNames) parent->addRealName(n);
   }
 
-  // The call: its key, and the children key for its module context.
+  // The call: its key, the children key for its module context, its site,
+  // and the context it was made from (the caller's).
   Hash128 key;
   uint64_t childrenKey[3] = {0, 0, 0};
   const ModuleInstantiation *inst = nullptr;
+  const Context *context = nullptr;
+  // Results of the boundaries inside it that were stored or reused.
+  std::vector<EvalMemoSession::NestedResult> nested;
 
   size_t base = 0;  // $ reads from frames below this one are the call's dependencies
   bool impure = false;
@@ -402,9 +415,10 @@ private:
   EvalMemoSession& session;
 };
 
-EvalMemoSession::EvalMemoSession(MemoTable& table, uint64_t generation)
+EvalMemoSession::EvalMemoSession(MemoTable& table, const SourceFile& root)
   : table(table),
-    generation(generation),
+    root(root),
+    generation(++table.generation_),
     values(this),
     debug(std::getenv("OPENSCAD_MEMO_DEBUG") != nullptr)
 {
@@ -722,6 +736,16 @@ const EvalMemoSession::FunctionInfo& EvalMemoSession::functionInfo(const Functio
   return *functionInfos.emplace(key, std::move(info)).first->second;
 }
 
+Hash128 EvalMemoSession::scopeHash(const LocalScope& scope)
+{
+  return scopeInfo(scope).syntax;
+}
+
+Hash128 EvalMemoSession::moduleHash(const UserModule& module)
+{
+  return defInfo(&module, true).own;
+}
+
 const EvalMemoSession::ScopeInfo& EvalMemoSession::scopeInfo(const LocalScope& scope)
 {
   auto it = scopeInfos.find(&scope);
@@ -874,20 +898,6 @@ void EvalMemoSession::replayReads(EvaluationSession& session, const Entry& entry
   r.readsModuleStack |= entry.readsModuleStack;
 }
 
-std::shared_ptr<AbstractNode> EvalMemoSession::cloneTree(const AbstractNode& node, size_t& count)
-{
-  std::shared_ptr<AbstractNode> copy = node.copy();
-  if (!copy) return nullptr;
-  copy->children.reserve(node.children.size());
-  for (const auto& child : node.children) {
-    auto childCopy = cloneTree(*child, count);
-    if (!childCopy) return nullptr;
-    copy->children.push_back(std::move(childCopy));
-  }
-  ++count;
-  return copy;
-}
-
 void EvalMemoSession::replay(const std::vector<Message>& messages)
 {
   for (const auto& message : messages) {
@@ -921,14 +931,22 @@ NOINLINE Call EvalMemoSession::enter(const UserModule& module,
   if (!eligible) return Call::Plain;
 
   if (auto *variants = table.find(key)) {
-    for (auto& entry : *variants) {
-      if (!matches(session, entry)) continue;
-      reused = reuse(session, entry, inst);
-      if (reused) return Call::Reused;
-      break;
+    bool matched = false;
+    for (const auto& entry : *variants) {
+      if (!matches(session, *entry)) continue;
+      matched = true;
+      std::vector<const ModuleInstantiation *> statements;
+      reused = reuse(session, *entry, inst, *context, statements);
+      if (!reused) break;  // evaluate instead; reuse() counted why
+      if (!recorders.empty()) {
+        recorders.back()->nested.push_back({reused.get(), entry, std::move(statements)});
+      }
+      return Call::Reused;
     }
-    ++stats_.staleDollar;
-    if (debug) reason("$ variables differ for " + inst->name().str());
+    if (!matched) {
+      ++stats_.staleDollar;
+      if (debug) reason("$ variables differ for " + inst->name().str());
+    }
   }
 
   ++stats_.misses;
@@ -941,6 +959,7 @@ NOINLINE Call EvalMemoSession::enter(const UserModule& module,
   recorder.key = key;
   std::copy(childrenKey, childrenKey + 3, recorder.childrenKey);
   recorder.inst = inst;
+  recorder.context = context.get();
   return Call::Recording;
 }
 
@@ -964,20 +983,30 @@ NOINLINE void EvalMemoSession::abandon()
   if (!recorders.empty()) recorders.back()->impure = true;
 }
 
-NOINLINE std::shared_ptr<AbstractNode> EvalMemoSession::reuse(EvaluationSession& session, Entry& entry,
-                                                              const ModuleInstantiation *inst)
+NOINLINE std::shared_ptr<AbstractNode> EvalMemoSession::reuse(
+  EvaluationSession& session, Entry& entry, const ModuleInstantiation *inst, const Context& context,
+  std::vector<const ModuleInstantiation *>& statements)
 {
-  size_t count = 0;
-  auto copy = cloneTree(*entry.root, count);
+  const auto start = std::chrono::steady_clock::now();
+  struct Timer {
+    std::chrono::steady_clock::time_point start;
+    std::chrono::nanoseconds& total;
+    ~Timer() { total += std::chrono::steady_clock::now() - start; }
+  } timer{start, stats_.reuseTime};
+  if (!relocate(entry, inst, context, statements)) {
+    ++stats_.relocateFailed;
+    if (debug) reason("statements not found in this parse, under " + inst->name().str());
+    return nullptr;
+  }
+  // From now on the entry, and those nested in it, share the copy's nodes,
+  // which point into this parse.
+  auto copy = copyTree(entry, statements, inst);
   if (!copy) {
     ++stats_.cloneFailed;
     return nullptr;
   }
-  // The root group is this call's own: its tags and location are this site's.
-  copy->modinst = inst;
-  entry.lastUsed = generation;
   ++stats_.hits;
-  stats_.nodesCloned += count;
+  stats_.nodesCloned += entry.nodes;
   replayReads(session, entry);
   replay(entry.messages);
   return copy;
@@ -995,21 +1024,37 @@ NOINLINE void EvalMemoSession::store(const std::shared_ptr<AbstractNode>& node, 
     }
     return;
   }
-  Entry entry;
-  entry.messages = std::move(recorder.messages);
-  entry.reads.reserve(recorder.reads.size());
-  for (const auto& r : recorder.reads) entry.reads.push_back(DollarRead{r.name, r.value, r.absent});
-  for (const auto& p : recorder.pending) {
-    if (p.index != kPromoted) entry.accumulated.push_back(p.name);
+  auto entry = std::make_shared<Entry>();
+  std::vector<const ModuleInstantiation *> statements;
+  const auto start = std::chrono::steady_clock::now();
+  const bool located = locate(*node, inst, *recorder.context, recorder.nested, *entry, statements);
+  stats_.locateTime += std::chrono::steady_clock::now() - start;
+  if (!located) {
+    ++stats_.unlocatable;
+    reason("a statement under " + inst->name().str() + " has no place to record");
+    // Whatever was stored inside still belongs to the caller's result.
+    if (!recorders.empty()) {
+      auto& outer = recorders.back()->nested;
+      std::move(recorder.nested.begin(), recorder.nested.end(), std::back_inserter(outer));
+    }
+    return;
   }
-  entry.realNames = std::move(recorder.realNames);
-  entry.readsModuleStack = recorder.readsModuleStack;
-  if (entry.readsModuleStack) entry.moduleStack = moduleStackHash();
-  entry.nodes = countNodes(*node);
-  entry.root = node;
-  entry.lastUsed = generation;
-  table.store(recorder.key, std::move(entry));
+  entry->messages = std::move(recorder.messages);
+  entry->reads.reserve(recorder.reads.size());
+  for (const auto& r : recorder.reads) entry->reads.push_back(DollarRead{r.name, r.value, r.absent});
+  for (const auto& p : recorder.pending) {
+    if (p.index != kPromoted) entry->accumulated.push_back(p.name);
+  }
+  entry->realNames = std::move(recorder.realNames);
+  entry->readsModuleStack = recorder.readsModuleStack;
+  if (entry->readsModuleStack) entry->moduleStack = moduleStackHash();
+  entry->root = node;
+  entry->lastUsed = generation;
+  table.store(recorder.key, entry);
   ++stats_.stored;
+  stats_.nodesLocated += entry->nodeCodes.size() + 1;
+  // leave() popped this call's recorder: the top one is the caller's.
+  if (!recorders.empty()) recorders.back()->nested.push_back({node.get(), entry, std::move(statements)});
 }
 
 }  // namespace memo

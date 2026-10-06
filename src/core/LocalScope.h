@@ -15,6 +15,9 @@
 
 class AbstractNode;
 class Context;
+class ModuleInstantiation;
+class SourceFile;
+class UserModule;
 
 class LocalScope
 {
@@ -60,6 +63,21 @@ public:
 
   AssignmentList assignments;
   std::vector<std::shared_ptr<ModuleInstantiation>> moduleInstantiations;
+
+  /*
+   * What this scope belongs to, set once after parsing (memo::annotate()), as
+   * are the matching back-links of the statements in it and the modules it
+   * defines. Incremental evaluation follows them to say where a statement
+   * is in a way that a later parse of the same text can answer.
+   */
+  struct Origin {
+    enum class Kind : uint8_t { Unknown, File, ModuleBody, Children, Else };
+    Kind kind = Kind::Unknown;
+    const SourceFile *file = nullptr;                // File
+    const UserModule *module = nullptr;              // ModuleBody
+    const ModuleInstantiation *statement = nullptr;  // Children, Else
+  };
+  Origin origin;
 
 private:
   // Modules and functions are stored twice; once for lookup and once for AST serialization

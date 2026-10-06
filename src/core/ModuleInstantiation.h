@@ -50,6 +50,11 @@ public:
   mutable uint64_t profileCount{0};
   mutable uint64_t profileIterations{0};
 
+  // The scope this statement is in, and its index among the scope's
+  // moduleInstantiations. See LocalScope::origin.
+  const LocalScope *parent_scope{nullptr};
+  uint32_t parent_index{0};
+
 protected:
   Identifier modname;
 };
