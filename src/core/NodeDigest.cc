@@ -87,8 +87,10 @@ void NodeHasher::fileTime(const std::string& path)
 
 void AbstractNode::takeDigest(const AbstractNode& original)
 {
-  // A list's own modifiers are part of its digest; nobody else's are.
-  if (kindOf(*this) == Kind::List && modifiers(*this) != modifiers(original)) return;
+  // A list's own modifiers are part of its digest, and the original's may not be read: the memo
+  // copies nodes whose parse is gone (core/EvalMemo.h). A list computes its own again, from its
+  // children's, for as little as that costs.
+  if (kindOf(*this) == Kind::List) return;
   const uint8_t state = original.digest_state.load(std::memory_order_acquire);
   if (!(state & kKept)) return;
   this->digest_a.store(original.digest_a.load(std::memory_order_relaxed), std::memory_order_relaxed);

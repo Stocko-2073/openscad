@@ -9,6 +9,7 @@
 #include <typeinfo>
 #include <vector>
 
+#include "Feature.h"
 #include "core/BuiltinContext.h"
 #include "core/Builtins.h"
 #include "core/Context.h"
@@ -207,6 +208,35 @@ part(4);
   CHECK(third.root->children.at(0)->hasDigest());
   CHECK(!third.root->children.at(1)->hasDigest());
   CHECK(Tree(third.root).digest(*third.root) != digest);
+}
+
+TEST_CASE("Reused lists compute their digests again, from their children's", "[memo]")
+{
+  // With lazy union, for() makes a list, whose own modifiers are part of its digest. Its copy may
+  // not read the stored list's, whose parse is freed first here.
+  const bool lazy = Feature::ExperimentalLazyUnion.is_enabled();
+  Feature::enable_feature("lazy-union", true);
+  const std::string text = R"(
+module row() for (i = [0:2]) translate([i * 2, 0, 0]) cube(1);
+row();
+)";
+  memo::MemoTable table;
+  Hash128 digest;
+  {
+    const auto file = parseScript(text);
+    const Run first = evaluate(*file, &table);
+    digest = Tree(first.root).digest(*first.root);
+  }
+  const auto again = parseScript(text);
+  const Run second = evaluate(*again, &table);
+  const AbstractNode& row = *second.root->children.at(0);
+  REQUIRE(row.children.size() == 1);
+  const AbstractNode& list = *row.children.at(0);
+  CHECK(typeid(list) == typeid(ListNode));
+  CHECK(!list.hasDigest());
+  for (const auto& item : list.children) CHECK(item->hasDigest());
+  CHECK(Tree(second.root).digest(*second.root) == digest);
+  Feature::enable_feature("lazy-union", lazy);
 }
 
 TEST_CASE("Calls are counted as a fresh evaluation makes them, reused or not", "[memo]")
