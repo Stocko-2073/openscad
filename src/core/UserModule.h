@@ -46,17 +46,6 @@ public:
   std::shared_ptr<AbstractNode> instantiate(
     const std::shared_ptr<const Context>& defining_context, const ModuleInstantiation *inst,
     const std::shared_ptr<const Context>& context) const override;
-  /*
-   * The second half of instantiate(): build the module context from arguments
-   * already evaluated (with this module's name pushed) and run the body.
-   * `children_key`, when given, is the incremental-evaluation key of the
-   * instantiation's children block; see core/EvalMemo.h.
-   */
-  std::shared_ptr<AbstractNode> instantiateWith(const std::shared_ptr<const Context>& defining_context,
-                                                const ModuleInstantiation *inst,
-                                                const std::shared_ptr<const Context>& context,
-                                                class Arguments&& arguments,
-                                                const uint64_t *children_key) const;
   void print(std::ostream& stream, const std::string& indent) const override;
   static const std::string& stack_element(int n) { return StaticModuleNameStack::at(n); }
   static int stack_size() { return StaticModuleNameStack::size(); }

@@ -257,6 +257,13 @@ struct DefInfo;
 struct Closure;
 class Recorder;
 
+// What UserModule::instantiate does with a call; see EvalMemoSession::enter().
+enum class Call {
+  Plain,      // not a boundary, or not one that can be keyed: run it as usual
+  Reused,     // the result is ready: takeReused()
+  Recording,  // run it with childrenKey(), then leave(), or abandon() if it throws
+};
+
 // One evaluation's view of the table. Must be destroyed before the
 // EvaluationSession it is attached to (it holds Values from that session).
 class EvalMemoSession
@@ -267,14 +274,25 @@ public:
   EvalMemoSession(const EvalMemoSession&) = delete;
   EvalMemoSession& operator=(const EvalMemoSession&) = delete;
 
-  // Instantiates `module` for `inst`, reusing a stored result when the key
-  // matches. `arguments` were evaluated by the caller with the module name
-  // already pushed, exactly as UserModule::instantiate does.
-  std::shared_ptr<AbstractNode> instantiate(const UserModule& module,
-                                            const std::shared_ptr<const Context>& defining_context,
-                                            const ModuleInstantiation *inst,
-                                            const std::shared_ptr<const Context>& context,
-                                            Arguments&& arguments);
+  /*
+   * The boundary protocol, for UserModule::instantiate once it has evaluated
+   * the arguments (with the module's name pushed, which parent_module()
+   * sees). enter() decides what happens to the call. The module body runs
+   * from instantiate's own frame on every path and the memo keeps its state
+   * on the heap, so a boundary costs no more stack than any other call: deep
+   * recursion fails at the same depth with the memo as without.
+   */
+  Call enter(const UserModule& module, const std::shared_ptr<const Context>& defining_context,
+             const ModuleInstantiation *inst, const std::shared_ptr<const Context>& context,
+             const Arguments& arguments);
+  // After Reused: the result.
+  std::shared_ptr<AbstractNode> takeReused() { return std::move(reused); }
+  // The recording call's children key, for its UserModuleContext.
+  [[nodiscard]] const uint64_t *childrenKey() const;
+  // The recording call returned `node`.
+  void leave(const std::shared_ptr<AbstractNode>& node);
+  // The recording call threw.
+  void abandon();
 
   // Called by builtins whose result depends on more than their arguments.
   static void noteImpure(EvaluationSession *session);
@@ -291,18 +309,13 @@ public:
   [[nodiscard]] const std::unordered_map<std::string, size_t>& reasons() const { return reasons_; }
 
 private:
-  // The boundary path, out of line so that the frame every other module call
-  // pays for stays small: instantiation recurses hundreds of levels deep.
-  std::shared_ptr<AbstractNode> instantiateBoundary(const UserModule& module,
-                                                    const std::shared_ptr<const Context>& defining_context,
-                                                    const FileContext& definingFile,
-                                                    const ModuleInstantiation *inst,
-                                                    const std::shared_ptr<const Context>& context,
-                                                    Arguments&& arguments);
   std::shared_ptr<AbstractNode> reuse(EvaluationSession& session, Entry& entry,
                                       const ModuleInstantiation *inst);
-  void store(const Hash128& key, std::shared_ptr<AbstractNode> node, Recorder& recorder,
-             const ModuleInstantiation *inst);
+  void store(const std::shared_ptr<AbstractNode>& node, Recorder& recorder);
+  // Starts recording a call whose $ reads come from frames below `base`.
+  Recorder& pushRecorder(size_t base);
+  // Ends the innermost recording and hands what it saw to the one around it.
+  std::unique_ptr<Recorder> popRecorder();
   bool isUserFile(const ModuleInstantiation *inst);
   // childrenKey receives the children block's key: two hash words and flags.
   bool computeKey(const UserModule& module, const FileContext& definingFile,
@@ -374,7 +387,11 @@ private:
     Hash128 hash;
   };
   std::unordered_map<EnvKey, EnvResult, EnvKeyHash> envs;
-  std::vector<Recorder *> recorders;
+  // The calls being recorded, innermost last, and finished ones to reuse:
+  // on the heap so that the frames of the recursion stay small.
+  std::vector<std::unique_ptr<Recorder>> recorders;
+  std::vector<std::unique_ptr<Recorder>> spareRecorders;
+  std::shared_ptr<AbstractNode> reused;  // see takeReused()
   int suspendRecording = 0;  // validation lookups are not reads of the enclosing call
   std::vector<const FunctionType *> hashingFunctions;  // cycle guard for hashFunction()
   friend class Recorder;

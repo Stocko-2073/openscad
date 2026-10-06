@@ -299,17 +299,23 @@ public:
     bool absent;
   };
 
-  Recorder(EvalMemoSession& session, size_t base) : base(base), session(session)
-  {
-    session.recorders.push_back(this);
-    g_message_capture.push_back(&messages);
-  }
-  ~Recorder()
-  {
-    if (active) finish();
-  }
+  explicit Recorder(EvalMemoSession& session) : session(session) {}
   Recorder(const Recorder&) = delete;
   Recorder& operator=(const Recorder&) = delete;
+
+  // Starts recording. A recorder is reused once it has finished.
+  void begin(size_t frames)
+  {
+    base = frames;
+    impure = false;
+    unhashable = false;
+    readsModuleStack = false;
+    reads.clear();
+    pending.clear();
+    realNames.clear();
+    messages.clear();
+    g_message_capture.push_back(&messages);
+  }
 
   static bool contains(const std::vector<Read>& reads, const Identifier& name)
   {
@@ -348,9 +354,10 @@ public:
     if (!contains(list, read.name)) list.push_back(read);
   }
 
-  void finish()
+  // Stops recording and hands what the call saw to `parent`, the recording
+  // call around it, if there is one.
+  void finish(Recorder *parent)
   {
-    active = false;
     g_message_capture.pop_back();
     if (!g_message_capture.empty()) {
       auto *outer = g_message_capture.back();
@@ -363,23 +370,26 @@ public:
         p.index = kPromoted;
       }
     }
-    session.recorders.pop_back();
-    if (session.recorders.empty()) return;
-    Recorder& parent = *session.recorders.back();
-    parent.impure |= impure;
-    parent.unhashable |= unhashable;
-    parent.readsModuleStack |= readsModuleStack;
+    if (!parent) return;
+    parent->impure |= impure;
+    parent->unhashable |= unhashable;
+    parent->readsModuleStack |= readsModuleStack;
     for (const auto& r : reads) {
-      if (r.index == kNoFrame || r.index == kPromoted || r.index < parent.base) merge(parent.reads, r);
+      if (r.index == kNoFrame || r.index == kPromoted || r.index < parent->base) merge(parent->reads, r);
     }
     for (const auto& p : pending) {
       if (p.index == kPromoted) continue;
-      if (p.index == kNoFrame || p.index < parent.base) merge(parent.pending, p);
+      if (p.index == kNoFrame || p.index < parent->base) merge(parent->pending, p);
     }
-    for (const auto& n : realNames) parent.addRealName(n);
+    for (const auto& n : realNames) parent->addRealName(n);
   }
 
-  const size_t base;
+  // The call: its key, and the children key for its module context.
+  Hash128 key;
+  uint64_t childrenKey[3] = {0, 0, 0};
+  const ModuleInstantiation *inst = nullptr;
+
+  size_t base = 0;  // $ reads from frames below this one are the call's dependencies
   bool impure = false;
   bool unhashable = false;
   bool readsModuleStack = false;
@@ -390,7 +400,6 @@ public:
 
 private:
   EvalMemoSession& session;
-  bool active = true;
 };
 
 EvalMemoSession::EvalMemoSession(MemoTable& table, uint64_t generation)
@@ -414,7 +423,33 @@ EvalMemoSession::EvalMemoSession(MemoTable& table, uint64_t generation)
   }
 }
 
-EvalMemoSession::~EvalMemoSession() = default;
+EvalMemoSession::~EvalMemoSession()
+{
+  // Only if an evaluation was torn down mid-call: g_message_capture must not
+  // keep pointing into recorders that are gone.
+  while (!recorders.empty()) spareRecorders.push_back(popRecorder());
+}
+
+Recorder& EvalMemoSession::pushRecorder(size_t base)
+{
+  if (spareRecorders.empty()) {
+    recorders.push_back(std::make_unique<Recorder>(*this));
+  } else {
+    recorders.push_back(std::move(spareRecorders.back()));
+    spareRecorders.pop_back();
+  }
+  Recorder& recorder = *recorders.back();
+  recorder.begin(base);
+  return recorder;
+}
+
+std::unique_ptr<Recorder> EvalMemoSession::popRecorder()
+{
+  std::unique_ptr<Recorder> recorder = std::move(recorders.back());
+  recorders.pop_back();
+  recorder->finish(recorders.empty() ? nullptr : recorders.back().get());
+  return recorder;
+}
 
 void EvalMemoSession::noteImpure(EvaluationSession *session)
 {
@@ -866,40 +901,30 @@ void EvalMemoSession::replay(const std::vector<Message>& messages)
   }
 }
 
-std::shared_ptr<AbstractNode> EvalMemoSession::instantiate(
-  const UserModule& module, const std::shared_ptr<const Context>& defining_context,
-  const ModuleInstantiation *inst, const std::shared_ptr<const Context>& context,
-  Arguments&& arguments)
+NOINLINE Call EvalMemoSession::enter(const UserModule& module,
+                                     const std::shared_ptr<const Context>& defining_context,
+                                     const ModuleInstantiation *inst,
+                                     const std::shared_ptr<const Context>& context,
+                                     const Arguments& arguments)
 {
   ++stats_.calls;
   const auto *definingFile = dynamic_cast<const FileContext *>(defining_context.get());
-  if (!definingFile || !isUserFile(inst)) {
-    return module.instantiateWith(defining_context, inst, context, std::move(arguments), nullptr);
-  }
-  return instantiateBoundary(module, defining_context, *definingFile, inst, context, std::move(arguments));
-}
-
-NOINLINE std::shared_ptr<AbstractNode> EvalMemoSession::instantiateBoundary(
-  const UserModule& module, const std::shared_ptr<const Context>& defining_context,
-  const FileContext& definingFile, const ModuleInstantiation *inst,
-  const std::shared_ptr<const Context>& context, Arguments&& arguments)
-{
+  if (!definingFile || !isUserFile(inst)) return Call::Plain;
   ++stats_.boundaries;
   EvaluationSession& session = *context->session();
 
   const auto start = std::chrono::steady_clock::now();
   Hash128 key;
   uint64_t childrenKey[3] = {0, 0, 0};
-  const bool eligible = computeKey(module, definingFile, inst, context, arguments, key, childrenKey);
+  const bool eligible = computeKey(module, *definingFile, inst, context, arguments, key, childrenKey);
   stats_.keyTime += std::chrono::steady_clock::now() - start;
-  if (!eligible) {
-    return module.instantiateWith(defining_context, inst, context, std::move(arguments), nullptr);
-  }
+  if (!eligible) return Call::Plain;
 
   if (auto *variants = table.find(key)) {
     for (auto& entry : *variants) {
       if (!matches(session, entry)) continue;
-      if (auto copy = reuse(session, entry, inst)) return copy;
+      reused = reuse(session, entry, inst);
+      if (reused) return Call::Reused;
       break;
     }
     ++stats_.staleDollar;
@@ -912,12 +937,31 @@ NOINLINE std::shared_ptr<AbstractNode> EvalMemoSession::instantiateBoundary(
            inst->location().filePath().filename().generic_string() + ":" +
            std::to_string(inst->location().firstLine()));
   }
-  // On the heap: this frame stays live through the whole subtree's recursion.
-  auto recorder = std::make_unique<Recorder>(*this, session.frames().size());
-  auto node = module.instantiateWith(defining_context, inst, context, std::move(arguments), childrenKey);
-  recorder->finish();
-  store(key, node, *recorder, inst);
-  return node;
+  Recorder& recorder = pushRecorder(session.frames().size());
+  recorder.key = key;
+  std::copy(childrenKey, childrenKey + 3, recorder.childrenKey);
+  recorder.inst = inst;
+  return Call::Recording;
+}
+
+const uint64_t *EvalMemoSession::childrenKey() const
+{
+  return recorders.back()->childrenKey;
+}
+
+NOINLINE void EvalMemoSession::leave(const std::shared_ptr<AbstractNode>& node)
+{
+  std::unique_ptr<Recorder> recorder = popRecorder();
+  store(node, *recorder);
+  spareRecorders.push_back(std::move(recorder));
+}
+
+NOINLINE void EvalMemoSession::abandon()
+{
+  spareRecorders.push_back(popRecorder());
+  // Whatever caught the exception made the enclosing call's result depend on
+  // it, and an error can depend on what no key covers, such as stack depth.
+  if (!recorders.empty()) recorders.back()->impure = true;
 }
 
 NOINLINE std::shared_ptr<AbstractNode> EvalMemoSession::reuse(EvaluationSession& session, Entry& entry,
@@ -939,9 +983,9 @@ NOINLINE std::shared_ptr<AbstractNode> EvalMemoSession::reuse(EvaluationSession&
   return copy;
 }
 
-NOINLINE void EvalMemoSession::store(const Hash128& key, std::shared_ptr<AbstractNode> node,
-                                     Recorder& recorder, const ModuleInstantiation *inst)
+NOINLINE void EvalMemoSession::store(const std::shared_ptr<AbstractNode>& node, Recorder& recorder)
 {
+  const ModuleInstantiation *inst = recorder.inst;
   if (recorder.impure || recorder.unhashable || !node) {
     if (recorder.unhashable) {
       ++stats_.unhashableDollar;
@@ -962,9 +1006,9 @@ NOINLINE void EvalMemoSession::store(const Hash128& key, std::shared_ptr<Abstrac
   entry.readsModuleStack = recorder.readsModuleStack;
   if (entry.readsModuleStack) entry.moduleStack = moduleStackHash();
   entry.nodes = countNodes(*node);
-  entry.root = std::move(node);
+  entry.root = node;
   entry.lastUsed = generation;
-  table.store(key, std::move(entry));
+  table.store(recorder.key, std::move(entry));
   ++stats_.stored;
 }
 

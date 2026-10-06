@@ -99,40 +99,47 @@ std::shared_ptr<AbstractNode> UserModule::instantiate(
   }
 
   StaticModuleNameStack name{inst->name()};  // push on static stack, pop at end of method!
-  // Evaluated here, after the push, exactly where the context's constructor
-  // argument used to evaluate them: parent_module() in an argument sees this
-  // module.
+  // Evaluated after the push, as when they were the context's constructor
+  // argument: parent_module() in an argument sees this module.
   Arguments arguments(inst->arguments, context);
-  if (memo::EvalMemoSession *memo = context->session()->memo()) {
-    return memo->instantiate(*this, defining_context, inst, context, std::move(arguments));
-  }
-  return instantiateWith(defining_context, inst, context, std::move(arguments), nullptr);
-}
 
-std::shared_ptr<AbstractNode> UserModule::instantiateWith(
-  const std::shared_ptr<const Context>& defining_context, const ModuleInstantiation *inst,
-  const std::shared_ptr<const Context>& context, Arguments&& arguments,
-  const uint64_t *children_key) const
-{
-  ContextHandle<UserModuleContext> module_context{Context::create<UserModuleContext>(
-    defining_context, this, inst->location(), std::move(arguments), Children(inst->scope, context))};
-  if (children_key) module_context->setChildrenKey(children_key);
-#if 0 && DEBUG
-  PRINTDB("UserModuleContext for module %s(%s):\n", this->name % STR(this->parameters));
-  PRINTDB("%s", module_context->dump());
-#endif
+  // A memo boundary runs its body right here, like any other call, and the
+  // memo keeps its state on the heap: recursion goes as deep with it as
+  // without. See EvalMemoSession::enter().
+  memo::EvalMemoSession *memo = context->session()->memo();
+  if (memo) {
+    switch (memo->enter(*this, defining_context, inst, context, arguments)) {
+    case memo::Call::Plain:     memo = nullptr; break;
+    case memo::Call::Reused:    return memo->takeReused();
+    case memo::Call::Recording: break;
+    }
+  }
 
   std::shared_ptr<AbstractNode> ret;
   try {
-    ret = this->body->instantiateModules(
-      *module_context, std::make_shared<GroupNode>(inst, std::string("module ") + this->name));
-  } catch (EvaluationException& e) {
-    if (OpenSCAD::traceUsermoduleParameters) {
-      print_trace(e, this, *module_context, this->parameters);
-      e.traceDepth--;
+    ContextHandle<UserModuleContext> module_context{Context::create<UserModuleContext>(
+      defining_context, this, inst->location(), std::move(arguments), Children(inst->scope, context))};
+    if (memo) module_context->setChildrenKey(memo->childrenKey());
+#if 0 && DEBUG
+    PRINTDB("UserModuleContext for module %s(%s):\n", this->name % STR(this->parameters));
+    PRINTDB("%s", module_context->dump());
+#endif
+
+    try {
+      ret = this->body->instantiateModules(
+        *module_context, std::make_shared<GroupNode>(inst, std::string("module ") + this->name));
+    } catch (EvaluationException& e) {
+      if (OpenSCAD::traceUsermoduleParameters) {
+        print_trace(e, this, *module_context, this->parameters);
+        e.traceDepth--;
+      }
+      throw;
     }
+  } catch (...) {
+    if (memo) memo->abandon();
     throw;
   }
+  if (memo) memo->leave(ret);
   return ret;
 }
 
