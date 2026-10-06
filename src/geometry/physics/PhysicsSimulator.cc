@@ -68,17 +68,17 @@ void initJoltOnce()
 }
 
 std::mutex transformCacheMutex;
-std::unordered_map<std::string, Transform3d> transformCache;
+std::unordered_map<Hash128, Transform3d, Hash128Hash> transformCache;
 
 }  // namespace
 
-void physicsTransformCacheStore(const std::string& key, const Transform3d& transform)
+void physicsTransformCacheStore(const Hash128& key, const Transform3d& transform)
 {
   std::lock_guard<std::mutex> lock(transformCacheMutex);
   transformCache[key] = transform;
 }
 
-bool physicsTransformCacheLookup(const std::string& key, Transform3d& transform)
+bool physicsTransformCacheLookup(const Hash128& key, Transform3d& transform)
 {
   std::lock_guard<std::mutex> lock(transformCacheMutex);
   const auto it = transformCache.find(key);

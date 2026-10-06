@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "geometry/linalg.h"
+#include "utils/Hash128.h"
 
 // Parameters of the physics() module, in model units (mm, mm/s^2, seconds).
 struct PhysicsParams {
@@ -44,11 +45,11 @@ struct PhysicsResult {
 // thread-safe (each call uses an isolated physics world).
 PhysicsResult simulatePhysics(const PhysicsInput& in);
 
-// Side cache of simulated transforms, keyed by the node's cache id string
-// (Tree::getIdString). GeometryEvaluator publishes the transform here so the
+// Side cache of simulated transforms, keyed by the node's geometry digest
+// (Tree::digest()). GeometryEvaluator publishes the transform here so the
 // overlays (core/ModifierOverlays) can position background (%) and highlight
 // (#) ghosts in the child hierarchy to follow the settled pose. Entries are tiny
 // and live for the process lifetime, mirroring the geometry caches.
 // Thread-safe (parallel animate evaluates frames concurrently).
-void physicsTransformCacheStore(const std::string& key, const Transform3d& transform);
-bool physicsTransformCacheLookup(const std::string& key, Transform3d& transform);
+void physicsTransformCacheStore(const Hash128& key, const Transform3d& transform);
+bool physicsTransformCacheLookup(const Hash128& key, Transform3d& transform);

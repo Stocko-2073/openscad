@@ -85,7 +85,7 @@ public:
   {
     const Response response = enter(state, node, true);
     if (state.isPrefix() && hasModifierBelow(node)) {
-      const std::string key = this->tree.getIdString(node);
+      const Hash128 key = this->tree.digest(node);
       Transform3d pose;
       // Simulating publishes the pose. F6 has normally done that already.
       if (!physicsTransformCacheLookup(key, pose)) this->evaluator.evaluateGeometry(node, false);

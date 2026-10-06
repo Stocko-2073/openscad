@@ -21,20 +21,20 @@ CGALCache::CGALCache(size_t limit) : cache(limit)
 {
 }
 
-bool CGALCache::contains(const std::string& id) const
+bool CGALCache::contains(const Hash128& id) const
 {
   const std::lock_guard<std::mutex> lock(mutex_);
   return this->cache.contains(id);
 }
 
-std::shared_ptr<const Geometry> CGALCache::get(const std::string& id) const
+std::shared_ptr<const Geometry> CGALCache::get(const Hash128& id) const
 {
   const std::lock_guard<std::mutex> lock(mutex_);
   auto *entry = this->cache[id];
   if (!entry) return nullptr;
   const auto geom = entry->N;
 #ifdef DEBUG
-  LOG("CGAL Cache hit: %1$s (%2$d bytes)", id.substr(0, 40), geom ? geom->memsize() : 0);
+  LOG("CGAL Cache hit: %1$s (%2$d bytes)", id.hex(), geom ? geom->memsize() : 0);
 #endif
   return geom;
 }
@@ -51,13 +51,13 @@ bool CGALCache::acceptsGeometry(const std::shared_ptr<const Geometry>& geom)
     ;
 }
 
-bool CGALCache::insert(const std::string& id, const std::shared_ptr<const Geometry>& geom)
+bool CGALCache::insert(const Hash128& id, const std::shared_ptr<const Geometry>& geom)
 {
   assert(acceptsGeometry(geom));
   const std::lock_guard<std::mutex> lock(mutex_);
   auto inserted = this->cache.insert(id, new cache_entry(geom), geom->memsize());
 #ifdef DEBUG
-  LOG("CGAL Cache %1$s: %2$s (%3$d bytes)", inserted ? "inserted" : "insert failed", id.substr(0, 40),
+  LOG("CGAL Cache %1$s: %2$s (%3$d bytes)", inserted ? "inserted" : "insert failed", id.hex(),
       geom->memsize());
 #endif
   return inserted;

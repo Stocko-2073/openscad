@@ -14,32 +14,32 @@
 
 GeometryCache *GeometryCache::inst = nullptr;
 
-bool GeometryCache::contains(const std::string& id) const
+bool GeometryCache::contains(const Hash128& id) const
 {
   const std::lock_guard<std::mutex> lock(mutex_);
   return this->cache.contains(id);
 }
 
-std::shared_ptr<const Geometry> GeometryCache::get(const std::string& id) const
+std::shared_ptr<const Geometry> GeometryCache::get(const Hash128& id) const
 {
   const std::lock_guard<std::mutex> lock(mutex_);
   auto *entry = this->cache[id];
   if (!entry) return nullptr;
   const auto geom = entry->geom;
 #ifdef DEBUG
-  PRINTDB("Geometry Cache hit: %s (%d bytes)", id.substr(0, 40) % (geom ? geom->memsize() : 0));
+  PRINTDB("Geometry Cache hit: %s (%d bytes)", id.hex() % (geom ? geom->memsize() : 0));
 #endif
   return geom;
 }
 
-bool GeometryCache::insert(const std::string& id, const std::shared_ptr<const Geometry>& geom)
+bool GeometryCache::insert(const Hash128& id, const std::shared_ptr<const Geometry>& geom)
 {
   const std::lock_guard<std::mutex> lock(mutex_);
   auto inserted = this->cache.insert(id, new cache_entry(geom), geom ? geom->memsize() : 0);
 #if defined(ENABLE_CGAL) && defined(DEBUG)
   assert(!dynamic_cast<const CGALNefGeometry *>(geom.get()));
   LOG("Geometry Cache %1$s: %2$s (%3$d bytes)", inserted ? "inserted" : "insert failed",
-      id.substr(0, 40), geom ? geom->memsize() : 0);
+      id.hex(), geom ? geom->memsize() : 0);
 #endif
   return inserted;
 }

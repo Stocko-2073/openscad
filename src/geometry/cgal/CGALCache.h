@@ -7,10 +7,12 @@
 
 #include "Cache.h"
 #include "geometry/Geometry.h"
+#include "utils/Hash128.h"
 
-// Thread-safe singleton wrapper around an LRU Cache. The mutex guards concurrent
-// access from animation pre-fetch workers; single-threaded callers pay one
-// uncontended lock per op.
+// Thread-safe singleton wrapper around an LRU Cache, keyed by nodes' geometry
+// digests (core/NodeDigest.h). The mutex guards concurrent access from
+// animation pre-fetch workers; single-threaded callers pay one uncontended lock
+// per op.
 class CGALCache
 {
 public:
@@ -23,9 +25,9 @@ public:
   }
   static bool acceptsGeometry(const std::shared_ptr<const Geometry>& geom);
 
-  bool contains(const std::string& id) const;
-  std::shared_ptr<const Geometry> get(const std::string& id) const;
-  bool insert(const std::string& id, const std::shared_ptr<const Geometry>& N);
+  bool contains(const Hash128& id) const;
+  std::shared_ptr<const Geometry> get(const Hash128& id) const;
+  bool insert(const Hash128& id, const std::shared_ptr<const Geometry>& N);
   size_t size() const;
   size_t totalCost() const;
   size_t maxSizeMB() const;
@@ -43,5 +45,5 @@ private:
   };
 
   mutable std::mutex mutex_;
-  Cache<std::string, cache_entry> cache;
+  Cache<Hash128, cache_entry, Hash128Hash> cache;
 };

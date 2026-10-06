@@ -351,7 +351,7 @@ std::vector<std::shared_ptr<const Polygon2d>> GeometryEvaluator::collectChildren
 void GeometryEvaluator::smartCacheInsert(const AbstractNode& node,
                                          const std::shared_ptr<const Geometry>& geom)
 {
-  const std::string& key = this->tree.getIdString(node);
+  const Hash128 key = this->tree.digest(node);
 
   if (CGALCache::acceptsGeometry(geom)) {
     if (!CGALCache::instance()->contains(key)) {
@@ -372,14 +372,14 @@ void GeometryEvaluator::smartCacheInsert(const AbstractNode& node,
 
 bool GeometryEvaluator::isSmartCached(const AbstractNode& node)
 {
-  const std::string& key = this->tree.getIdString(node);
+  const Hash128 key = this->tree.digest(node);
   return GeometryCache::instance()->contains(key) || CGALCache::instance()->contains(key);
 }
 
 std::shared_ptr<const Geometry> GeometryEvaluator::smartCacheGet(const AbstractNode& node,
                                                                  bool preferNef)
 {
-  const std::string& key = this->tree.getIdString(node);
+  const Hash128 key = this->tree.digest(node);
   const bool hasgeom = GeometryCache::instance()->contains(key);
   const bool hascgal = CGALCache::instance()->contains(key);
   if (hascgal && (preferNef || !hasgeom)) return CGALCache::instance()->get(key);
@@ -746,7 +746,7 @@ Response GeometryEvaluator::visit(State& state, const PhysicsNode& node)
             // Publish the transform so the overlays can move background/
             // highlight ghosts in the child hierarchy along with the settled
             // pose.
-            physicsTransformCacheStore(this->tree.getIdString(node), result.transform);
+            physicsTransformCacheStore(this->tree.digest(node), result.transform);
             mutableGeom->transform(result.transform);
             LOG(message_group::Echo, "%1$s",
                 STR("physics: volume = ", physicsNumber(mp.volume, 3),
@@ -807,7 +807,7 @@ Response GeometryEvaluator::visit(State& state, const TextNode& node)
       auto polygonlist = node.createPolygonList();
       geom = ClipperUtils::apply(polygonlist, Clipper2Lib::ClipType::Union);
     } else {
-      geom = GeometryCache::instance()->get(this->tree.getIdString(node));
+      geom = GeometryCache::instance()->get(this->tree.digest(node));
     }
     addToParent(state, node, geom);
     node.progress_report();

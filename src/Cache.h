@@ -45,11 +45,12 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 #include <unordered_map>
 
 #include "utils/printutils.h"
 
-template <class Key, class T>
+template <class Key, class T, class Hash = std::hash<Key>>
 class Cache
 {
   struct Node {
@@ -60,11 +61,11 @@ class Cache
     size_t c;
     Node *p, *n;
   };
-  using map_type = typename std::unordered_map<Key, Node>;
+  using map_type = typename std::unordered_map<Key, Node, Hash>;
   using iterator_type = typename map_type::iterator;
   using value_type = typename map_type::value_type;
 
-  std::unordered_map<Key, Node> hash;
+  map_type hash;
   Node *f, *l;
   void *unused{nullptr};
   size_t mx, total{0};
@@ -125,7 +126,7 @@ public:
   }
 
   bool insert(const Key& key, T *object, size_t cost);
-  T *object(const Key& key) const { return const_cast<Cache<Key, T> *>(this)->relink(key); }
+  T *object(const Key& key) const { return const_cast<Cache<Key, T, Hash> *>(this)->relink(key); }
   inline bool contains(const Key& key) const { return hash.find(key) != hash.end(); }
   T *operator[](const Key& key) const { return object(key); }
 
@@ -136,8 +137,8 @@ private:
   void trim(size_t m);
 };
 
-template <class Key, class T>
-inline bool Cache<Key, T>::remove(const Key& key)
+template <class Key, class T, class Hash>
+inline bool Cache<Key, T, Hash>::remove(const Key& key)
 {
   auto i = hash.find(key);
   if (i == hash.end()) {
@@ -148,8 +149,8 @@ inline bool Cache<Key, T>::remove(const Key& key)
   }
 }
 
-template <class Key, class T>
-inline T *Cache<Key, T>::take(const Key& key)
+template <class Key, class T, class Hash>
+inline T *Cache<Key, T, Hash>::take(const Key& key)
 {
   iterator_type i = hash.find(key);
   if (i == hash.end()) return 0;
@@ -161,8 +162,8 @@ inline T *Cache<Key, T>::take(const Key& key)
   return t;
 }
 
-template <class Key, class T>
-bool Cache<Key, T>::insert(const Key& akey, T *aobject, size_t acost)
+template <class Key, class T, class Hash>
+bool Cache<Key, T, Hash>::insert(const Key& akey, T *aobject, size_t acost)
 {
   remove(akey);
   if (acost > mx) {
@@ -183,15 +184,15 @@ bool Cache<Key, T>::insert(const Key& akey, T *aobject, size_t acost)
   return true;
 }
 
-template <class Key, class T>
-void Cache<Key, T>::trim(size_t m)
+template <class Key, class T, class Hash>
+void Cache<Key, T, Hash>::trim(size_t m)
 {
   Node *n = l;
   while (n && total > m) {
     Node *u = n;
     n = n->p;
 #ifdef DEBUG
-    LOG("Trimming cache: %1$s (%2$d bytes)", u->keyPtr->substr(0, 40), u->c);
+    LOG("Trimming cache: %1$d bytes", u->c);
 #endif
     unlink(*u);
   }
