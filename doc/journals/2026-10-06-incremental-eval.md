@@ -150,7 +150,7 @@ Phase 3.
 
 Peak RSS for a 13-step replay with verification, every syntax tree kept: 1.34 GB.
 
-### Known gaps
+### Known gaps (as of the spike; superseded in Phase 1)
 
 - **Recursion depth.** The boundary path adds frames per user-module call:
   `recursion-test-module.scad` reaches 13,533 frames with the memo against
@@ -178,22 +178,220 @@ Peak RSS for a 13-step replay with verification, every syntax tree kept: 1.34 GB
 Go. Localized edits evaluate in ~0.1 s (target ≲1.5 s) and the cold cost is
 negative (target ≲5%), with no mismatches on any u-bot edit set.
 
+## 2026-10-06 — Phase 1: core
+
+The spike's mechanism, made fit to keep: reused nodes point into the current
+parse, so the table needs no old parse; a boundary costs no more stack than any
+other call; the syntax tree is written only while parsing; and the memo has
+unit tests and an opt-in ctest configuration.
+
+### What changed, and why
+
+**Node copy** (`e8dd7b57d`). `AbstractNode::copy()` is pure virtual and every
+concrete class implements it as `copyAs(*this)`, which refuses when the dynamic
+type is not that class: a new node class without one does not compile, and a
+subclass of a concrete class that forgets is refused rather than sliced. A
+copy has a fresh index and no children. The old `clone()` (`node_clone.cc`)
+leaked a `ModuleInstantiation` per node into a global list, copied `GroupNode`
+subclasses as plain groups and fell back on `shared_ptr(this)`; its only
+callers, in the Python bindings, now get a deep copy built on `copy()`.
+
+**Accumulator marks at parse time** (`ea7ff0227`). `memo::annotate()` runs at
+the end of `parse()`, on the main file and every `use`d one, before anything
+can evaluate them. `EvalMemoSession::prepare()` wrote `Lookup::accumulator` at
+the start of every memoized evaluation, which the GUI's prefetch threads would
+have raced with.
+
+**Stack** (`bafb8c2ed`). The spike split `UserModule::instantiate` in two and
+routed boundaries through two frames of its own: every user-module call paid
+an extra frame, memo or not, and a boundary three. `instantiate` is one
+function again. `EvalMemoSession::enter()` decides out of line and returns
+before the body runs (`Plain`, `Reused`, or `Recording`); the body runs from
+`instantiate`'s own frame on every path, then `leave()` (or `abandon()` on an
+exception). Recorders live on the heap, pooled per evaluation.
+
+| `recursion-test-module.scad` | with memo | without |
+|---|---|---|
+| dev, before the spike | — | ~23,900 (estimated) |
+| spike | 13,533 | 20,581 |
+| Phase 1 | 23,391 | 23,391 |
+
+The frame is 480 bytes, 16 more than dev's, from which dev's count is
+estimated. Both recursion stress tests now pass `--memo-selftest`. A call that
+throws also marks the recording call around it impure: had anything caught the
+error, the result would depend on it, and an error can depend on stack depth.
+
+**Locations** (`9386a619e`, `3754ef33a`): the next section.
+
+**Deprecations** (`95f5e54fe`). `make_message_obj()` drops a repeated
+deprecation before `PRINT` sees it, so a call recorded after the same warning
+had been printed elsewhere stored nothing, and lost the warning where it was
+reused alone (a known gap of the spike). Repeats now reach `g_message_capture`
+marked `Message::repeat`, unprinted; replaying prints a recorded deprecation if
+it is new in that evaluation and passes it on as a repeat otherwise.
+
+**Tests** (`4672674ba`, `228791c09`). Fifteen `[memo]` unit test cases (ctest
+label `memo`), listed under Correctness. `ctest -C MemoSelftest` runs
+`--memo-selftest` on each of the 545 corpus scripts (label `memo-selftest`; also
+part of `-C All`, not of the default run): 140 s of tests at `-j8`. ctest raises
+the stack limit to 64 MB, so the two deep-vector recursion scripts run with
+their echo tests' `--trace-usermodule-parameters=false`; with traced
+parameters one of them ran for over 20 minutes.
+
+### Reused nodes point into the current parse
+
+Every node points at the statement that made it (`modinst`): the GUI reads its
+location from it, and geometry its `! # %` tags. Stored nodes point into the
+parse that produced them, and so did the spike's copies.
+
+An entry now records, when it is stored, where each of its statements is, in
+terms that a later parse of the same text can answer:
+
+- an **anchor**: the body of a file-scope module definition (by file, name, and
+  how many definitions of that name follow it); or the children block of the
+  reused call itself; or that of the k-th enclosing user-module call, found
+  through the `UserModuleContext` chain, which is exactly what `children()`
+  inside a children block can reach;
+- a **path** down from it: a statement's index, then into its children or else
+  block, or into a module definition nested in a body, by name.
+
+Children blocks are anchored at the call that runs them, and the innermost
+anchor wins, so an edit to a caller does not invalidate the parts it calls. On
+reuse each path is followed in the current parse; each anchor must still have
+its structural hash and each statement its fingerprint (name, modifiers,
+argument and statement counts), or the call is evaluated instead. A children
+block whose own call ran again inside the subtree (recursion through one call
+site) could have run as either call's children, which a statement's place
+cannot tell apart, so that call is not stored; nor is one more than 256
+enclosing calls deep.
+
+Where this differs from the plan, and why:
+
+- **No index per evaluation.** `annotate()` links each scope, statement and
+  module definition to what contains it (`LocalScope::origin`,
+  `parent_scope`, `parent_index`): one pass at parse time, then O(1) lookups.
+- **A fingerprint per statement, not a structural hash.** The anchor's hash
+  covers everything under it, so a statement's own hash could only catch a
+  wrong path, and the fingerprint does that for far less.
+- **The table keeps no parse.** Nothing reads a stored node's statement (reuse
+  writes the copies' from the paths), so rather than have entries hold the
+  parses they reference, the table holds none and each parse is freed when its
+  owner is done with it. The harness keeps the parse being evaluated and the
+  one behind the tree on screen; `use`d files reparsed by `SourceFileCache`
+  under the table, which the spike would have handed out dangling, are found
+  again by path.
+- **Nested entries are coded, not walked.** Recording a site for every node of
+  every stored subtree came to 8.2M codes for u-bot's 4,850 entries, 17 times
+  the tree, and 204 ms of a cold evaluation. An entry codes only its own nodes;
+  the subtree of a call stored or reused inside it is one code and a
+  translation of that entry's sites. Storing now costs what is new: 82 ms cold
+  (289k nodes), 5-9 ms for an edit.
+- **The table follows the latest tree.** Reuse hands each nested entry its part
+  of the copy, so entries move to the current tree and nothing old is kept for
+  them. `takeReplaced()` returns the trees they held, so that a caller can free
+  them after showing its result (~10 ms for a u-bot tree).
+
+### Results
+
+Evaluation only, `model_named`, every step verified against a fresh evaluation
+(now also that each node's statement is the very one a fresh evaluation
+picks). Same machine and day; spike = `abd5686ba`.
+
+| edit | spike | Phase 1 |
+|---|---|---|
+| first evaluation (cold table) | 4.53 s | 4.45 s |
+| unchanged / comment at top / undo | 30-33 ms | 26-28 ms |
+| literal in `drive_gear()` | 109 ms | 87 ms |
+| feature count in `wheel()` | 104 ms | 76 ms |
+| leg position, `fwd(30)` → `fwd(31)` | 85 ms | 65 ms |
+| `wheel_teeth` (used by two parts) | 153 ms | 130 ms |
+| `$slop` (read everywhere) | 2.80 s | 2.67 s |
+
+With the model's own unnamed tag scopes (`model`) both take 0.66-0.77 s for the
+small edits and 3.2 s for `$slop`: the impure `tag_scope()` subtrees dominate.
+
+Edits that move code, next to the base: two lines above everything, 27 ms (one
+hit); a statement at the top of `robot()`, the caller of every part, 50 ms; one
+inside `leg()`, 66 ms; an unused definition above `robot()`, 26 ms. A statement
+between two parts in a children block takes 447 ms: it shifts the block's
+children, which BOSL2's `children(i)` sees, so the model really changes.
+
+50 random literal mutations: median 66 ms, p90 121 ms, max 845 ms (spike 87,
+160, 830 ms).
+
+Peak RSS of the 13-step sequence with verification (`run_sequence.sh`): 1.26 GB
+→ 1.02 GB on `model_named`, 1.35 GB → 1.05 GB on `model`; without verification
+1.21 GB → 0.93 GB. One plain CSG export of u-bot peaks at 1.07 GB, so the
+verified run is now bounded by its fresh comparisons. A cold memo evaluation
+peaks 36 MB higher than the spike's (409 MB): the locations, 361k sites, 967k
+path words, 100k anchors and 399k translation entries.
+
+### Correctness
+
+- u-bot scripted edits, 13 steps on each model: identical, statements included.
+- 50 random literal mutations: 51/51 identical.
+- u-bot git history (5 commits + working copy, then back and forth): 8/8.
+- The code-moving edits above: 7/7.
+- `--memo-selftest` over the 550 corpus scripts: 545 pass, and the 5 others are
+  the excluded ones (the 4 `issue1890-*` parse errors, `dim-all.scad`). The two
+  recursion stress tests pass now.
+- `[memo]` unit tests: literals hash exactly, modifiers count, locations do not;
+  a second evaluation hits and gives the same tree; `$` reads must match, an
+  accumulated one need not unless read for real below; messages and repeated
+  deprecations replay; `rands()` keeps a call out; function values hash by
+  what they capture; the depth cap; every node class copies itself, a
+  subclass without its own `copy()` is refused; and reuse after inserting
+  lines above and statements inside callers, for nodes from module bodies, own
+  children and enclosing children, with the old parse freed first, and through
+  recursion over one call site's children. Breaking the remap fails three of
+  them, dropping the deprecation capture one.
+- `ctest` (default): 1810/1813, the 1798 tests from before plus the 15 `[memo]`
+  cases; the three failures are the pre-existing `export-svg*_spec-paths-arcs01`
+  diffs.
+
+### Known gaps
+
+- **Accumulator reads and warnings.** Unchanged: a pending read is not
+  validated, so a reused call would replay a stale warning from its
+  accumulator expression (`undef * matrix`).
+- **Calls to modules defined inside module bodies** are still not boundaries,
+  and a children block naming a local definition still makes its call
+  ineligible. Not attempted in Phase 1.
+- **`import()`/`surface()` path resolution**, and the 128-bit hash, as before.
+- **Recursion.** A boundary more than 256 enclosing calls deep, or whose
+  children block a recursion re-entered, is not stored. Copying a reused
+  subtree near the stack limit gives up and evaluates instead.
+- **Memory.** The locations take ~30 MB for u-bot's table. Definition anchors
+  repeat in every entry and could be shared by the table; `Site::end` could
+  go.
+- **Threads.** A table serves one evaluation at a time; nothing in it is
+  synchronized.
+
 ## Next
 
-1. **Phase 1, core:** per-class node copy (the existing `AbstractNode::clone`
-   leaks a `ModuleInstantiation` per node into a global list and slices
-   `GroupNode` subclasses), `modinst` remap so old parses can be freed, a
-   smaller stack footprint, nested definitions, `[memo]` unit tests, and
-   memo-selftest as a ctest label.
-2. **Phase 2, GUI:** a table per document across refreshes, generation-based
+1. **Phase 2, GUI:** a table per document across refreshes, generation-based
    eviction, Flush Caches clears it, a preference to turn it off, a console
-   line ("reused X of Y calls").
-3. **Phase 3, geometry keys:** per-node digests computed bottom-up, reused
+   line ("reused X of Y calls"). What it calls:
+   - `memo::MemoTable` per document, kept across refreshes; `clear()` on
+     Flush Caches; `evict(keep)` after a refresh drops what the last `keep`
+     evaluations did not use; `size()` and `generation()`.
+   - Per refresh, after parsing the main file: `memo::EvalMemoSession
+     memo{table, *rootFile};` then `session.setMemo(&memo)` on its
+     `EvaluationSession`, `rootFile->instantiate(...)`, `setMemo(nullptr)`;
+     `memo.stats()` (`hits`, `boundaries`, `nodesCloned`, timings) for the
+     console; `memo.takeReplaced()` to hold the trees it took out of the table
+     until the new one is on screen; destroy `memo` before the session.
+   - Parses: the table needs none. Keep the parse behind the tree on screen as
+     now; every file must come from `parse()`, which annotates it.
+   - Prefetch threads: no memo (the table is not synchronized); they only read
+     the AST, which nothing writes after parsing.
+2. **Phase 3, geometry keys:** per-node digests computed bottom-up, reused
    subtrees keeping theirs, so the ~1.0 s whole-tree dump goes away.
-4. **Random tag scopes:** either name them in the model, or seed the RNG
+3. **Random tag scopes:** either name them in the model, or seed the RNG
    deterministically per refresh and record RNG position as a dependency, so
    unnamed `tag_scope()` becomes reusable. The second changes what unseeded
    `rands()` returns from refresh to refresh (the same values every time).
+4. **Nested definitions** as boundaries, carried over from Phase 1.
 
 ## Reproducing
 
@@ -211,6 +409,10 @@ $BIN --memo-selftest model.scad
 
 # Why calls were not reused, itemised per step
 OPENSCAD_MEMO_DEBUG=1 $BIN --memo-replay base.scad base.scad
+
+# The unit tests, and --memo-selftest over the whole regression corpus
+build-release/OpenSCADUnitTests "[memo]"
+ctest --test-dir build-release -C MemoSelftest -L memo-selftest -j8
 
 # Random single-literal edits, written next to the base so includes resolve
 python3 -I doc/journals/memo-mutate.py base.scad . 50 7
