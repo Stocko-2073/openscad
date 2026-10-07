@@ -40,6 +40,8 @@ public:
   Hash128 digest(const AbstractNode& node) const { return this->digests.digest(node); }
   // Whether a node below `node` has a # or % modifier.
   bool hasModifierBelow(const AbstractNode& node) const { return this->digests.hasModifierBelow(node); }
+  // Whether a node below `node` is one that the picker names whole (core/PickAttribution.h).
+  bool hasWholeBelow(const AbstractNode& node) const { return this->digests.hasWholeBelow(node); }
 
 private:
   std::shared_ptr<const AbstractNode> root_node;

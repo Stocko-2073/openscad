@@ -14,6 +14,7 @@
 #include "Feature.h"
 #include "core/CsgOpNode.h"
 #include "core/ModuleInstantiation.h"
+#include "core/PickAttribution.h"
 #include "core/enums.h"
 #include "core/node.h"
 #include "io/fileutils.h"
@@ -35,6 +36,7 @@ constexpr uint64_t kUniqueTag = 0x756e6971'00000005ULL;
 // AbstractNode::digest_state
 constexpr uint8_t kKept = 1;
 constexpr uint8_t kModifierBelow = 2;
+constexpr uint8_t kWholeBelow = 4;
 
 uint64_t modifiers(const AbstractNode& node)
 {
@@ -113,6 +115,11 @@ bool NodeDigests::hasModifierBelow(const AbstractNode& node)
   return info(node).modifierBelow;
 }
 
+bool NodeDigests::hasWholeBelow(const AbstractNode& node)
+{
+  return info(node).wholeBelow;
+}
+
 void NodeDigests::clear()
 {
   const std::lock_guard<std::mutex> lock(this->mutex);
@@ -131,7 +138,7 @@ std::optional<NodeDigests::Info> NodeDigests::lookup(const AbstractNode& node)
   const uint8_t state = node.digest_state.load(std::memory_order_acquire);
   if (state & kKept) {
     return Info{{node.digest_a.load(std::memory_order_relaxed), node.digest_b.load(std::memory_order_relaxed)},
-                (state & kModifierBelow) != 0, false};
+                (state & kModifierBelow) != 0, (state & kWholeBelow) != 0, false};
   }
   if (!this->anyReadFiles.load(std::memory_order_acquire)) return std::nullopt;
   const std::lock_guard<std::mutex> lock(this->mutex);
@@ -146,7 +153,9 @@ void NodeDigests::store(const AbstractNode& node, const Info& info)
   if (!info.readsFiles) {
     node.digest_a.store(info.digest.a, std::memory_order_relaxed);
     node.digest_b.store(info.digest.b, std::memory_order_relaxed);
-    node.digest_state.store(kKept | (info.modifierBelow ? kModifierBelow : 0), std::memory_order_release);
+    node.digest_state.store(
+      kKept | (info.modifierBelow ? kModifierBelow : 0) | (info.wholeBelow ? kWholeBelow : 0),
+      std::memory_order_release);
     return;
   }
   const std::lock_guard<std::mutex> lock(this->mutex);
@@ -186,6 +195,7 @@ NodeDigests::Info NodeDigests::combine(const AbstractNode& node, std::vector<Ope
     const Info known = info(*child);
     result.readsFiles |= known.readsFiles;
     result.modifierBelow |= known.modifierBelow || modifiers(*child) != 0;
+    result.wholeBelow |= known.wholeBelow || pick::isWhole(*child);
     addOperands(*child, 0, operands);
   }
   const auto dropEmpty = [&operands]() {

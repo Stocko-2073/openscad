@@ -49,6 +49,10 @@ struct SurfaceHit {
   Vector3d normal;  // outward, unit length
 };
 
+// Whether the picker names `node` whole: hull(), minkowski(), resize(), fill() and physics(). The
+// others are looked through, or are primitives.
+bool isWhole(const AbstractNode& node);
+
 // Möller–Trumbore, either winding. The ray parameter of the hit, if the ray meets the triangle.
 std::optional<double> intersectTriangle(const Vector3d& origin, const Vector3d& direction,
                                         const Vector3d& a, const Vector3d& b, const Vector3d& c);

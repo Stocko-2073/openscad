@@ -403,3 +403,33 @@ TEST_CASE("A node knows whether a modifier is below it", "[digest]")
   CHECK(!tree.hasModifierBelow(*u.children.at(0)));
   CHECK(!tree.hasModifierBelow(*root.children.at(1)));
 }
+
+TEST_CASE("A node knows whether a node the picker names whole is below it", "[digest]")
+{
+  const Evaluated evaluated = evaluate(
+    "union() { cube(1); group() { hull() { cube(1); minkowski() { cube(1); sphere(1); } } } }\n"
+    "resize([2, 2, 2]) cube(1);\n"
+    "cylinder(1, 1);");
+  const Tree tree(evaluated.root);
+  const AbstractNode& root = *evaluated.root;
+  const AbstractNode& u = *root.children.at(0);
+  const AbstractNode& group = *u.children.at(1);
+  const AbstractNode& hull = *group.children.at(0);
+  const AbstractNode& minkowski = *hull.children.at(1);
+  const AbstractNode& resize = *root.children.at(1);
+  CHECK(tree.hasWholeBelow(root));
+  CHECK(tree.hasWholeBelow(u));
+  CHECK(tree.hasWholeBelow(group));
+  CHECK(tree.hasWholeBelow(hull));
+  CHECK(!tree.hasWholeBelow(minkowski));
+  CHECK(!tree.hasWholeBelow(resize));
+  CHECK(!tree.hasWholeBelow(*u.children.at(0)));
+  CHECK(!tree.hasWholeBelow(*root.children.at(2)));
+
+  // A deep copy carries it with its digests.
+  const auto copy = evaluated.root->clone();
+  REQUIRE(copy);
+  const Tree copied(copy);
+  CHECK(copied.hasWholeBelow(*copy));
+  CHECK(!copied.hasWholeBelow(*copy->children.at(2)));
+}

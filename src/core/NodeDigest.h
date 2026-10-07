@@ -63,6 +63,9 @@ public:
   Hash128 digest(const AbstractNode& node);
   // Whether a node below `node`, not `node` itself, has a # or % modifier.
   bool hasModifierBelow(const AbstractNode& node);
+  // Whether a hull(), minkowski(), resize(), fill() or physics() node is below `node`, not `node`
+  // itself: the nodes that the picker names whole (pick::isWhole()).
+  bool hasWholeBelow(const AbstractNode& node);
   // Forgets the digests that include a file's modification time.
   void clear();
 
@@ -70,6 +73,7 @@ private:
   struct Info {
     Hash128 digest;
     bool modifierBelow{false};
+    bool wholeBelow{false};
     bool readsFiles{false};
   };
   struct Operand {
