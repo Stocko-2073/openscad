@@ -1,13 +1,14 @@
 #include "glview/VBOBuilder.h"
 
+#include <algorithm>
 #include <cmath>
-#include <unordered_map>
 #include <cstring>
 #include <cassert>
 #include <array>
 #include <utility>
 #include <vector>
 #include <memory>
+#include <cstdint>
 #include <cstdio>
 
 #include "geometry/linalg.h"
@@ -17,21 +18,141 @@
 
 namespace {
 
-// Since we transform each verted on the CPU, we cache already transformed vertices in the same PolySet
-// to avoid redundantly transforming the same vertex value twice, while we process non-indexed PolySets.
-Vector3d uniqueMultiply(std::unordered_map<Vector3d, Vector3d>& vert_mult_map, const Vector3d& in_vert,
-                        const Transform3d& m)
+Vector3d triangleNormal(const Vector3d& p0, const Vector3d& p1, const Vector3d& p2)
 {
-  auto entry = vert_mult_map.find(in_vert);
-  if (entry == vert_mult_map.end()) {
-    Vector3d out_vert = m * in_vert;
-    vert_mult_map.emplace(in_vert, out_vert);
-    return out_vert;
+  const double ax = p1[0] - p0[0], bx = p1[0] - p2[0];
+  const double ay = p1[1] - p0[1], by = p1[1] - p2[1];
+  const double az = p1[2] - p0[2], bz = p1[2] - p2[2];
+  const double nx = ay * bz - az * by;
+  const double ny = az * bx - ax * bz;
+  const double nz = ax * by - ay * bx;
+  const double nl = sqrt(nx * nx + ny * ny + nz * nz);
+  return {nx / nl, ny / nl, nz / nl};
+}
+
+// Which of a vertex's edges the edge shader draws: the barycentric attribute, without its fourth byte.
+std::array<GLubyte, 3> barycentricFlags(size_t active_point_index, size_t primitive_index,
+                                        size_t shape_size, bool outlines)
+{
+  std::array<GLubyte, 3> barycentric_flags;
+
+  if (!outlines) {
+    // top / bottom or 3d object
+    if (shape_size == 3) {
+      // true, true, true
+      barycentric_flags = {0, 0, 0};
+    } else if (shape_size == 4) {
+      // false, true, true
+      barycentric_flags = {1, 0, 0};
+    } else {
+      // true, false, false
+      barycentric_flags = {0, 1, 1};
+    }
+  } else {
+    // sides
+    if (primitive_index == 0) {
+      // true, false, true
+      barycentric_flags = {0, 1, 0};
+    } else {
+      // true, true, false
+      barycentric_flags = {0, 0, 1};
+    }
   }
-  return entry->second;
+
+  barycentric_flags[active_point_index] = 1;
+  return barycentric_flags;
+}
+
+// The vertices create_surface() makes of a PolySet: three per triangle, six per quad, and a fan
+// of n triangles around the centroid of any other n-gon.
+size_t surfaceVertexCount(const PolySet& ps)
+{
+  size_t count = 0;
+  for (const auto& poly : ps.indices) {
+    count += poly.size() == 3 ? 3 : poly.size() == 4 ? 6 : 3 * poly.size();
+  }
+  return count;
 }
 
 }  // namespace
+
+// A vertex's bytes eight at a time, with splitmix64's finalizer so that the low bits, which pick
+// the slot, depend on all of them.
+uint64_t ElementsMap::hash(const GLbyte *vertex, size_t stride)
+{
+  uint64_t h = 0x9e3779b97f4a7c15ull ^ stride;
+  for (size_t i = 0; i < stride; i += 8) {
+    uint64_t word = 0;
+    std::memcpy(&word, vertex + i, std::min<size_t>(8, stride - i));
+    h = (h ^ word) * 0xbf58476d1ce4e5b9ull;
+    h ^= h >> 29;
+  }
+  h ^= h >> 30;
+  h *= 0xbf58476d1ce4e5b9ull;
+  h ^= h >> 27;
+  h *= 0x94d049bb133111ebull;
+  h ^= h >> 31;
+  return h;
+}
+
+void ElementsMap::prefetch(uint64_t hash) const
+{
+#if defined(__GNUC__) || defined(__clang__)
+  if (!slots_.empty()) __builtin_prefetch(&slots_[hash & (slots_.size() - 1)]);
+#endif
+}
+
+std::pair<GLuint, bool> ElementsMap::insert(const GLbyte *vertex, size_t stride, const GLbyte *keys,
+                                            uint64_t hash)
+{
+  if ((size_ + 1) * 2 > slots_.size()) rehash(std::max<size_t>(64, slots_.size() * 2), stride, keys);
+
+  const uint64_t tag = hash & 0xffffffff00000000ull;
+  const size_t mask = slots_.size() - 1;
+  for (size_t pos = hash & mask;; pos = (pos + 1) & mask) {
+    const uint64_t slot = slots_[pos];
+    if (slot == 0) {
+      const auto index = static_cast<GLuint>(size_);
+      slots_[pos] = tag | (static_cast<uint64_t>(index) + 1);
+      used_.push_back(pos);
+      ++size_;
+      return {index, true};
+    }
+    if ((slot & 0xffffffff00000000ull) == tag) {
+      const auto index = static_cast<GLuint>((slot & 0xffffffffull) - 1);
+      if (std::memcmp(keys + index * stride, vertex, stride) == 0) return {index, false};
+    }
+  }
+}
+
+void ElementsMap::reserve(size_t count, size_t stride, const GLbyte *keys)
+{
+  size_t slot_count = 64;
+  while (slot_count < count * 2) slot_count *= 2;
+  if (slot_count > slots_.size()) rehash(slot_count, stride, keys);
+  used_.reserve(count);
+}
+
+void ElementsMap::clear()
+{
+  for (const size_t pos : used_) slots_[pos] = 0;
+  used_.clear();
+  size_ = 0;
+}
+
+void ElementsMap::rehash(size_t slot_count, size_t stride, const GLbyte *keys)
+{
+  slots_.assign(slot_count, 0);
+  used_.clear();
+  const size_t mask = slot_count - 1;
+  for (size_t index = 0; index < size_; ++index) {
+    const uint64_t hash = ElementsMap::hash(keys + index * stride, stride);
+    size_t pos = hash & mask;
+    while (slots_[pos] != 0) pos = (pos + 1) & mask;
+    slots_[pos] = (hash & 0xffffffff00000000ull) | (static_cast<uint64_t>(index) + 1);
+    used_.push_back(pos);
+  }
+}
 
 void addAttributeValues(IAttributeData&)
 {
@@ -92,58 +213,115 @@ void VBOBuilder::createVertex(const std::array<Vector3d, 3>& points,
     addAttributeValues(*(data()->colorData()), color.r(), color.g(), color.b(), color.a());
   }
 
-  if (useElements()) {
-    std::vector<GLbyte> interleaved_vertex;
-    interleaved_vertex.resize(data()->stride());
-    data()->getLastVertex(interleaved_vertex);
-    std::pair<ElementsMap::iterator, bool> entry;
-    entry.first = elements_map_.find(interleaved_vertex);
-    if (entry.first == elements_map_.end()) {
-      // append vertex data if this is a new element
-      if (!interleaved_buffer_.empty()) {
-        memcpy(interleaved_buffer_.data() + vertices_offset_, interleaved_vertex.data(),
-               interleaved_vertex.size());
-        data()->clear();
-      }
-      vertices_offset_ += interleaved_vertex.size();
-      entry = elements_map_.emplace(interleaved_vertex, elements_map_.size());
+  if (!interleaved_buffer_.empty()) {
+    vertex_.resize(data()->stride());
+    data()->getLastVertex(vertex_);
+    data()->clear();
+    emitVertex(vertex_.data(), vertex_.size(),
+               useElements() ? ElementsMap::hash(vertex_.data(), vertex_.size()) : 0);
+  } else if (useElements()) {
+    // Without a buffer allocated up front the attributes keep each new vertex, to be interleaved
+    // by createInterleavedVBOs().
+    vertex_.resize(data()->stride());
+    data()->getLastVertex(vertex_);
+    const auto [index, added] =
+      elements_map_.insert(vertex_.data(), vertex_.size(), elementsKeys(vertex_.size()));
+    if (added) {
+      staged_keys_.insert(staged_keys_.end(), vertex_.begin(), vertex_.end());
+      vertices_offset_ += vertex_.size();
     } else {
       data()->remove();
-#if 0
-      if (OpenSCAD::debug != "") {
-        // in debug, check for bad hash matches
-        size_t i = 0;
-        if (interleaved_vertex.size() != entry.first->first.size()) {
-          PRINTDB("vertex index = %d", entry.first->second);
-          assert(false && "VBORenderer invalid vertex match size!!!");
-        }
-        for (const auto& b : interleaved_vertex) {
-          if (b != entry.first->first[i]) {
-            PRINTDB("vertex index = %d", entry.first->second);
-            assert(false && "VBORenderer invalid vertex value hash match!!!");
-          }
-          i++;
-        }
-      }
-#endif  // 0
     }
-
-    // append element data
-    addAttributeValues(*elementsData(), entry.first->second);
+    addAttributeValues(*elementsData(), index);
     elements_offset_ += elementsData()->sizeofAttribute();
-  } else {  // !useElements()
-    if (interleaved_buffer_.empty()) {
-      vertices_offset_ = sizeInBytes();
-    } else {
-      std::vector<GLbyte> interleaved_vertex;
-      interleaved_vertex.resize(data()->stride());
-      data()->getLastVertex(interleaved_vertex);
-      memcpy(interleaved_buffer_.data() + vertices_offset_, interleaved_vertex.data(),
-             interleaved_vertex.size());
-      vertices_offset_ += interleaved_vertex.size();
-      data()->clear();
+  } else {
+    vertices_offset_ = sizeInBytes();
+  }
+}
+
+const GLbyte *VBOBuilder::elementsKeys(size_t stride)
+{
+  if (!interleaved_buffer_.empty()) {
+    return interleaved_buffer_.data() + vertices_offset_ - elements_map_.size() * stride;
+  }
+  if (elements_map_.size() == 0) staged_keys_.clear();
+  return staged_keys_.data();
+}
+
+void VBOBuilder::emitVertex(const GLbyte *vertex, size_t stride, uint64_t hash)
+{
+  assert(vertices_offset_ + stride <= interleaved_buffer_.size());
+  if (useElements()) {
+    const auto [index, added] = elements_map_.insert(vertex, stride, elementsKeys(stride), hash);
+    if (added) {
+      std::memcpy(interleaved_buffer_.data() + vertices_offset_, vertex, stride);
+      vertices_offset_ += stride;
+    }
+    addAttributeValues(*elementsData(), index);
+    elements_offset_ += elementsData()->sizeofAttribute();
+  } else {
+    std::memcpy(interleaved_buffer_.data() + vertices_offset_, vertex, stride);
+    vertices_offset_ += stride;
+  }
+}
+
+bool VBOBuilder::directTriangles(bool enable_barycentric)
+{
+  if (interleaved_buffer_.empty()) return false;
+  const auto& vertex_data = *data();
+  const auto& attributes = vertex_data.attributes();
+  const auto is = [&](size_t index, GLenum type, size_t size, size_t count) {
+    return attributes[index]->glType() == type && attributes[index]->sizeofType() == size &&
+           attributes[index]->count() == count;
+  };
+  return vertex_data.hasPositionData() && vertex_data.positionIndex() == 0 &&
+         vertex_data.hasNormalData() && vertex_data.normalIndex() == 1 && vertex_data.hasColorData() &&
+         vertex_data.colorIndex() == 2 && attributes.size() == (enable_barycentric ? 4 : 3) &&
+         is(0, GL_FLOAT, sizeof(GLfloat), 3) && is(1, GL_FLOAT, sizeof(GLfloat), 3) &&
+         is(2, GL_FLOAT, sizeof(GLfloat), 4) &&
+         (!enable_barycentric || (shader_attributes_index_ + BARYCENTRIC_ATTRIB == 3 &&
+                                  is(3, GL_UNSIGNED_BYTE, sizeof(GLubyte), 4)));
+}
+
+void VBOBuilder::emitTriangle(const Color4f& color, const Vector3d& p0, const Vector3d& p1,
+                              const Vector3d& p2, size_t primitive_index, size_t shape_size,
+                              bool enable_barycentric, bool mirror)
+{
+  const Vector3d n = triangleNormal(p0, p1, p2);
+  const std::array<const Vector3d *, 3> points = {&p0, &p1, &p2};
+  // The values createVertex() would stage: doubles narrowed to the attributes' floats.
+  constexpr size_t floats_size = 10 * sizeof(GLfloat);
+  const size_t stride = floats_size + (enable_barycentric ? 4 * sizeof(GLubyte) : 0);
+  const bool elements = useElements();
+  std::array<std::array<GLbyte, floats_size + 4 * sizeof(GLubyte)>, 3> vertices;
+  std::array<uint64_t, 3> hashes{};
+  for (size_t corner = 0; corner < 3; ++corner) {
+    const Vector3d& p = *points[corner];
+    std::array<GLfloat, 10> floats;
+    for (size_t i = 0; i < 3; ++i) {
+      floats[i] = static_cast<GLfloat>(p[i]);
+      floats[3 + i] = static_cast<GLfloat>(n[i]);
+    }
+    floats[6] = color.r();
+    floats[7] = color.g();
+    floats[8] = color.b();
+    floats[9] = color.a();
+    std::memcpy(vertices[corner].data(), floats.data(), floats_size);
+    if (enable_barycentric) {
+      const auto flags = barycentricFlags(corner, primitive_index, shape_size, false);
+      const std::array<GLubyte, 4> barycentric = {flags[0], flags[1], flags[2], 0};
+      std::memcpy(vertices[corner].data() + floats_size, barycentric.data(), barycentric.size());
+    }
+    if (elements) {
+      // Fetch the three slots at once rather than wait for each in turn.
+      hashes[corner] = ElementsMap::hash(vertices[corner].data(), stride);
+      elements_map_.prefetch(hashes[corner]);
     }
   }
+  // As create_triangle() orders them: a mirrored triangle is wound the other way.
+  const std::array<size_t, 3> order =
+    mirror ? std::array<size_t, 3>{0, 2, 1} : std::array<size_t, 3>{0, 1, 2};
+  for (const size_t corner : order) emitVertex(vertices[corner].data(), stride, hashes[corner]);
 }
 
 void VBOBuilder::createInterleavedVBOs()
@@ -353,35 +531,8 @@ void VBOBuilder::add_barycentric_attribute(size_t active_point_index, size_t pri
                                            size_t shape_size, bool outlines)
 {
   const std::shared_ptr<VertexData> vertex_data = data();
-
-  // Get edge states
-  std::array<GLubyte, 3> barycentric_flags;
-
-  if (!outlines) {
-    // top / bottom or 3d object
-    if (shape_size == 3) {
-      // true, true, true
-      barycentric_flags = {0, 0, 0};
-    } else if (shape_size == 4) {
-      // false, true, true
-      barycentric_flags = {1, 0, 0};
-    } else {
-      // true, false, false
-      barycentric_flags = {0, 1, 1};
-    }
-  } else {
-    // sides
-    if (primitive_index == 0) {
-      // true, false, true
-      barycentric_flags = {0, 1, 0};
-    } else {
-      // true, true, false
-      barycentric_flags = {0, 0, 1};
-    }
-  }
-
-  barycentric_flags[active_point_index] = 1;
-
+  const auto barycentric_flags =
+    barycentricFlags(active_point_index, primitive_index, shape_size, outlines);
   addAttributeValues(*(vertex_data->attributes()[shader_attributes_index_ + BARYCENTRIC_ATTRIB]),
                      barycentric_flags[0], barycentric_flags[1], barycentric_flags[2], 0);
 }
@@ -390,14 +541,7 @@ void VBOBuilder::create_triangle(const Color4f& color, const Vector3d& p0, const
                                  const Vector3d& p2, size_t primitive_index, size_t shape_size,
                                  bool outlines, bool enable_barycentric, bool mirror)
 {
-  const double ax = p1[0] - p0[0], bx = p1[0] - p2[0];
-  const double ay = p1[1] - p0[1], by = p1[1] - p2[1];
-  const double az = p1[2] - p0[2], bz = p1[2] - p2[2];
-  const double nx = ay * bz - az * by;
-  const double ny = az * bx - ax * bz;
-  const double nz = ax * by - ay * bx;
-  const double nl = sqrt(nx * nx + ny * ny + nz * nz);
-  const Vector3d n = Vector3d(nx / nl, ny / nl, nz / nl);
+  const Vector3d n = triangleNormal(p0, p1, p2);
 
   if (!data()) return;
 
@@ -439,14 +583,26 @@ void VBOBuilder::create_surface(const PolySet& ps, const Transform3d& m, const C
   const bool mirrored = m.matrix().determinant() < 0;
   size_t triangle_count = 0;
 
-  std::unordered_map<Vector3d, Vector3d> vert_mult_map;
   const auto last_size = verticesOffset();
 
   size_t elements_offset = 0;
   if (useElements()) {
     elements_offset = elementsOffset();
     elementsMap().clear();
+    elementsMap().reserve(surfaceVertexCount(ps), vertex_data->stride(),
+                          elementsKeys(vertex_data->stride()));
   }
+
+  const bool direct = directTriangles(enable_barycentric);
+  const auto triangle = [&](const Color4f& color, const Vector3d& p0, const Vector3d& p1,
+                            const Vector3d& p2, size_t primitive_index, size_t shape_size) {
+    if (direct) {
+      emitTriangle(color, p0, p1, p2, primitive_index, shape_size, enable_barycentric, mirrored);
+    } else {
+      create_triangle(color, p0, p1, p2, primitive_index, shape_size, false, enable_barycentric,
+                      mirrored);
+    }
+  };
 
   auto has_colors = !ps.color_indices.empty();
 
@@ -458,20 +614,20 @@ void VBOBuilder::create_surface(const PolySet& ps, const Transform3d& m, const C
                           ? ps.colors[color_index]
                           : default_color;
     if (poly.size() == 3) {
-      const Vector3d p0 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(0)], m);
-      const Vector3d p1 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(1)], m);
-      const Vector3d p2 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(2)], m);
+      const Vector3d p0 = m * ps.vertices[poly.at(0)];
+      const Vector3d p1 = m * ps.vertices[poly.at(1)];
+      const Vector3d p2 = m * ps.vertices[poly.at(2)];
 
-      create_triangle(color, p0, p1, p2, 0, poly.size(), false, enable_barycentric, mirrored);
+      triangle(color, p0, p1, p2, 0, poly.size());
       triangle_count++;
     } else if (poly.size() == 4) {
-      const Vector3d p0 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(0)], m);
-      const Vector3d p1 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(1)], m);
-      const Vector3d p2 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(2)], m);
-      const Vector3d p3 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(3)], m);
+      const Vector3d p0 = m * ps.vertices[poly.at(0)];
+      const Vector3d p1 = m * ps.vertices[poly.at(1)];
+      const Vector3d p2 = m * ps.vertices[poly.at(2)];
+      const Vector3d p3 = m * ps.vertices[poly.at(3)];
 
-      create_triangle(color, p0, p1, p3, 0, poly.size(), false, enable_barycentric, mirrored);
-      create_triangle(color, p2, p3, p1, 1, poly.size(), false, enable_barycentric, mirrored);
+      triangle(color, p0, p1, p3, 0, poly.size());
+      triangle(color, p2, p3, p1, 1, poly.size());
       triangle_count += 2;
     } else {
       Vector3d center = Vector3d::Zero();
@@ -480,11 +636,11 @@ void VBOBuilder::create_surface(const PolySet& ps, const Transform3d& m, const C
       }
       center /= poly.size();
       for (size_t i = 1; i <= poly.size(); i++) {
-        const Vector3d p0 = uniqueMultiply(vert_mult_map, center, m);
-        const Vector3d p1 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(i % poly.size())], m);
-        const Vector3d p2 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(i - 1)], m);
+        const Vector3d p0 = m * center;
+        const Vector3d p1 = m * ps.vertices[poly.at(i % poly.size())];
+        const Vector3d p2 = m * ps.vertices[poly.at(i - 1)];
 
-        create_triangle(color, p0, p2, p1, i - 1, poly.size(), false, enable_barycentric, mirrored);
+        triangle(color, p0, p2, p1, i - 1, poly.size());
         triangle_count++;
       }
     }
@@ -505,7 +661,6 @@ void VBOBuilder::create_edges(const Polygon2d& polygon, const Transform3d& m, co
   if (!vertex_data) return;
 
   auto& vertex_states = states();
-  std::unordered_map<Vector3d, Vector3d> vert_mult_map;
 
   // Render only outlines
   for (const Outline2d& o : polygon.outlines()) {
@@ -516,7 +671,7 @@ void VBOBuilder::create_edges(const Polygon2d& polygon, const Transform3d& m, co
       elementsMap().clear();
     }
     for (const Vector2d& v : o.vertices) {
-      const Vector3d p0 = uniqueMultiply(vert_mult_map, Vector3d(v[0], v[1], 0.0), m);
+      const Vector3d p0 = m * Vector3d(v[0], v[1], 0.0);
       createVertex({p0}, {}, color, 0, 0, o.vertices.size(), true, false);
     }
 
@@ -537,7 +692,6 @@ void VBOBuilder::create_polygons(const PolySet& ps, const Transform3d& m, const 
   if (!vertex_data) return;
 
   auto& vertex_states = states();
-  std::unordered_map<Vector3d, Vector3d> vert_mult_map;
 
   PRINTD("create_polygons 2D");
   const bool mirrored = m.matrix().determinant() < 0;
@@ -547,24 +701,33 @@ void VBOBuilder::create_polygons(const PolySet& ps, const Transform3d& m, const 
   if (useElements()) {
     elements_offset = elementsOffset();
     elementsMap().clear();
+    elementsMap().reserve(surfaceVertexCount(ps), vertex_data->stride(),
+                          elementsKeys(vertex_data->stride()));
   }
+
+  const bool direct = directTriangles(false);
+  const auto triangle = [&](const Vector3d& p0, const Vector3d& p1, const Vector3d& p2,
+                            size_t primitive_index, size_t shape_size) {
+    if (direct) emitTriangle(color, p0, p1, p2, primitive_index, shape_size, false, mirrored);
+    else create_triangle(color, p0, p1, p2, primitive_index, shape_size, false, false, mirrored);
+  };
 
   for (const auto& poly : ps.indices) {
     if (poly.size() == 3) {
-      const Vector3d p0 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(0)], m);
-      const Vector3d p1 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(1)], m);
-      const Vector3d p2 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(2)], m);
+      const Vector3d p0 = m * ps.vertices[poly.at(0)];
+      const Vector3d p1 = m * ps.vertices[poly.at(1)];
+      const Vector3d p2 = m * ps.vertices[poly.at(2)];
 
-      create_triangle(color, p0, p1, p2, 0, poly.size(), false, false, mirrored);
+      triangle(p0, p1, p2, 0, poly.size());
       triangle_count++;
     } else if (poly.size() == 4) {
-      const Vector3d p0 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(0)], m);
-      const Vector3d p1 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(1)], m);
-      const Vector3d p2 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(2)], m);
-      const Vector3d p3 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(3)], m);
+      const Vector3d p0 = m * ps.vertices[poly.at(0)];
+      const Vector3d p1 = m * ps.vertices[poly.at(1)];
+      const Vector3d p2 = m * ps.vertices[poly.at(2)];
+      const Vector3d p3 = m * ps.vertices[poly.at(3)];
 
-      create_triangle(color, p0, p1, p3, 0, poly.size(), false, false, mirrored);
-      create_triangle(color, p2, p3, p1, 1, poly.size(), false, false, mirrored);
+      triangle(p0, p1, p3, 0, poly.size());
+      triangle(p2, p3, p1, 1, poly.size());
       triangle_count += 2;
     } else {
       Vector3d center = Vector3d::Zero();
@@ -576,11 +739,11 @@ void VBOBuilder::create_polygons(const PolySet& ps, const Transform3d& m, const 
       center[1] /= poly.size();
 
       for (size_t i = 1; i <= poly.size(); i++) {
-        const Vector3d p0 = uniqueMultiply(vert_mult_map, center, m);
-        const Vector3d p1 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(i % poly.size())], m);
-        const Vector3d p2 = uniqueMultiply(vert_mult_map, ps.vertices[poly.at(i - 1)], m);
+        const Vector3d p0 = m * center;
+        const Vector3d p1 = m * ps.vertices[poly.at(i % poly.size())];
+        const Vector3d p2 = m * ps.vertices[poly.at(i - 1)];
 
-        create_triangle(color, p0, p2, p1, i - 1, poly.size(), false, false, mirrored);
+        triangle(p0, p2, p1, i - 1, poly.size());
         triangle_count++;
       }
     }
