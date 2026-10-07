@@ -452,6 +452,9 @@ private:
   // or rootGeom it came from.
   std::optional<std::vector<pick::Leaf>> pickRootLeaves;
   std::optional<std::vector<pick::PlacedMesh>> pickRootSurface;
+  // The geometry of the hull() and other nodes the picker names whole, held for the result on
+  // screen, which the geometry cache may drop; each render takes over what the last one held.
+  std::shared_ptr<const pick::WholeGeometry> pickWholeGeometry;
   // The view shows an Animate frame, whose node indices don't match rootNode.
   bool animationFrameShown{false};
   void resetPickMemo();

@@ -17,6 +17,7 @@
 #include "core/NodeVisitor.h"
 #include "core/State.h"
 #include "core/TransformNode.h"
+#include "core/Tree.h"
 #include "core/node.h"
 #ifdef ENABLE_PHYSICS
 #include "core/PhysicsNode.h"
@@ -26,6 +27,7 @@
 #include "geometry/PolySet.h"
 #include "geometry/PolySetUtils.h"
 #include "geometry/linalg.h"
+#include "utils/Hash128.h"
 #include "utils/printutils.h"
 
 namespace pick {
@@ -206,13 +208,21 @@ std::vector<Match> matchesAt(const std::vector<Leaf>& leaves, const SurfaceHit& 
   return matches;
 }
 
+// `geom` as a mesh, if it is 3D.
+std::shared_ptr<const PolySet> meshOf(const std::shared_ptr<const Geometry>& geom)
+{
+  if (!geom || geom->getDimension() != 3) return nullptr;
+  return PolySetUtils::getGeometryAsPolySet(geom);
+}
+
 // Walks a subtree the way GeometryEvaluator builds it, collecting the primitives that end up in
 // its geometry.
 class LeafCollector : public NodeVisitor
 {
 public:
-  LeafCollector(const Tree& tree, const AbstractNode& start, bool evaluateWhole)
-    : start(start), evaluator(tree), evaluateWhole(evaluateWhole)
+  LeafCollector(const Tree& tree, const AbstractNode& start, bool evaluateWhole,
+                const WholeGeometry *held)
+    : tree(tree), start(start), evaluator(tree), evaluateWhole(evaluateWhole), held(held)
   {
   }
 
@@ -290,6 +300,14 @@ private:
     return result;
   }
 
+  // What `held` has for a whole node, if anything.
+  const std::shared_ptr<const Geometry> *heldGeometry(const AbstractNode& node) const
+  {
+    if (!this->held) return nullptr;
+    const auto it = this->held->find(this->tree.digest(node));
+    return it == this->held->end() ? nullptr : &it->second;
+  }
+
   // Records whether `node` cuts material away: its parent does, or it cuts its parent difference().
   void enter(const State& state, const AbstractNode& node)
   {
@@ -302,34 +320,66 @@ private:
     this->subtracted[&node] = subtracted;
   }
 
-  Response addLeaf(const State& state, const AbstractNode& node, bool cachedOnly)
+  Response addLeaf(const State& state, const AbstractNode& node, bool whole)
   {
     if (!state.isPrefix()) return Response::ContinueTraversal;
     if (isBackground(node)) return Response::PruneTraversal;
     enter(state, node);
-    // A hull() or physics() can take long to evaluate; a right-click must not re-run one the
-    // cache has dropped.
-    if (!cachedOnly || this->evaluateWhole || this->evaluator.isSmartCached(node)) {
-      const auto ps =
-        std::dynamic_pointer_cast<const PolySet>(this->evaluator.evaluateGeometry(node, false));
-      if (ps && !ps->isEmpty() && ps->getDimension() == 3) {
-        Leaf leaf;
-        leaf.index = node.index();
-        leaf.mesh = {drawable(ps), state.matrix()};
-        leaf.bbox = worldBox(leaf.mesh);
-        leaf.subtracted = this->subtracted[&node];
-        this->leaves.push_back(std::move(leaf));
-      }
+    std::shared_ptr<const PolySet> ps;
+    if (!whole || this->evaluateWhole) {
+      ps = meshOf(this->evaluator.evaluateGeometry(node, false));
+    } else if (const auto *geom = heldGeometry(node)) {
+      ps = meshOf(*geom);
+    } else if (this->evaluator.isSmartCached(node)) {
+      // A hull() or physics() can take long to evaluate; a right-click must not re-run one the
+      // cache has dropped.
+      ps = meshOf(this->evaluator.evaluateGeometry(node, false));
+    }
+    if (ps && !ps->isEmpty()) {
+      Leaf leaf;
+      leaf.index = node.index();
+      leaf.mesh = {drawable(ps), state.matrix()};
+      leaf.bbox = worldBox(leaf.mesh);
+      leaf.subtracted = this->subtracted[&node];
+      this->leaves.push_back(std::move(leaf));
     }
     return Response::PruneTraversal;
   }
 
+  const Tree& tree;
   const AbstractNode& start;
   GeometryEvaluator evaluator;
   bool evaluateWhole;
+  const WholeGeometry *held;
   std::unordered_set<const AbstractNode *> cutters;  // operands after the first of a difference()
   std::unordered_map<const AbstractNode *, bool> subtracted;
 };
+
+// The nodes below `root` that LeafCollector takes whole, found by the same rules, going only where
+// the tree says there are some. Without a visitor, whose state costs ten times as much: on u-bot
+// this goes through 18k of 470k nodes in 1.1 ms.
+std::vector<const AbstractNode *> wholeNodes(const Tree& tree, const AbstractNode& root)
+{
+  std::vector<const AbstractNode *> found;
+  std::vector<const AbstractNode *> stack{&root};
+  while (!stack.empty()) {
+    const AbstractNode *node = stack.back();
+    stack.pop_back();
+    if (node != &root && node->modinst && node->modinst->isBackground()) continue;
+    if (isWhole(*node)) {
+      found.push_back(node);
+      continue;
+    }
+    if (!tree.hasWholeBelow(*node) || dynamic_cast<const AbstractPolyNode *>(node)) continue;
+    if (const auto *transform = dynamic_cast<const TransformNode *>(node)) {
+      if (matrix_contains_infinity(transform->matrix) || matrix_contains_nan(transform->matrix)) {
+        continue;
+      }
+    }
+    for (const auto& child : node->children) stack.push_back(child.get());
+  }
+  return found;
+}
 
 void appendSurface(const std::shared_ptr<const Geometry>& geom, std::vector<PlacedMesh>& out)
 {
@@ -407,14 +457,34 @@ Vector3d closestPointOnTriangle(const Vector3d& p, const Vector3d& a, const Vect
 }
 
 std::vector<Leaf> collectLeaves(const Tree& tree, const AbstractNode& node, const Transform3d& matrix,
-                                bool evaluateWhole)
+                                bool evaluateWhole, const WholeGeometry *held)
 {
   const PrintSuppressGuard quiet;
-  LeafCollector collector(tree, node, evaluateWhole);
+  LeafCollector collector(tree, node, evaluateWhole, held);
   State state(nullptr);
   state.setMatrix(matrix);
   collector.traverse(node, state);
   return std::move(collector.leaves);
+}
+
+WholeGeometry holdWholeGeometry(GeometryEvaluator& evaluator, const AbstractNode& root,
+                                const WholeGeometry *previous)
+{
+  const PrintSuppressGuard quiet;
+  const Tree& tree = evaluator.getTree();
+  WholeGeometry held;
+  for (const auto *node : wholeNodes(tree, root)) {
+    const Hash128 key = tree.digest(*node);
+    if (held.count(key)) continue;
+    if (previous) {
+      if (const auto it = previous->find(key); it != previous->end()) {
+        held.emplace(key, it->second);
+        continue;
+      }
+    }
+    held.emplace(key, evaluator.evaluateGeometry(*node, true));
+  }
+  return held;
 }
 
 std::vector<PlacedMesh> surfaceOf(const std::shared_ptr<const Geometry>& geom)

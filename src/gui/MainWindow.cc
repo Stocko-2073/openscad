@@ -1941,6 +1941,7 @@ void MainWindow::dropRenderCaches()
   // a file the document uses is parsed again only if it changed, as for any render.
   activeEditor->memoTable.reset();
   animateWidget->dropMemoTables();
+  this->pickWholeGeometry.reset();
   GeometryCache::instance()->clear();
   CGALCache::instance()->clear();
   dxf_dim_cache.clear();
@@ -1985,7 +1986,7 @@ void MainWindow::cgalRender()
 #else
   const bool checkInterference = false;
 #endif
-  this->cgalworker->start(this->tree, checkInterference);
+  this->cgalworker->start(this->tree, checkInterference, this->pickWholeGeometry);
 }
 
 std::shared_ptr<Renderer> MainWindow::createGeometryRenderer(
@@ -2047,6 +2048,8 @@ void MainWindow::actionRenderDone(const std::shared_ptr<const RenderResult>& res
     interference::logReport(*result->interference, this->tree);
   }
 #endif
+  // A render that failed before holding any leaves the last one's to the next.
+  if (result->wholeGeometry) this->pickWholeGeometry = result->wholeGeometry;
   const std::shared_ptr<const Geometry>& root_geom = result->geometry;
   if (root_geom) {
     std::vector<std::string> options;
@@ -2327,7 +2330,8 @@ std::vector<int> MainWindow::pickPrimitives(const QGLView::PickResult& picked)
       this->pickRootLeaves.emplace();
       this->pickRootSurface = pick::surfaceOf(this->rootGeom);
       if (!this->pickRootSurface->empty()) {
-        *this->pickRootLeaves = pick::collectLeaves(this->tree, *this->rootNode, Transform3d::Identity());
+        *this->pickRootLeaves = pick::collectLeaves(this->tree, *this->rootNode, Transform3d::Identity(),
+                                                    false, this->pickWholeGeometry.get());
       }
     }
     if (!this->pickRootSurface) return {};
@@ -3200,6 +3204,7 @@ void MainWindow::onTabManagerAboutToCloseEditor(EditorInterface *closingEditor)
     this->absoluteRootNode.reset();
 
     resetPickMemo();
+    this->pickWholeGeometry.reset();
     this->animationFrameShown = false;
 
     this->rootNode.reset();

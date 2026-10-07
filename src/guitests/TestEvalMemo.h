@@ -15,6 +15,7 @@ private slots:
   void framesStartFromTheDocumentsTable();
   void keepsTheRendererOfAnUnchangedResult();
   void f6RendersFromScratch();
+  void pickerNamesWhatTheCacheDropped();
   void benchmarkEditSequence();
   void benchmarkAnimationFirstPass();
 };

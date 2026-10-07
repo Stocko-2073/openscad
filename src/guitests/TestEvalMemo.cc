@@ -25,6 +25,7 @@
 #include "core/ModuleInstantiation.h"
 #include "core/Settings.h"
 #include "core/node.h"
+#include "geometry/Geometry.h"
 #include "geometry/GeometryCache.h"
 #include "glview/RenderSettings.h"
 #include "gui/Animate.h"
@@ -150,6 +151,36 @@ void setReuse(bool on)
 {
   Settings::Settings::reuseModuleResults.setValue(on);
   emit GlobalPreferences::inst()->reuseModuleResultsChanged(on);
+}
+
+// What either geometry cache has for `key`.
+std::shared_ptr<const Geometry> cached(const Hash128& key)
+{
+  std::shared_ptr<const Geometry> geom;
+#ifdef ENABLE_CGAL
+  if (CGALCache::instance()->find(key, geom)) return geom;
+#endif
+  GeometryCache::instance()->find(key, geom);
+  return geom;
+}
+
+void clearCaches()
+{
+  GeometryCache::instance()->clear();
+#ifdef ENABLE_CGAL
+  CGALCache::instance()->clear();
+#endif
+}
+
+void insertCached(const Hash128& key, const std::shared_ptr<const Geometry>& geom)
+{
+#ifdef ENABLE_CGAL
+  if (CGALCache::acceptsGeometry(geom)) {
+    CGALCache::instance()->insert(key, geom);
+    return;
+  }
+#endif
+  GeometryCache::instance()->insert(key, geom);
 }
 
 }  // namespace
@@ -388,6 +419,48 @@ void TestEvalMemo::f6RendersFromScratch()
   QTRY_COMPARE_WITH_TIMEOUT(done, 2, 30000);
   QObject::disconnect(connection);
   QCOMPARE(evaluationNote(window), QString("reused 0 of 4 module calls"));
+
+  window->tabManager->closeCurrentTab();
+}
+
+void TestEvalMemo::pickerNamesWhatTheCacheDropped()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath("hull.scad");
+  const QString parts =
+    "module part() {\n"
+    "  hull() { cube(5); translate([10, 0, 0]) sphere(2); }\n"
+    "  translate([0, 0, -2]) cube(1);\n"
+    "}\n"
+    "module other(n) translate([0, 20, 0]) cube(n);\n"
+    "part();\n";
+  save(path, parts + "other(3);\n");
+  window->tabManager->createTab(path);
+  QVERIFY(render(window));
+
+  // Once the cache is full, it drops what was used longest ago: part()'s result, which each render
+  // finds whole, stays, and the hull() inside it, which no render looks up, goes.
+  const auto part = window->rootNode->children.at(0);
+  QCOMPARE(QString::fromStdString(part->verbose_name()), QString("module part"));
+  const Hash128 partKey = window->tree.digest(*part);
+  const auto partGeometry = cached(partKey);
+  QVERIFY(partGeometry);
+  clearCaches();
+  insertCached(partKey, partGeometry);
+
+  save(path, parts + "other(4);\n");
+  QVERIFY(render(window, true));
+  QCOMPARE(evaluationNote(window), QString("reused 1 of 2 module calls"));
+  const auto hull = window->rootNode->children.at(0)->children.at(0);
+  QCOMPARE(QString::fromStdString(hull->name()), QString("hull"));
+  QVERIFY(!cached(window->tree.digest(*hull)));
+
+  // A right-click on the hull() names it all the same.
+  const auto picked = pick({2, 2, 50}, {2, 2, -50});
+  QVERIFY(!picked.empty());
+  std::deque<std::shared_ptr<const AbstractNode>> chain;
+  QVERIFY(window->rootNode->getNodeByID(picked.front(), chain) == hull);
 
   window->tabManager->closeCurrentTab();
 }

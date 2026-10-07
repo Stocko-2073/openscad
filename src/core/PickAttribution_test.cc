@@ -345,6 +345,85 @@ TEST_CASE("hull() and minkowski() are named as a whole", "[pick]")
   }
 }
 
+// Whether either geometry cache has an entry for `node`.
+bool isCached(const Scene& scene, const AbstractNode& node)
+{
+  const Hash128 key = scene.tree->digest(node);
+#ifdef ENABLE_CGAL
+  if (CGALCache::instance()->contains(key)) return true;
+#endif
+  return GeometryCache::instance()->contains(key);
+}
+
+TEST_CASE("hull() and minkowski() are named once the cache has dropped them, if held", "[pick]")
+{
+  const Backend manifold(RenderBackend3D::ManifoldBackend);
+  const auto scene = instantiate(
+    "hull() {\n"
+    "  cube(5);\n"
+    "  translate([10, 0, 0]) sphere(2, $fn = 16);\n"
+    "}\n"
+    "translate([30, 0, 0]) minkowski() {\n"
+    "  cube(10);\n"
+    "  sphere(1, $fn = 8);\n"
+    "}");
+  GeometryEvaluator evaluator(*scene->tree);
+  View view;
+  view.surface = pick::surfaceOf(evaluator.evaluateGeometry(*scene->root, true));
+  const auto held = pick::holdWholeGeometry(evaluator, *scene->root, nullptr);
+  CHECK(held.size() == 2);
+
+  // As the cache's LRU does once it fills: a render that finds a part in the cache uses nothing
+  // inside it, so that is dropped first.
+  clearCaches();
+  view.leaves = pick::collectLeaves(*scene->tree, *scene->root, Transform3d::Identity());
+  CHECK(attribute(view, down(2, 2)).empty());
+  CHECK(attribute(view, down(35, 5)).empty());
+
+  view.leaves = pick::collectLeaves(*scene->tree, *scene->root, Transform3d::Identity(), false, &held);
+  CHECK(lines(*scene, attribute(view, down(2, 2))) == Lines{1});
+  CHECK(lines(*scene, attribute(view, down(35, 5))) == Lines{5});
+  // And nothing was evaluated again for it.
+  CHECK(!isCached(*scene, *scene->root->children.at(0)));
+}
+
+TEST_CASE("What is held is taken over from the last render, else from the cache", "[pick]")
+{
+  const Backend manifold(RenderBackend3D::ManifoldBackend);
+  const std::string text =
+    "union() {\n"
+    "  hull() { cube(5); translate([10, 0, 0]) sphere(2, $fn = 16); }\n"
+    "  translate([0, 20, 0]) hull() { hull() { cube(1); sphere(2); } }\n"
+    "  %translate([0, 40, 0]) hull() { cube(1); sphere(2); }\n"
+    "  translate([0, 60, 0]) cube(1);\n"
+    "}";
+  const auto first = instantiate(text);
+  GeometryEvaluator evaluator(*first->tree);
+  evaluator.evaluateGeometry(*first->root, true);
+  const auto held = pick::holdWholeGeometry(evaluator, *first->root, nullptr);
+  // The outer hull() of the nested pair only, and not the `%` one: what collectLeaves() takes whole.
+  REQUIRE(held.size() == 2);
+  const AbstractNode& hull = *first->root->children.at(0)->children.at(0);
+  const Hash128 key = first->tree->digest(hull);
+  REQUIRE(held.count(key) == 1);
+  REQUIRE(held.at(key));
+
+  // The next render's tree, after the cache dropped them: they are taken over, not made again.
+  clearCaches();
+  const auto next = instantiate(text);
+  GeometryEvaluator nextEvaluator(*next->tree);
+  const auto takenOver = pick::holdWholeGeometry(nextEvaluator, *next->root, &held);
+  CHECK(takenOver.size() == 2);
+  CHECK(takenOver.at(key) == held.at(key));
+  CHECK(!isCached(*next, *next->root->children.at(0)->children.at(0)));
+
+  // Without them, one the cache dropped is made again.
+  const auto remade = pick::holdWholeGeometry(nextEvaluator, *next->root, nullptr);
+  CHECK(remade.size() == 2);
+  CHECK(remade.at(key));
+  CHECK(isCached(*next, *next->root->children.at(0)->children.at(0)));
+}
+
 TEST_CASE("Primitives inside a placed render() of nested modules are named", "[pick]")
 {
   const Backend manifold(RenderBackend3D::ManifoldBackend);

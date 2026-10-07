@@ -38,13 +38,15 @@ CGALWorker::~CGALWorker()
   delete this->thread;
 }
 
-void CGALWorker::start(const Tree& tree, bool checkInterference)
+void CGALWorker::start(const Tree& tree, bool checkInterference,
+                       std::shared_ptr<const pick::WholeGeometry> wholeGeometry)
 {
 #ifdef ENABLE_PYTHON
   python_unlock();
 #endif
   this->tree = &tree;
   this->checkInterference = checkInterference;
+  this->wholeGeometry = std::move(wholeGeometry);
   this->thread->start();
 }
 
@@ -73,6 +75,10 @@ void CGALWorker::work()
 
     // After the result, so the # subtrees come from the cache. Failing here keeps the result.
     result->overlays = overlay::collect(*this->tree, *this->tree->root());
+    // For the picker, which takes hull() and the like whole rather than evaluate one on a click:
+    // a render that finds a part in the cache uses nothing inside it, so the cache drops that first.
+    result->wholeGeometry = std::make_shared<const pick::WholeGeometry>(
+      pick::holdWholeGeometry(evaluator, *this->tree->root(), this->wholeGeometry.get()));
     result->geometryTime = std::chrono::steady_clock::now() - renderStart;
 
 #ifdef ENABLE_MANIFOLD
@@ -102,6 +108,7 @@ void CGALWorker::work()
   if (result->geometryTime == std::chrono::steady_clock::duration::zero()) {
     result->geometryTime = std::chrono::steady_clock::now() - renderStart;
   }
+  this->wholeGeometry.reset();
 #ifdef ENABLE_PYTHON
   python_unlock();
 #endif
