@@ -852,6 +852,126 @@ then without; caches at 5,000 MB), with the footprint read in the test:
   reconfigure, `parallelizable_transform` runs serially. No file in
   `build-release` has it. Unrelated to memory; found on the way.
 
+## 2026-10-06 — The pause after "Rendering Polygon Mesh"
+
+A saved part edit still paused for about two seconds between "Rendering
+Polygon Mesh using Manifold..." and "Geometries in cache", while the
+console's total said 0.77 s. Most of it was the first paint of the new
+result, which the render statistic does not count: it now takes 0.11 s
+instead of 1.3 s.
+
+### Where the time went
+
+Timers in a GUI instance with settings of its own, on a copy of the live
+u-bot (which now renders its motors, axle mounts and bearings: 526k
+triangles, and 1.6 s of cold geometry against Phase 3's 0.8 s), each
+version saved over it as an editor does:
+
+| | `drive_gear()` literal | undo | unchanged |
+|---|---|---|---|
+| geometry, on the worker | 633 ms | 1 ms | 0 |
+| GUI thread after the worker | 26 ms | 56 ms | 14 ms |
+| first paint | 1,272 ms | 1,524 ms | — (renderer kept) |
+| "Rendering..." to the rest of the console | 1.95 s | 1.61 s | 63 ms |
+
+The console shows queued lines from a 50 ms timer, which runs only once the
+GUI thread is back in its event loop, after that paint. The paint builds
+the new renderer's buffers (`PolySetRenderer::prepare()`), 1.58M vertices
+of 44 bytes, with `vertex-object-renderers-indexing` on (an experimental
+feature, on in the user's settings). Sampled, two thirds of it went to
+finding repeated vertices in an `unordered_map<vector<GLbyte>, GLuint>`,
+where every lookup allocated its key and hashed the 44 bytes one at a time;
+6% to freeing that map; 6% to `uniqueMultiply()`'s map of transformed
+vertices, though every caller passes the identity; most of the rest to
+staging each value through virtual calls. With indexing off the paint took
+270-330 ms.
+
+### What changed, and why (`128a32c4d`)
+
+- **`ElementsMap`** is an open-addressing table of indices, with a tag from
+  the hash in each slot, that compares a vertex with those already in the
+  interleaved buffer, where a surface's new vertices lie one after another:
+  nothing is allocated per vertex. It is reserved for the surface, its
+  `clear()` costs what was added (the CGAL renderer clears it for each
+  tessellated facet), and a triangle's three slots are fetched together.
+  Keeping its own copy of the keys and fetching slot by slot took ~200 ms.
+- **Surfaces write vertices straight into the buffer** when the vertex is
+  the usual layout (float position, normal and color, then the barycentric
+  bytes); other layouts, and the CGAL renderer's `createVertex()` calls,
+  stage them as before.
+- **`uniqueMultiply()` goes**: a lookup cost more than multiplying.
+
+### Results
+
+| | before | after |
+|---|---|---|
+| first paint of a changed result | 1,272-1,524 ms | 111-126 ms |
+| ...with indexing off | 270-330 ms | 28-32 ms |
+| part edit, "Rendering..." to the result | 1.95 s | 0.69 s |
+| undo | 1.61 s | ~0.17 s |
+
+What remains of a part edit is its geometry, 0.25-0.6 s of booleans on the
+current model.
+
+### Correctness
+
+- The buffers hold the bytes the old code built. A temporary check in the
+  process compared every lookup with the old map's answer, and every vertex
+  written directly with what the old path staged, on 1,072 renders of the
+  render tests' scripts (Manifold and CGAL renderers, indexing on and off)
+  and on u-bot: 6.2M lookups and 10.3M vertices, no difference. Comparing
+  dumps between binaries could not settle it: the CGAL renderer's buffers
+  differ from run to run of one binary, and minkowski geometry from build
+  to build (below).
+- `ctest`: 1829/1832, the three known `export-svg*_spec-paths-arcs01`
+  failures.
+
+### Found on the way: minkowski output depends on the heap
+
+`minkowski3-difference-test.scad` gives 732, 706 or 692 facets depending on
+the length of an unrelated environment variable, or of the output file's
+name; each setting repeats. Volume and area agree to nine digits: the same
+solid, meshed differently.
+
+Manifold's `minkowski()` decomposes each operand into convex parts (CGAL
+Nef), takes the convex hull of each pair's sums (`CGAL::convex_hull_3`),
+and unions the hulls. Traced over 16 runs, the decomposition was identical
+every time; 4 of the 22 hulls had the same vertices but other triangles;
+the unions then had 657, 642 or 636 vertices. CGAL's quickhull
+(`ch_quickhull_3_scan`, CGAL 6.1.1) keeps each horizon in a
+`std::map<Vertex_handle, Edge>`, ordered by address, and walks it from
+`begin()`: where the allocator put the hull's vertices decides how its
+coplanar faces are triangulated. Any change to earlier allocations (an
+environment variable, a file name, a different build, `--debug`) can change
+it. Byte-for-byte STL comparisons of models that use `minkowski()` can fail
+for this reason alone.
+
+Manifold's own hull is index-based and about 7-12 times faster, timed side
+by side on the same point clouds:
+
+| | hulls | CGAL | Manifold | hulls off by > 1e-4 in volume | result's volume |
+|---|---|---|---|---|---|
+| render tests using `minkowski()`, each | 1-31 | 0.1-21 ms | 0.02-1.8 ms | 0 (all within 2e-10) | not compared |
+| `cube(10)` ⊕ `sphere($fn=48)` | 1 | 16.2 ms | 2.4 ms | 0 | same to 1e-15 |
+| a cube with a hole ⊕ `sphere($fn=32)` | 50 | 351 ms | 52 ms | 1 | off by 1.2e-7 |
+| `text("Minkowski")` ⊕ `sphere($fn=12)` | 153 | 203 ms | 25 ms | 2 | same to 5e-15 |
+| the difference test at `$fn=96`, sphere 32 | 98 | 752 ms | 110 ms | 4 | off by 9.9e-5 |
+
+That would make the heavier minkowskis 1.3-2.3 times faster (decomposition,
+hulls and union), but it is not a drop-in replacement: on these
+near-degenerate clouds (thin convex parts plus a sphere) its quickhull
+returns hulls that are not convex, with input points up to 0.86 of the
+bounding box's diagonal outside a face and up to 15 faces turned inward,
+while `Status()` reports no error, and the union does not always cover
+them. Its hulls also have 3-14% more triangles, which made the union up to
+40% slower.
+
+### Known gaps
+
+- The buffers are still built on the GUI thread at the first paint, and the
+  console's lines and the render statistic still leave that paint out.
+- Minkowski is still not deterministic (Next).
+
 ## Next
 
 1. **Auto-reload latency**, now the largest part of an unchanged save: a
@@ -869,6 +989,10 @@ then without; caches at 5,000 MB), with the footprint read in the test:
    objects) so that an edit does not union the whole model again.
 4. **Nested definitions** as boundaries, carried over from Phase 1.
 5. **Eviction by budget** rather than by a fixed number of renders.
+6. **Deterministic minkowski:** keep CGAL's hulls but triangulate their
+   planar faces canonically (merge coplanar triangles with exact
+   predicates, then fan each face from its least vertex), or make
+   Manifold's hull robust on near-degenerate clouds before using it.
 
 ## Reproducing
 
