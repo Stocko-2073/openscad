@@ -241,6 +241,38 @@ size_t MemoTable::evict(uint64_t keep)
   return dropped;
 }
 
+std::unique_ptr<MemoTable> MemoTable::fork() const
+{
+  auto result = std::make_unique<MemoTable>();
+  result->count = count;
+  result->generation_ = generation_;
+  result->fileIds = fileIds;
+  // Every entry is copied once, and those nested in it point at the copies of theirs, which
+  // may have left the table since.
+  std::unordered_map<const Entry *, std::shared_ptr<Entry>> copies;
+  std::vector<std::shared_ptr<Entry>> pending;
+  const auto copyOf = [&](const std::shared_ptr<Entry>& entry) {
+    auto [it, inserted] = copies.try_emplace(entry.get());
+    if (inserted) {
+      it->second = std::make_shared<Entry>(*entry);
+      pending.push_back(it->second);
+    }
+    return it->second;
+  };
+  result->entries.reserve(entries.size());
+  for (const auto& [key, variants] : entries) {
+    auto& out = result->entries[key];
+    out.reserve(variants.size());
+    for (const auto& entry : variants) out.push_back(copyOf(entry));
+  }
+  while (!pending.empty()) {
+    const std::shared_ptr<Entry> copy = std::move(pending.back());
+    pending.pop_back();
+    for (auto& nested : copy->nested) nested.entry = copyOf(nested.entry);
+  }
+  return result;
+}
+
 struct DefInfo {
   Hash128 own;
   std::vector<Identifier> vars;

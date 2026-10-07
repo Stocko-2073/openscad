@@ -6,6 +6,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <typeinfo>
 #include <vector>
 
@@ -18,6 +19,7 @@
 #include "core/ScopeContext.h"
 #include "core/SourceFile.h"
 #include "core/Tree.h"
+#include "core/Value.h"
 #include "core/node.h"
 #include "openscad.h"
 #include "platform/PlatformUtils.h"
@@ -384,6 +386,81 @@ wrap() wrap() wrap() deep();
   CHECK(first.stats.hits == 1);
   const Run second = evaluate(*file, &table);
   CHECK(second.messages == fresh.messages);
+}
+
+TEST_CASE("A forked table reuses what the original would, apart from it", "[memo]")
+{
+  const auto file = parseScript(R"(
+module part(n) translate([n * 3, 0, 0]) cube(n);
+module pair() { part(1); part(2); }
+pair();
+part(3);
+)");
+  memo::MemoTable table;
+  evaluate(*file, &table);
+  const size_t entries = table.size();
+  const auto fork = table.fork();
+  CHECK(fork->size() == entries);
+  CHECK(fork->generation() == table.generation());
+
+  const std::string fresh = evaluate(*file, nullptr).tree;
+  const Run forked = evaluate(*file, fork.get());
+  CHECK(forked.stats.userCallsReused == forked.stats.userCalls);
+  CHECK(forked.tree == fresh);
+
+  // The fork took its own copies; the original still has what it stored, and reuses it.
+  const auto changed = parseScript("module part(n) cube(n + 1);\npart(3);");
+  evaluate(*changed, fork.get());
+  CHECK(table.size() == entries);
+  const Run original = evaluate(*file, &table);
+  CHECK(original.stats.userCallsReused == original.stats.userCalls);
+  CHECK(original.tree == fresh);
+}
+
+TEST_CASE("Forks of one table evaluate on threads of their own", "[memo]")
+{
+  const auto file = parseScript(R"(
+module part(n) translate([n * 3, 0, 0]) cube(n);
+module spin() rotate($t * 360) part(1);
+part(2);
+spin();
+)");
+  // An evaluation at $t = t, as an animation frame is.
+  const auto evaluateAt = [&file](memo::MemoTable& table, double t) {
+    const PrintSuppressGuard quiet;
+    EvaluationSession session{fs::temp_directory_path().generic_string()};
+    ContextHandle<BuiltinContext> builtin{Context::create<BuiltinContext>(&session)};
+    builtin->set_variable("$t", Value(t));
+    AbstractNode::resetIndexCounter();
+    std::optional<memo::EvalMemoSession> memo;
+    memo.emplace(table, *file);
+    session.setMemo(&*memo);
+    std::shared_ptr<const FileContext> fileContext;
+    REQUIRE(file->instantiate(*builtin, &fileContext));
+    session.setMemo(nullptr);
+    return memo->stats();
+  };
+  memo::MemoTable table;
+  evaluateAt(table, 0);
+  const std::shared_ptr<const memo::MemoTable> seed = table.fork();
+
+  // As the Animate dock's workers do: each forks the seed, which nothing changes, and evaluates.
+  constexpr int kThreads = 4;
+  std::vector<memo::Stats> stats(kThreads);
+  std::vector<std::thread> threads;
+  for (int k = 0; k < kThreads; ++k) {
+    threads.emplace_back([&, k]() {
+      const auto own = seed->fork();
+      stats[k] = evaluateAt(*own, 0.25 * k);
+    });
+  }
+  for (auto& thread : threads) thread.join();
+  for (int k = 0; k < kThreads; ++k) {
+    INFO("thread " << k);
+    // part(2) is reused everywhere; spin() only at the seed's own time.
+    CHECK(stats[k].userCalls == 3);
+    CHECK(stats[k].userCallsReused == (k == 0 ? 3 : 2));
+  }
 }
 
 TEST_CASE("A reused call prints its messages again", "[memo]")

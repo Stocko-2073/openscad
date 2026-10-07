@@ -290,6 +290,12 @@ public:
   }
   // Drops the entries not used by the last `keep` evaluations; returns how many.
   size_t evict(uint64_t keep);
+  /*
+   * A table to evaluate with apart from this one, on another thread if need be, that reuses what
+   * this one would. It shares the stored nodes, which nothing changes once made, and nothing
+   * else. Not while this table is in use.
+   */
+  [[nodiscard]] std::unique_ptr<MemoTable> fork() const;
 
 private:
   friend class EvalMemoSession;
