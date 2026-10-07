@@ -71,6 +71,8 @@ void FrameTask::run()
   // error when they scrub to that t value and the synchronous render runs on
   // the GUI thread.
   PrintSuppressGuard print_suppress;
+  // Likewise progress, which goes to the GUI's F6 render when one is running.
+  ProgressSuppressGuard progress_suppress;
 
   if (is_cancelled(cancel_flag_)) {
     frame_->state.store(FrameState::Cancelled, std::memory_order_release);

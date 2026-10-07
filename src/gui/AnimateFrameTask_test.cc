@@ -10,6 +10,7 @@
 #include "core/Builtins.h"
 #include "core/ModifierOverlays.h"
 #include "core/SourceFile.h"
+#include "core/progress.h"
 #include "geometry/Geometry.h"
 #include "geometry/PolySet.h"
 #include "glview/Camera.h"
@@ -86,4 +87,23 @@ TEST_CASE("An animation frame without geometry is still ready", "[animate]")
   REQUIRE(frame->state.load() == FrameState::Ready);
   REQUIRE(frame->result);
   CHECK((!frame->result->geometry || frame->result->geometry->isEmpty()));
+}
+
+TEST_CASE("A frame takes no part in the progress of the render beside it", "[animate]")
+{
+  // The GUI's F6 render reports its progress through a function that throws once its Cancel is
+  // pressed. A frame evaluated meanwhile, on a worker, neither reports to it nor is cancelled.
+  static int reports;
+  reports = 0;
+  progress_report_f = [](const std::shared_ptr<const AbstractNode>&, void *, int) {
+    ++reports;
+    throw ProgressCancelException();
+  };
+  const auto frame = renderFrame(parseText("rotate($t * 90) cube(1);"), 0.5);
+  progress_report_fin();
+
+  CHECK(reports == 0);
+  REQUIRE(frame->state.load() == FrameState::Ready);
+  REQUIRE(frame->result);
+  CHECK(frame->result->geometry);
 }
