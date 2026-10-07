@@ -4,15 +4,14 @@
 
 Left over from finding why playback re-rendered every frame.
 
-### The first pass renders every frame from scratch
+### Frames first played while a render runs start from empty memo tables
 
-Since the preview went, a frame is a full F6, and the prefetch workers evaluate
-without the module memo (`core/EvalMemo.h`), whose tables serve one evaluation
-at a time. On u-bot each frame spends ~22 s evaluating the script, ten workers
-at once, and 3-6 s on its geometry: ~30 s for ten frames, ~60 s for twenty.
-Each worker could take a table of its own from a pool: `$t` is a recorded `$`
-read, so at a new time only the calls that read it would run. Each table keeps
-up to a tree's worth of nodes.
+The frame tasks fork their memo tables from the document's, but the cache forks
+that only when no render holds the `GuiLocker`: one that is evaluating writes
+to it. Pressing play while the design renders, before any frame has had a
+table, gives the tasks empty ones, and ten cold evaluations side by side are
+slow: twenty u-bot frames take ~9.5 s instead of ~5 s. The cache could fork
+the document's table once the render ends.
 
 ### An unchanged parse throws the frames away
 

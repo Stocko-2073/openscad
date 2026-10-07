@@ -976,6 +976,139 @@ them. Its hulls also have 3-14% more triangles, which made the union up to
   console's lines and the render statistic still leave that paint out.
 - Minkowski is still not deterministic (Next).
 
+## 2026-10-07 — Animate's first pass
+
+The first pass over an animation of u-bot (`zrot(sin($t*360)*45)
+robot(sin($t*360+90)*45)`) now takes 5.0 s through the window for 20 frames
+instead of 47.9 s, and 2.8 s for 10 instead of 23.4 s. The frame workers
+evaluate with memo tables of their own, forked from the document's, and the
+memo records only the module names that `parent_module()` reads, which also
+cut a cold evaluation of u-bot from 5.0 s to 1.8 s.
+
+### Why every frame ran from scratch
+
+Since the preview went, a frame is a full F6, and the workers evaluated without
+a memo: a table serves one evaluation at a time, and the GUI thread's renders
+use the document's. Ten frames at once took 21-28 s each, where one alone takes
+about 11 s, 9 s of it evaluation.
+
+Evaluated in turn with one table (`--memo-replay u-bot.scad@0 u-bot.scad@0.05
+...`; the `FILE@T` steps are new, `ea4238e5e`), most frames took 60 ms, but t =
+0.05 after t = 0 took 4.4 s and t = 0.25 2.5 s. BOSL2's `zrot(0)` calls
+`children()` without `rotate()`, so at t = 0 and 0.5 (the angle of the `zrot()`)
+and 0.25 and 0.75 (`robot()`'s yaw) the module-name stack holds one module
+fewer. `req_children()` and `no_children()`, which BOSL2 calls everywhere,
+evaluate `parent_module(1)` in their `assert()` messages on every call, and the
+memo hashed the whole stack for a call that read any of it: nearly every call
+depended on every module above it.
+
+### What changed, and why
+
+**`parent_module()` reads** (`5ce51a9dc`). A call records the lowest index of
+the stack that `parent_module()` read inside it. Below the call's own name,
+those names are a dependency, and only they: an entry keeps how many names right
+below its call's it read (`Entry::outerModules`) and their hash, compared where
+the call is now. An index past the bottom of the stack depends on the stack's
+size, and keeps the whole stack as before. BOSL2's reads name modules inside the
+call, so they are no dependency at all, and calls that differed only in who
+called them reuse each other: u-bot's cold evaluation reuses 5,132 of its 6,832
+module calls instead of 1,985.
+
+**A table per frame task** (`68990eafd`). `MemoTablePool` holds the tables that
+the frame tasks are done with. A task takes one for its frame, evaluates with
+it, evicts what the frame did not use (`evict(0)`: only the calls that do not
+depend on `$t` serve the next frame) and gives it back before making the frame's
+geometry, so another frame can use it meanwhile. A frame records how many module
+calls it reused (`FrameResult::userCalls`, `userCallsReused`).
+
+**Forked from the document's table** (`009f790a2`, `68990eafd`). Ten empty
+tables start cold at once, and cold evaluations side by side are slow: ten
+frames took 9.7-10.8 s each, where one alone takes about 3.6 s. When Animate
+gives the frame cache a source and no render holds the `GuiLocker`, the cache
+forks the document's table (`MemoTable::fork()`: copies of the entries, sharing
+their nodes, which nothing changes once made; 2 ms for u-bot) and keeps the fork
+as the pool's seed. A task with no idle table forks the seed, on its own thread.
+The render that parsed the source filled the document's table, so every frame
+starts warm.
+
+**Freed once no frame is pending.** A table takes its frame's copies, so it
+holds a tree of its own: after a 20-frame pass ten tables held 4.69M nodes, and
+freeing them gave back 6.2-7.0 GB of footprint in the test process. With no
+frame pending, the cache frees the idle tables on a worker; the seed, which
+shares the document's nodes, stays for the next frames to fork. Dropping the
+frames, Flush Caches and turning reuse off drop it too. Peak footprint over a
+20-frame pass, caches at 5,000 MB: 8.7 GB without tables, 9.6 GB with
+seeded ones, 10.3 GB with empty ones.
+
+**Deprecations per thread** (`08de560df`). `printedDeprecations` was one set for
+every thread: workers raced on it with the GUI thread, and a deprecation that a
+worker met first was not printed by the next render. It is per thread now, and
+each frame clears its own, as each render does.
+
+### Results
+
+One table, steps evaluated in turn and verified against fresh evaluations
+(`--memo-replay --memo-verify`, evaluation only), which took 9.0-9.7 s each.
+With the whole stack hashed: t = 0, 0.05, 0.1, 0.15 took 4,976, 4,353, 63 and
+60 ms; t = 0.05 (cold), 0.1, 0.15, 0.2, 0.25 took 5,325, 67, 63, 67 and
+2,524 ms. With the names read: t = 0 (cold), 0.05, 0.25, 0.5, 0.55 took 1,777,
+63, 59, 62 and 62 ms.
+
+The first pass as the workers make it, after an F6 at t = 0, 20 frames on 10
+threads (`[animate-bench]`):
+
+| tables | first pass |
+|---|---|
+| none (reuse off) | 45.6-48.2 s |
+| empty, whole stack hashed (no F6 first) | 23.5-24.3 s |
+| empty | 8.9-9.9 s |
+| forked from the document's | 4.6-5.4 s |
+
+Once warm, a frame is its geometry: the booleans along the robot's moving
+parts, which Manifold already spreads over the cores. Ten seeded frames took
+2.7 s on one thread, 2.5 s on two, 2.2 s on four and 2.5 s on ten; ten from
+empty tables 4.4 s on one thread and 7.1 s on ten.
+
+Through the window (`benchmarkAnimationFirstPass`): F6 at t = 0, then set the
+speed and wait for every frame:
+
+| | F6 | 10 frames | 20 frames |
+|---|---|---|---|
+| reuse on | 4.2-4.3 s | 2.8 s | 5.0 s |
+| reuse off | 10.6 s | 23.4 s | 47.9 s |
+
+### Correctness
+
+- `--memo-replay` at t = 0, 0.05, 0.25, 0.5 and 0.55: trees, statements
+  included, and messages identical to fresh evaluations.
+- `[memo]` unit tests (24): `parent_module()` inside a call is no dependency,
+  reaching past it is one, past the bottom of the stack depends on its size;
+  a fork reuses what the original would, apart from it; forks of one table
+  evaluate on threads of their own. Disabling the stack check fails two of
+  them.
+- `[animate]` unit tests (8): frames reuse what does not depend on `$t`; a
+  frame that stops early gives its table back; sixteen frames on four threads
+  match fresh ones; frames start from a copy of the document's table, and a
+  trimmed pool forks the seed again; a deprecation a worker meets is printed by
+  the GUI thread.
+- GUI tests pass, with a new one: frames played after a render reuse the
+  document's results from the first, and their tables are freed once all are
+  made.
+- `ctest`: 1842/1845, the three known `export-svg*_spec-paths-arcs01`
+  failures; `-C MemoSelftest` 545/545.
+
+### Known gaps
+
+- **Playing while a render runs**: the cache forks the document's table only
+  when no render holds the `GuiLocker`, so frames first played meanwhile start
+  from empty tables (TODO.md). Later sources keep the last seed.
+- **Each task's table holds a tree** for as long as frames are pending, about
+  a frame's worth of memory per worker.
+- **`$parent_modules`** read inside a call is not a dependency, though it is
+  the stack's depth. It never was; BOSL2 only compares it with zero. The whole
+  stack that `parent_module()` used to record had covered it for calls that
+  read both.
+
 ## Next
 
 1. **Auto-reload latency**, now the largest part of an unchanged save: a
@@ -1026,6 +1159,13 @@ python3 -I doc/journals/memo-mutate.py base.scad . 50 7
 # Evict after each step as the GUI does, and report what the table holds
 $BIN --memo-replay base.scad edit1.scad base.scad --memo-keep 2
 
+# Animation frames: one file at several times with one table, as a frame task's
+$BIN --memo-replay model.scad@0 model.scad@0.05 model.scad@0.25 --memo-keep 0 --memo-verify
+
+# The first pass over an animation as the frame workers make it, with no tables,
+# empty ones and ones forked from an F6's (_FRAMES, _THREADS and _ONLY adjust it)
+OPENSCAD_ANIMATE_BENCH=model.scad build-release/OpenSCADUnitTests "[animate-bench]"
+
 # The GUI tests need a build of their own; a run opens a window, uses
 # settings of its own and exits with the number of failures
 cmake -B build-guitest -DCMAKE_BUILD_TYPE=Release -DEXPERIMENTAL=1 -DENABLE_GUI_TESTS=ON
@@ -1037,7 +1177,16 @@ build-guitest/OpenSCAD.app/Contents/MacOS/OpenSCAD --run-all-gui-tests
 M=/path/to/a/copy/of/u-bot
 OPENSCAD_MEMO_BENCH=$M/base.scad:$M/edit1.scad:$M/base.scad \
   build-guitest/OpenSCAD.app/Contents/MacOS/OpenSCAD --run-all-gui-tests
+
+# ...and an animation's first pass through the window, after an F6 at t = 0
+OPENSCAD_ANIMATE_BENCH=$M/u-bot.scad OPENSCAD_ANIMATE_BENCH_FRAMES=20 \
+  build-guitest/OpenSCAD.app/Contents/MacOS/OpenSCAD --run-all-gui-tests
 ```
+
+A fresh configure picks the Xcode SDK that `xcode-select` points at; give the
+GUI test build the Command Line Tools SDK
+(`-DCMAKE_OSX_SYSROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk`),
+as `build-release` has (TODO.md).
 
 Edit variants must sit in the model's own directory: relative `include`/`use`
 paths and the key's directory component both depend on it. Copy the model
