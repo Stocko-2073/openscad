@@ -63,6 +63,9 @@ private:
   void updatePauseButtonIcon();
   void connectAction(QAction *, QPushButton *);
 
+  // Seeds the cache with the current source and step count, unless its frames are of both already:
+  // they stay valid across a pause or a change of speed.
+  void seedFrameCache();
   void rebuildFrameCacheSource();
   bool tryShowCachedFrame(int step);
   // Button-driven frame navigation (step/jump): try the prefetch cache first and
@@ -92,6 +95,8 @@ private:
   // script gets re-parsed (auto-reload, post-edit recompile) so the cache can
   // be re-seeded with the new AST.
   std::weak_ptr<class SourceFile> cachedSource_;
+  // The step count the cache was seeded with; 0 when it holds no frames.
+  int cachedSteps_ = 0;
 
   bool fpsOK;
   bool tOK;

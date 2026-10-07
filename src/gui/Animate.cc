@@ -125,9 +125,10 @@ void Animate::updatedAnimFpsAndAnimSteps()
     animateTimer->setSingleShot(false);
     animateTimer->setInterval(int(1000 / fps));
     animateTimer->start();
+    seedFrameCache();
+  } else if (this->animNumSteps <= 0) {
+    // No steps, no frames. A pause or a speed being typed keeps them.
     rebuildFrameCacheSource();
-  } else if (frameCache_) {
-    frameCache_->invalidateAll();
   }
 
   QPalette defaultPalette;
@@ -304,10 +305,23 @@ void Animate::onFrameReady(int step)
   }
 }
 
+void Animate::seedFrameCache()
+{
+  if (!frameCache_ || !mainWindow) return;
+  if (this->animNumSteps > 0 && mainWindow->rootFile && cachedSource_.lock() == mainWindow->rootFile &&
+      cachedSteps_ == this->animNumSteps) {
+    lastShownStep_ = -1;  // playback starts over from animStep
+    frameCache_->prefetchWindow(this->animStep, frameCache_->workerCount());
+    return;
+  }
+  rebuildFrameCacheSource();
+}
+
 void Animate::rebuildFrameCacheSource()
 {
   if (!frameCache_ || !mainWindow) return;
   lastShownStep_ = -1;
+  cachedSteps_ = 0;
   if (this->animNumSteps <= 0) {
     frameCache_->invalidateAll();
     cachedSource_.reset();
@@ -325,6 +339,7 @@ void Animate::rebuildFrameCacheSource()
   frameCache_->setSource(mainWindow->rootFile, docPath, this->animNumSteps,
                          mainWindow->qglview->cam);
   cachedSource_ = mainWindow->rootFile;
+  cachedSteps_ = this->animNumSteps;
   frameCache_->prefetchWindow(this->animStep, frameCache_->workerCount());
 }
 
@@ -389,8 +404,8 @@ void Animate::cameraChanged()
 
 void Animate::editorContentChanged()
 {
-  if (frameCache_) frameCache_->invalidateAll();
-  if (animateTimer && animateTimer->isActive()) rebuildFrameCacheSource();
+  // The frames are of the source last parsed, as the view is, and stay until a render parses the
+  // edit: dropping them here only had the workers make them again from that same source.
   this->animateUpdate();  // for now so that we do not change the behavior
 }
 
