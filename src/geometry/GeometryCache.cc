@@ -32,6 +32,15 @@ std::shared_ptr<const Geometry> GeometryCache::get(const Hash128& id) const
   return geom;
 }
 
+bool GeometryCache::find(const Hash128& id, std::shared_ptr<const Geometry>& geom) const
+{
+  const std::lock_guard<std::mutex> lock(mutex_);
+  auto *entry = this->cache[id];
+  if (!entry) return false;
+  geom = entry->geom;
+  return true;
+}
+
 bool GeometryCache::insert(const Hash128& id, const std::shared_ptr<const Geometry>& geom)
 {
   const std::lock_guard<std::mutex> lock(mutex_);

@@ -27,6 +27,9 @@ public:
 
   bool contains(const Hash128& id) const;
   std::shared_ptr<const Geometry> get(const Hash128& id) const;
+  // Whether id is cached and, if so, its geometry, in one step: another thread's insertion can
+  // evict the entry between a contains() and a get().
+  bool find(const Hash128& id, std::shared_ptr<const Geometry>& geom) const;
   bool insert(const Hash128& id, const std::shared_ptr<const Geometry>& N);
   size_t size() const;
   size_t totalCost() const;

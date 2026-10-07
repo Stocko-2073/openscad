@@ -39,6 +39,15 @@ std::shared_ptr<const Geometry> CGALCache::get(const Hash128& id) const
   return geom;
 }
 
+bool CGALCache::find(const Hash128& id, std::shared_ptr<const Geometry>& geom) const
+{
+  const std::lock_guard<std::mutex> lock(mutex_);
+  auto *entry = this->cache[id];
+  if (!entry) return false;
+  geom = entry->N;
+  return true;
+}
+
 bool CGALCache::acceptsGeometry(const std::shared_ptr<const Geometry>& geom)
 {
   return 0

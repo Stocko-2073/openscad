@@ -370,20 +370,38 @@ void GeometryEvaluator::smartCacheInsert(const AbstractNode& node,
   }
 }
 
+/*!
+   The node's entries in the caches, as first found. Other threads share the caches (Animate's
+   frame workers, the render worker), and their insertions can evict an entry at any moment, such
+   as between the prefix visit that prunes a cached node's children and the postfix visit that
+   takes its geometry: the node then had nothing to be made from, and it and every node above it
+   came out empty, and were cached so. A node found cached therefore stays found, with its
+   geometry, for as long as this evaluator lives.
+ */
+const GeometryEvaluator::CachedGeometry& GeometryEvaluator::cached(const AbstractNode& node)
+{
+  static const CachedGeometry none;
+  if (const auto it = this->foundCached.find(&node); it != this->foundCached.end()) return it->second;
+  CachedGeometry found;
+  const Hash128 key = this->tree.digest(node);
+  found.inGeometryCache = GeometryCache::instance()->find(key, found.geometry);
+  found.inCGALCache = CGALCache::instance()->find(key, found.cgal);
+  if (!found.inGeometryCache && !found.inCGALCache) return none;
+  return this->foundCached.emplace(&node, std::move(found)).first->second;
+}
+
 bool GeometryEvaluator::isSmartCached(const AbstractNode& node)
 {
-  const Hash128 key = this->tree.digest(node);
-  return GeometryCache::instance()->contains(key) || CGALCache::instance()->contains(key);
+  const auto& found = cached(node);
+  return found.inGeometryCache || found.inCGALCache;
 }
 
 std::shared_ptr<const Geometry> GeometryEvaluator::smartCacheGet(const AbstractNode& node,
                                                                  bool preferNef)
 {
-  const Hash128 key = this->tree.digest(node);
-  const bool hasgeom = GeometryCache::instance()->contains(key);
-  const bool hascgal = CGALCache::instance()->contains(key);
-  if (hascgal && (preferNef || !hasgeom)) return CGALCache::instance()->get(key);
-  if (hasgeom) return GeometryCache::instance()->get(key);
+  const auto& found = cached(node);
+  if (found.inCGALCache && (preferNef || !found.inGeometryCache)) return found.cgal;
+  if (found.inGeometryCache) return found.geometry;
   return {};
 }
 
@@ -807,7 +825,7 @@ Response GeometryEvaluator::visit(State& state, const TextNode& node)
       auto polygonlist = node.createPolygonList();
       geom = ClipperUtils::apply(polygonlist, Clipper2Lib::ClipType::Union);
     } else {
-      geom = GeometryCache::instance()->get(this->tree.digest(node));
+      geom = smartCacheGet(node, false);
     }
     addToParent(state, node, geom);
     node.progress_report();
