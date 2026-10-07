@@ -37,6 +37,8 @@
     are rendered. `$preview` is always false. Command-line PNGs are rendered;
     `--preview`, `--csglimit` and `.term` export are removed, as is the OpenCSG
     dependency. See `doc/specs/2026-10-05-f6-only-design.md`.
+  * F6 renders from scratch: it reuses none of the module results, geometry
+    or view buffers that earlier renders made. F5 renders reusing them.
 
 # OpenSCAD 2021.01
 
