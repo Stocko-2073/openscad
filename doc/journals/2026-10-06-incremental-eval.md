@@ -944,7 +944,11 @@ the unions then had 657, 642 or 636 vertices. CGAL's quickhull
 coplanar faces are triangulated. Any change to earlier allocations (an
 environment variable, a file name, a different build, `--debug`) can change
 it. Byte-for-byte STL comparisons of models that use `minkowski()` can fail
-for this reason alone.
+for this reason alone. The tests are not affected: the 96 that run a
+minkowski script compare rendered images, and the test's image is the same
+byte for byte at 732 facets as at 692 (coplanar triangles shade alike).
+All 96 passed in eight runs, each with a different-length environment
+variable.
 
 Manifold's own hull is index-based and about 7-12 times faster, timed side
 by side on the same point clouds:
