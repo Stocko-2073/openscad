@@ -17,6 +17,9 @@
  * evicted after each step, as the GUI evicts them after each render
  * (MemoTable::evict()); with a negative `keep`, nothing is.
  *
+ * A file given as FILE@T is evaluated at $t = T, as the frame of an animation
+ * at that time; otherwise at $t = 0.
+ *
  * `commands` is appended to every file as -D assignments are.
  */
 int memo_replay(const std::vector<std::string>& files, const std::string& commands, bool verify,

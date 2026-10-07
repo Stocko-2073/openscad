@@ -982,7 +982,8 @@ int openscad_main(int argc, char **argv)
       "write the full per-location profile to the given file as TSV (implies --profile)")
     ("memo-replay", po::value<std::vector<std::string>>()->multitoken(),
       "incremental evaluation harness: evaluate the given .scad files in order with one memo "
-      "table, as a series of saves would, and report the reuse at each step")
+      "table, as a series of saves would, and report the reuse at each step; FILE@T evaluates "
+      "FILE at $t = T, as an animation frame")
     ("memo-verify", "with --memo-replay, also evaluate each step from scratch and compare the "
       "node trees and messages; exit nonzero on any difference")
     ("memo-geometry", "with --memo-replay, also time each step's geometry evaluation, keeping the "

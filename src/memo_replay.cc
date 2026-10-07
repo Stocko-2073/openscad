@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -72,7 +73,7 @@ void dumpTree(const AbstractNode& node, std::ostringstream& out, size_t& count)
   out << ';';
 }
 
-Run evaluate(SourceFile *file, const fs::path& dir, memo::MemoTable *table)
+Run evaluate(SourceFile *file, const fs::path& dir, double time, memo::MemoTable *table)
 {
   Run run;
   resetSuppressedMessages();
@@ -83,7 +84,7 @@ Run evaluate(SourceFile *file, const fs::path& dir, memo::MemoTable *table)
     EvaluationSession session{dir.string()};
     ContextHandle<BuiltinContext> builtin{Context::create<BuiltinContext>(&session)};
     RenderVariables variables{};
-    variables.time = 0;
+    variables.time = time;
     variables.applyToContext(builtin);
     AbstractNode::resetIndexCounter();
     std::optional<memo::EvalMemoSession> memo;
@@ -236,8 +237,19 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
   std::unique_ptr<SourceFile> shownFile;
   std::shared_ptr<AbstractNode> shown;
 
-  for (const auto& name : files) {
+  for (const auto& step : files) {
     ++generation;
+    // FILE@T evaluates FILE at $t = T, as an animation frame.
+    std::string name = step;
+    double time = 0;
+    if (const auto at = step.rfind('@'); at != std::string::npos && at + 1 < step.size()) {
+      char *end = nullptr;
+      const double t = std::strtod(step.c_str() + at + 1, &end);
+      if (end && *end == '\0') {
+        name = step.substr(0, at);
+        time = t;
+      }
+    }
     const fs::path path = fs::absolute(fs::path(name));
     std::ifstream in(path);
     if (!in.is_open()) {
@@ -258,13 +270,15 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
     std::unique_ptr<SourceFile> file(parsed);
     parsed->handleDependencies();
 
-    Run memoRun = evaluate(parsed, path.parent_path(), &table);
+    Run memoRun = evaluate(parsed, path.parent_path(), time, &table);
     const size_t evicted = keep >= 0 ? table.evict(keep) : 0;
     total.add(memoRun.stats);
     const memo::Stats& s = memoRun.stats;
     const size_t uncacheable =
       s.unhashableArg + s.unhashableEnv + s.childrenLocalDef + s.childrenNoKey + s.unhashableChildrenVar;
-    std::cout << "step " << generation << " " << path.filename().generic_string() << ": eval "
+    std::cout << "step " << generation << " " << path.filename().generic_string();
+    if (name != step) std::cout << " at $t=" << time;
+    std::cout << ": eval "
               << static_cast<long>(memoRun.ms) << " ms, " << memoRun.nodes << " nodes | calls "
               << s.userCalls << ", reused " << s.userCallsReused << " | boundaries "
               << s.boundaries << ": hit " << s.hits << ", miss " << s.misses << " (stored " << s.stored
@@ -294,7 +308,7 @@ int memo_replay(const std::vector<std::string>& files, const std::string& comman
                 << " ms (caches kept across steps)\n";
     }
     if (verify) {
-      Run fresh = evaluate(parsed, path.parent_path(), nullptr);
+      Run fresh = evaluate(parsed, path.parent_path(), time, nullptr);
       bool messagesOk = false;
       bool locationsOnly = false;
       const std::string messages =
