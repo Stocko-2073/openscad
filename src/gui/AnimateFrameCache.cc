@@ -5,6 +5,7 @@
 #include <QThreadPool>
 #include <algorithm>
 #include <atomic>
+#include <climits>
 #include <memory>
 #include <set>
 #include <thread>
@@ -14,6 +15,7 @@
 #include "core/SourceFile.h"
 #include "glview/Camera.h"
 #include "gui/AnimateFrameTask.h"
+#include "platform/PlatformUtils.h"
 
 namespace OpenScad::Animate {
 
@@ -34,6 +36,11 @@ int compute_worker_count()
 FrameCache::FrameCache(QObject *parent) : QObject(parent), pool_(std::make_unique<QThreadPool>())
 {
   pool_->setMaxThreadCount(compute_worker_count());
+  // A frame recurses as deeply as an evaluation on the GUI thread, which StackCheck lets use up to
+  // stackLimit(). Other threads get far less by default (512 KB on macOS), which a deep script
+  // overflowed, crashing the application.
+  pool_->setStackSize(static_cast<uint>(
+    std::min<unsigned long>(PlatformUtils::stackLimit() + STACK_BUFFER_SIZE, UINT_MAX)));
   // Don't kill idle threads aggressively — animation playback uses them repeatedly.
   pool_->setExpiryTimeout(60 * 1000);
   cancel_flag_ = std::make_shared<std::atomic<bool>>(false);
