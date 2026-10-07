@@ -98,6 +98,7 @@ void FrameTask::run()
 
     if (is_cancelled(cancel_flag_)) throw ProgressCancelException();
 
+    AbstractNode::resetIndexCounter();  // numbers this frame's nodes from 1, as the GUI does its trees
     std::shared_ptr<const FileContext> file_context;
     auto absolute_root = source_file_->instantiate(*builtin_context, &file_context);
 

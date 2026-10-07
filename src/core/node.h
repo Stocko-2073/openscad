@@ -54,9 +54,11 @@ class AbstractNode : public BaseVisitable, public std::enable_shared_from_this<A
   // We can hash on pointer value or smth. else.
   //  -> remove and
   // use smth. else to display node identifier in CSG tree output?
-  // Atomic so that parallel animation pre-fetch workers can each instantiate
-  // node trees without racing on this counter.
-  static std::atomic<size_t> idx_counter;  // Node instantiation index
+  // Per thread: indices must be unique within a tree, and a tree is built on one thread. The
+  // GUI resets its counter for each tree it builds while Animate's frame workers build theirs;
+  // with one counter between them, a reset partway through a worker's tree numbered its nodes
+  // again from 1, and GeometryEvaluator, which keys children by index, mixed them up.
+  static thread_local size_t idx_counter;  // Node instantiation index
 public:
   VISITABLE();
   AbstractNode(const ModuleInstantiation *mi);
@@ -73,7 +75,8 @@ public:
   const std::vector<std::shared_ptr<AbstractNode>>& getChildren() const { return this->children; }
   int index() const { return this->idx; }
 
-  static void resetIndexCounter() { idx_counter.store(1, std::memory_order_relaxed); }
+  // Numbers the nodes that this thread makes next from 1.
+  static void resetIndexCounter() { idx_counter = 1; }
 
   // FIXME: Make protected
   std::vector<std::shared_ptr<AbstractNode>> children;

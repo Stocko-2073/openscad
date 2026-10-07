@@ -39,10 +39,10 @@
 #include "core/ModuleInstantiation.h"
 #include "core/progress.h"
 
-std::atomic<size_t> AbstractNode::idx_counter{0};
+thread_local size_t AbstractNode::idx_counter = 0;
 
 AbstractNode::AbstractNode(const ModuleInstantiation *mi)
-  : modinst(mi), idx(static_cast<int>(idx_counter.fetch_add(1, std::memory_order_relaxed)))
+  : modinst(mi), idx(static_cast<int>(idx_counter++))
 {
 }
 
@@ -52,7 +52,7 @@ AbstractNode::AbstractNode(const AbstractNode& other)
   : BaseVisitable(other),
     std::enable_shared_from_this<AbstractNode>(other),
     modinst(other.modinst),
-    idx(static_cast<int>(idx_counter.fetch_add(1, std::memory_order_relaxed)))
+    idx(static_cast<int>(idx_counter++))
 {
 }
 
