@@ -16,11 +16,34 @@
 #include <memory>
 #include <string>
 
+#include "geometry/Geometry.h"
+#include "geometry/PolySet.h"
+#include "glview/Renderer.h"
 #include "gui/AnimateFrameCache.h"
 #include "gui/MainWindow.h"
+#include "gui/QGLView.h"
 #include "gui/UIUtils.h"
 #include "openscad_gui.h"
 #include "utils/printutils.h"
+
+namespace {
+
+// What the renderers of frames already shown may hold together. Beyond it, a frame's buffers are
+// built each time it is shown.
+constexpr size_t kMaxFrameRendererBytes = size_t{2} << 30;
+
+// About what a renderer for the frame holds: buffers of 48 bytes for each corner of each triangle,
+// and the mesh it keeps for measuring.
+size_t estimatedRendererBytes(const OpenScad::Animate::FrameResult& frame)
+{
+  size_t facets = frame.geometry ? frame.geometry->numFacets() : 0;
+  for (const auto& mesh : frame.overlays) {
+    if (mesh.polyset) facets += mesh.polyset->numFacets();
+  }
+  return facets * (3 * 48 + 28);
+}
+
+}  // namespace
 
 Animate::Animate(QWidget *parent) : QWidget(parent)
 {
@@ -211,7 +234,7 @@ void Animate::incrementTVal()
     if (!tryShowCachedFrame(this->animStep)) {
       auto fallback = frameCache_->latestReady();
       if (fallback && fallback->step != lastShownStep_) {
-        mainWindow->showAnimationFrame(fallback->result);
+        showFrame(*fallback);
         lastShownStep_ = fallback->step;
       }
     } else {
@@ -235,8 +258,41 @@ bool Animate::tryShowCachedFrame(int step)
   const auto state = frame->state.load(std::memory_order_acquire);
   if (state != OpenScad::Animate::FrameState::Ready) return false;
   if (!frame->result) return false;
-  mainWindow->showAnimationFrame(frame->result);
+  showFrame(*frame);
   return true;
+}
+
+void Animate::showFrame(const OpenScad::Animate::CachedFrame& frame)
+{
+  const auto it = frameRenderers_.find(frame.step);
+  if (it != frameRenderers_.end()) {
+    if (it->second.frame.lock() == frame.result) {
+      mainWindow->showAnimationFrame(it->second.renderer);
+      return;
+    }
+    frameRendererBytes_ -= it->second.bytes;  // made for an earlier result of this step
+    frameRenderers_.erase(it);
+  }
+  auto renderer = mainWindow->createFrameRenderer(*frame.result);
+  const size_t bytes = estimatedRendererBytes(*frame.result);
+  if (renderer && frameRendererBytes_ + bytes <= kMaxFrameRendererBytes) {
+    frameRenderers_.emplace(frame.step, FrameRenderer{frame.result, renderer, bytes});
+    frameRendererBytes_ += bytes;
+  }
+  mainWindow->showAnimationFrame(renderer);
+}
+
+void Animate::dropFrameRenderers()
+{
+  if (frameRenderers_.empty()) return;
+  // Their buffers are freed with the view's GL context current, as outside a paint it may not be,
+  // and whatever context was current is again after (see QGLView::mouseDoubleClickEvent()).
+  QOpenGLContext *oldContext = getGLContext();
+  mainWindow->qglview->makeCurrent();
+  frameRenderers_.clear();
+  mainWindow->qglview->doneCurrent();
+  setGLContext(oldContext);
+  frameRendererBytes_ = 0;
 }
 
 // Button-driven step/jump. Mirrors the playback path in incrementTVal(), but for
@@ -321,6 +377,7 @@ void Animate::rebuildFrameCacheSource()
 {
   if (!frameCache_ || !mainWindow) return;
   lastShownStep_ = -1;
+  dropFrameRenderers();
   cachedSteps_ = 0;
   if (this->animNumSteps <= 0) {
     frameCache_->invalidateAll();

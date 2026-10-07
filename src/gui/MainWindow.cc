@@ -1824,17 +1824,20 @@ void MainWindow::prepareCompile(const char *afterCompileSlot, bool procevents)
   this->procevents = procevents;
 }
 
-void MainWindow::showAnimationFrame(std::shared_ptr<OpenScad::Animate::FrameResult> frame)
+std::shared_ptr<Renderer> MainWindow::createFrameRenderer(const OpenScad::Animate::FrameResult& frame)
 {
-  if (!frame) return;
+  return createGeometryRenderer(frame.geometry, frame.overlays);
+}
 
+void MainWindow::showAnimationFrame(const std::shared_ptr<Renderer>& renderer)
+{
   // Draw the frame's geometry. rootGeom, rootNode and absoluteRootNode stay those of the last
   // render: they are rebuilt by the next instantiateRoot() when playback ends or a render is
   // triggered, and exports keep using the rendered geometry.
   resetPickMemo();
   // The frame's node indices don't match rootNode, so the picker has nothing to name.
   this->animationFrameShown = true;
-  this->geomRenderer = createGeometryRenderer(frame->geometry, frame->overlays);
+  this->geomRenderer = renderer;
   viewModeRender();
 }
 
@@ -3398,8 +3401,10 @@ void MainWindow::setColorScheme(const QString& scheme)
   RenderSettings::inst()->colorscheme = scheme.toStdString();
   this->qglview->setColorScheme(scheme.toStdString());
   this->qglview->update();
-  // The renderer's buffers have the colors of the old scheme: the next render makes new ones.
+  // The renderer's buffers have the colors of the old scheme: the next render makes new ones, and
+  // animation frames shown again do too.
   this->shownResult.reset();
+  this->animateWidget->dropFrameRenderers();
 }
 
 void MainWindow::setFont(const QString& family, uint size)

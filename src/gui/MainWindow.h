@@ -259,10 +259,13 @@ public slots:
   void updateRecentFileActions();
   void handleFileDrop(const QUrl& url);
 
-  // Apply a pre-computed animation frame (geometry and overlays) directly to the
-  // GL view, bypassing the parse → instantiate → render hop. Called by the
-  // Animate prefetch cache during playback.
-  void showAnimationFrame(std::shared_ptr<OpenScad::Animate::FrameResult> frame);
+public:
+  // A renderer for a pre-computed animation frame (geometry and overlays), as a render's result
+  // gets; null when the frame has nothing to draw.
+  std::shared_ptr<Renderer> createFrameRenderer(const OpenScad::Animate::FrameResult& frame);
+  // Show an animation frame with its renderer directly in the GL view, bypassing the parse →
+  // instantiate → render hop. Called by the Animate prefetch cache during playback.
+  void showAnimationFrame(const std::shared_ptr<Renderer>& renderer);
 
 private slots:
   void on_fileActionOpen_triggered();
