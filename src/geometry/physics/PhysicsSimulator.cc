@@ -38,12 +38,10 @@ constexpr JPH::ObjectLayer LAYER_MOVING = 1;
 constexpr JPH::uint NUM_OBJECT_LAYERS = 2;
 constexpr JPH::uint NUM_BROADPHASE_LAYERS = 2;
 
-// Fixed timestep; together with the single-threaded job system and Jolt's
-// deterministic simulation mode this makes results reproducible.
+// A fixed step, the single-threaded job system and Jolt's deterministic mode make runs reproducible.
 constexpr double SIM_DT = 1.0 / 120.0;
 
-// Deterministic tie-breaker angular velocity (rad/s, scale-invariant) used
-// when nudge=true; irrational-ish ratios avoid landing on a symmetry axis.
+// Tie-breaker spin for nudge, in rad/s (scale-invariant); irrational-ish ratios avoid symmetry axes.
 constexpr float NUDGE_OMEGA[3] = {0.31f, 0.23f, 0.17f};
 
 void joltTrace(const char *fmt, ...)
@@ -115,15 +113,10 @@ PhysicsResult simulatePhysics(const PhysicsInput& in)
     return out;
   }
 
-  // Normalize to unit scale: s = 1/bboxDiag maps the part onto ~1 simulation
-  // unit, where Jolt's default tolerances and sleep thresholds (tuned for
-  // meter-sized bodies) apply as-is. Scaling all lengths AND gravity by s
-  // leaves trajectories and resting poses identical, with time unchanged;
-  // only the final translation needs unscaling.
+  // s maps the part to ~1 unit, where Jolt's tolerances and sleep thresholds (tuned for meter-sized
+  // bodies) apply. Scaling gravity by s too keeps the timing; only the final translation is unscaled.
   const double s = 1.0 / in.bboxDiag;
 
-  // Collision points in body-local space, centered on the true center of
-  // mass, so that body origin == CoM.
   JPH::Array<JPH::Vec3> points;
   points.reserve(in.points.size());
   double minWorldZ = inf;
@@ -144,9 +137,8 @@ PhysicsResult simulatePhysics(const PhysicsInput& in)
     return out;
   }
 
-  // Jolt rotates bodies about the shape's center of mass and applies gravity
-  // there. The hull's centroid is NOT the true solid's CoM for concave
-  // parts, so relocate the shape CoM to the body-local origin (= true CoM).
+  // Jolt rotates a body about, and applies gravity at, its shape's CoM. A concave part's hull
+  // centroid is not the solid's CoM, so move the shape's CoM to the body origin (the true CoM).
   JPH::OffsetCenterOfMassShapeSettings comSettings(
     -hullResult.Get()->GetCenterOfMass(), hullResult.Get());
   auto shapeResult = comSettings.Create();
@@ -156,7 +148,6 @@ PhysicsResult simulatePhysics(const PhysicsInput& in)
     return out;
   }
 
-  // Tiny scene: one dynamic body, one static floor.
   JPH::TempAllocatorMalloc tempAllocator;
   JPH::JobSystemSingleThreaded jobSystem(JPH::cMaxPhysicsJobs);
 
@@ -183,8 +174,6 @@ PhysicsResult simulatePhysics(const PhysicsInput& in)
   floorSettings.mRestitution = static_cast<float>(p.restitution);
   const JPH::BodyID floorId = bi.CreateAndAddBody(floorSettings, JPH::EActivation::DontActivate);
 
-  // Body starts at the modeled pose (origin at the true CoM) with zero
-  // velocity; if it penetrates the floor, lift it to rest just above z=0.
   Vector3d startPos = s * in.com;
   constexpr double FLOOR_EPS = 1e-3;
   if (minWorldZ < FLOOR_EPS) {
@@ -230,7 +219,7 @@ PhysicsResult simulatePhysics(const PhysicsInput& in)
       out.warnings.push_back("physics update reported an internal error");
       break;
     }
-    if (!bi.IsActive(bodyId)) {  // body fell asleep -> settled
+    if (!bi.IsActive(bodyId)) {
       out.slept = true;
       break;
     }

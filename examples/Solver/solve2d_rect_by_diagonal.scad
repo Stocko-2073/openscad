@@ -1,13 +1,11 @@
 // solve2d_rect_by_diagonal.scad — a rectangle defined by width and diagonal.
 //
-// Why use solve2d for this? Because OpenSCAD's built-in square(w, h) wants
-// width and height. If you know width and diagonal — for example, a panel
-// cut to a target diagonal — you'd otherwise have to compute the height
-// yourself. The constraint solver lets you specify the dimensions you
-// actually have and figures out the rest.
+// square(w, h) wants width and height. If what you know is the width and the
+// diagonal (say, a panel cut to a target diagonal), the solver works out the
+// height for you.
 
 width = 30;
-diagonal = 50;     // try other values: 40 (square), 60, 100
+diagonal = 50;     // try other values: 40, 60, 100
 
 sol = solve2d([
   point("a", at = [0, 0]),

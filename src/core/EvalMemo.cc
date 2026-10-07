@@ -1,14 +1,8 @@
-/*
- * Incremental evaluation. See core/EvalMemo.h for what a key covers and why.
- */
-
 #include "core/EvalMemo.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <iterator>
 #include <memory>
@@ -61,14 +55,11 @@ enum Tag : uint64_t {
   kRecursiveFunction,
 };
 
-// Bumped whenever the key's composition changes.
 constexpr uint64_t kKeyVersion = 3;
 
-// Vectors shorter than this are rehashed rather than looked up.
 constexpr size_t kCacheVectorsFrom = 4;
 
-// Variants kept per key: the same call evaluated under different $ values,
-// such as BOSL2 diff()'s keep, remove and intersect passes.
+// Variants per key: the same call under different $ values, as in BOSL2 diff()'s passes.
 constexpr size_t kMaxEntriesPerKey = 16;
 
 constexpr size_t kNoFrame = SIZE_MAX;
@@ -87,7 +78,6 @@ const Identifier& childrenModule()
   return name;
 }
 
-// The `use`d file of `file` that defines `name`, if any, in lookup order.
 const SourceFile *usedFileDefining(const SourceFile& file, const Identifier& name, bool isModule)
 {
   for (const auto& path : file.usedlibs) {
@@ -169,35 +159,6 @@ bool ValueHashCache::hashValue(Hasher& h, const Value& value)
   return false;
 }
 
-void Stats::add(const Stats& o)
-{
-  calls += o.calls;
-  boundaries += o.boundaries;
-  userCalls += o.userCalls;
-  userCallsReused += o.userCallsReused;
-  hits += o.hits;
-  misses += o.misses;
-  stored += o.stored;
-  impure += o.impure;
-  unlocatable += o.unlocatable;
-  relocateFailed += o.relocateFailed;
-  cloneFailed += o.cloneFailed;
-  nodesCloned += o.nodesCloned;
-  nodesLocated += o.nodesLocated;
-  messagesReplayed += o.messagesReplayed;
-  staleDollar += o.staleDollar;
-  unhashableArg += o.unhashableArg;
-  unhashableEnv += o.unhashableEnv;
-  childrenLocalDef += o.childrenLocalDef;
-  childrenNoKey += o.childrenNoKey;
-  unhashableChildrenVar += o.unhashableChildrenVar;
-  unhashableDollar += o.unhashableDollar;
-  keyTime += o.keyTime;
-  closureTime += o.closureTime;
-  locateTime += o.locateTime;
-  reuseTime += o.reuseTime;
-}
-
 std::vector<std::shared_ptr<Entry>> *MemoTable::find(const Hash128& key)
 {
   auto it = entries.find(key);
@@ -247,8 +208,7 @@ std::unique_ptr<MemoTable> MemoTable::fork() const
   result->count = count;
   result->generation_ = generation_;
   result->fileIds = fileIds;
-  // Every entry is copied once, and those nested in it point at the copies of theirs, which
-  // may have left the table since.
+  // One copy per entry, nested ones too, which may have left the table since.
   std::unordered_map<const Entry *, std::shared_ptr<Entry>> copies;
   std::vector<std::shared_ptr<Entry>> pending;
   const auto copyOf = [&](const std::shared_ptr<Entry>& entry) {
@@ -282,11 +242,9 @@ struct DefInfo {
 
 struct Closure {
   Hash128 code;
-  std::vector<Identifier> freeVars;  // ordinary (non-$) names referenced anywhere in it
+  std::vector<Identifier> freeVars;
 };
 
-// A children block's syntax hash and the names it refers to; immutable, so
-// computed once per evaluation however often the call runs.
 struct EvalMemoSession::ScopeInfo {
   Hash128 syntax;
   std::vector<Identifier> vars;
@@ -294,18 +252,8 @@ struct EvalMemoSession::ScopeInfo {
   std::vector<Identifier> modules;
 };
 
-/*
- * Brackets one candidate boundary's evaluation and records what it depends on
- * beyond its key: the $ variables it reads from frames below `base` (the
- * special-variable stack at the call), whether it read the module-name stack,
- * what it printed, and whether it touched anything impure. Hands all of that on
- * to the enclosing boundary when it ends, however it ends.
- *
- * A read made only to compute the same variable again -- `$transform =
- * $transform * m` -- is kept apart as pending: the value it saw cannot reach
- * the output unless something reads that variable for real, so it becomes a
- * dependency only if some real read of the name happens anywhere inside.
- */
+// What a recording call depends on beyond its key, handed on to the enclosing one however it
+// ends. Accumulator reads stay `pending` until a real read of the same name inside promotes them.
 class Recorder
 {
 public:
@@ -320,7 +268,6 @@ public:
   Recorder(const Recorder&) = delete;
   Recorder& operator=(const Recorder&) = delete;
 
-  // Starts recording. A recorder is reused once it has finished.
   void begin(size_t frames)
   {
     base = frames;
@@ -373,8 +320,6 @@ public:
     if (!contains(list, read.name)) list.push_back(read);
   }
 
-  // Stops recording and hands what the call saw to `parent`, the recording
-  // call around it, if there is one.
   void finish(Recorder *parent)
   {
     g_message_capture.pop_back();
@@ -382,7 +327,6 @@ public:
       auto *outer = g_message_capture.back();
       outer->insert(outer->end(), messages.begin(), messages.end());
     }
-    // A pending read becomes a dependency once its name was read for real.
     for (auto& p : pending) {
       if (hasRealName(p.name)) {
         merge(reads, p);
@@ -404,15 +348,11 @@ public:
     for (const auto& n : realNames) parent->addRealName(n);
   }
 
-  // The call: its key, the children key for its module context, its site,
-  // and the context it was made from (the caller's).
   Hash128 key;
   uint64_t childrenKey[3] = {0, 0, 0};
   const ModuleInstantiation *inst = nullptr;
   const Context *context = nullptr;
-  // Stats::userCalls before it: what it adds is its Entry::calls.
   size_t callsBefore = 0;
-  // Results of the boundaries inside it that were stored or reused.
   std::vector<EvalMemoSession::NestedResult> nested;
 
   size_t base = 0;  // $ reads from frames below this one are the call's dependencies
@@ -437,8 +377,7 @@ EvalMemoSession::EvalMemoSession(MemoTable& table, const SourceFile& root)
   : table(table),
     root(root),
     generation(++table.generation_),
-    values(this),
-    debug(std::getenv("OPENSCAD_MEMO_DEBUG") != nullptr)
+    values(this)
 {
   Hasher h;
   for (auto it = Feature::begin(); it != Feature::end(); ++it) {
@@ -457,8 +396,7 @@ EvalMemoSession::EvalMemoSession(MemoTable& table, const SourceFile& root)
 
 EvalMemoSession::~EvalMemoSession()
 {
-  // Only if an evaluation was torn down mid-call: g_message_capture must not
-  // keep pointing into recorders that are gone.
+  // After an evaluation torn down mid-call, g_message_capture must not point into dead recorders.
   while (!recorders.empty()) spareRecorders.push_back(popRecorder());
 }
 
@@ -487,10 +425,7 @@ void EvalMemoSession::noteImpure(EvaluationSession *session)
 {
   if (!session) return;
   EvalMemoSession *memo = session->memo();
-  if (memo && !memo->recorders.empty()) {
-    memo->recorders.back()->impure = true;
-    memo->reason("impure builtin under a boundary");
-  }
+  if (memo && !memo->recorders.empty()) memo->recorders.back()->impure = true;
 }
 
 void EvalMemoSession::noteModuleStackRead(EvaluationSession *session, size_t index)
@@ -508,8 +443,7 @@ void EvalMemoSession::noteDollarRead(const Identifier& name, size_t index, const
   if (recorders.empty() || suspendRecording) return;
   Recorder& r = *recorders.back();
   const bool outside = index == kNoFrame || index < r.base;
-  // An unset variable is reported, so even an accumulator's read of one shows
-  // in the output.
+  // An unset variable warns, so even an accumulator read of one reaches the output.
   if (accumulatorRead && value) {
     if (outside) r.add(r.pending, name, index, value);
     return;
@@ -547,8 +481,7 @@ const DefInfo& EvalMemoSession::defInfo(const void *def, bool isModule)
   ASTHasher h;
   if (isModule) h.userModule(*static_cast<const UserModule *>(def));
   else h.userFunction(*static_cast<const UserFunction *>(def));
-  // Relative paths in import() and surface() resolve against the directory of
-  // the file the code is in, so the same text elsewhere is different code.
+  // import() and surface() resolve relative paths against the code's directory.
   const Location& location = isModule ? static_cast<const UserModule *>(def)->location()
                                       : static_cast<const UserFunction *>(def)->location();
   h.str(location.filePath().parent_path().generic_string());
@@ -640,39 +573,29 @@ bool EvalMemoSession::envHash(const void *def, bool isModule, const FileContext&
   const EnvKey key{def, file.scopeSerial()};
   auto it = envs.find(key);
   if (it == envs.end()) {
-    const auto start = std::chrono::steady_clock::now();
     EnvResult result{true, {}};
     const Closure& c = closure(def, isModule, *file.sourceFile());
     Hasher h;
     h.h(c.code);
     for (const auto& name : c.freeVars) {
-      // Only names this file scope binds; anything else is a local, a
-      // parameter, or a builtin constant.
+      // A name the file scope does not bind is a local, a parameter or a builtin constant.
       const auto value = file.lookup_local_variable(name);
       if (!value) continue;
       h.id(name);
       if (!values.hash(h, *value)) {
         result.ok = false;
-        reason("env " + name.str() + " (" + value->typeName() + ") in closure of " +
-               (isModule ? static_cast<const UserModule *>(def)->name
-                         : static_cast<const UserFunction *>(def)->name));
         break;
       }
     }
     result.hash = h.finish();
     it = envs.emplace(key, result).first;
-    stats_.closureTime += std::chrono::steady_clock::now() - start;
   }
   if (!it->second.ok) return false;
   out.h(it->second.hash);
   return true;
 }
 
-/*
- * Functions and modules, resolved through the scopes the evaluator would walk
- * from `context`. A definition local to a module body would need that body's
- * variables too; not handled, so the caller is not reused.
- */
+// Fails on a definition local to a module body, which would need that body's variables too.
 bool EvalMemoSession::resolveRef(const Context *context, const Identifier& name, bool isModule, Hasher& h)
 {
   for (const Context *c = context; c; c = c->getParent().get()) {
@@ -686,11 +609,7 @@ bool EvalMemoSession::resolveRef(const Context *context, const Identifier& name,
       if (auto f = scope->localScope().lookup<UserFunction *>(name)) defined = *f;
     }
     if (defined) {
-      if (!file) {
-        ++stats_.childrenLocalDef;
-        reason(std::string("local definition ") + name.str());
-        return false;
-      }
+      if (!file) return false;
       return envHash(defined, isModule, *file, h);
     }
     if (file) {
@@ -796,8 +715,7 @@ bool EvalMemoSession::childrenHash(const ModuleInstantiation *inst,
   const ScopeInfo& syntax = scopeInfo(children);
   h.h(syntax.syntax);
 
-  // Variables, as the caller's context sees them now. $ names are read when
-  // the children run, inside the call, and recorded there.
+  // $ names are read when the children run, inside the call, and recorded there.
   for (const auto& name : syntax.vars) {
     if (name.isConfigVariable()) continue;
     const auto value = context->try_lookup_variable(name);
@@ -805,8 +723,6 @@ bool EvalMemoSession::childrenHash(const ModuleInstantiation *inst,
     if (!value) {
       h.u64(kAbsent);
     } else if (!values.hash(h, *value)) {
-      ++stats_.unhashableChildrenVar;
-      reason("children var " + name.str() + " (" + value->typeName() + ")");
       return false;
     }
   }
@@ -821,11 +737,7 @@ bool EvalMemoSession::childrenHash(const ModuleInstantiation *inst,
         const auto *module = dynamic_cast<const UserModuleContext *>(c);
         if (!module) continue;
         const uint64_t *key = module->childrenKey();
-        if (!key) {
-          ++stats_.childrenNoKey;
-          reason("children() of a module call without a key, in call of " + inst->name().str());
-          return false;
-        }
+        if (!key) return false;
         h.u64(kEnclosingChildren);
         h.u64(key[0]);
         h.u64(key[1]);
@@ -851,20 +763,13 @@ bool EvalMemoSession::computeKey(const UserModule& module, const FileContext& de
   // The children block's import()s resolve against the call site's directory.
   h.str(inst->location().filePath().parent_path().generic_string());
 
-  if (!envHash(&module, true, definingFile, h)) {
-    ++stats_.unhashableEnv;
-    return false;
-  }
+  if (!envHash(&module, true, definingFile, h)) return false;
 
   h.u64(arguments.size());
   for (const auto& argument : arguments) {
     if (argument.name) h.id(*argument.name);
     else h.u64(0);
-    if (!values.hash(h, argument.value)) {
-      ++stats_.unhashableArg;
-      reason("argument (" + argument.value.typeName() + ") to " + inst->name().str());
-      return false;
-    }
+    if (!values.hash(h, argument.value)) return false;
   }
 
   Hasher children;
@@ -890,7 +795,6 @@ Hash128 EvalMemoSession::moduleStackHash(size_t from, size_t to)
 bool EvalMemoSession::moduleStackRange(const Entry& entry, size_t own, size_t& from, size_t& to)
 {
   if (entry.wholeModuleStack) {
-    // Its size too, which the range's length is.
     from = 0;
     to = own + 1;
     return true;
@@ -934,7 +838,6 @@ void EvalMemoSession::replayReads(EvaluationSession& session, const Entry& entry
   accumulatorRead = false;
   Recorder& r = *recorders.back();
   for (const auto& name : entry.realNames) r.addRealName(name);
-  // As parent_module() would have read them, relative to where this call's name is now.
   if (entry.wholeModuleStack) r.wholeModuleStack = true;
   else if (entry.outerModules > 0) {
     const size_t own = UserModule::stack_size() - 1;
@@ -946,8 +849,7 @@ void EvalMemoSession::replay(const std::vector<Message>& messages)
 {
   for (const auto& message : messages) {
     if (message.group == message_group::Deprecated) {
-      // As make_message_obj() does: printed the first time only, but always
-      // handed to whoever records, who may replay it where it is the first.
+      // As make_message_obj() does: printed once, but always handed to whoever records.
       const std::string seen = message.msg + message.loc.toRelativeString(message.docPath);
       if (!printedDeprecations.insert(seen).second) {
         if (!g_message_capture.empty()) {
@@ -960,12 +862,10 @@ void EvalMemoSession::replay(const std::vector<Message>& messages)
       if (message.repeat) {
         Message first = message;
         first.repeat = false;
-        ++stats_.messagesReplayed;
         PRINT(first);
         continue;
       }
     }
-    ++stats_.messagesReplayed;
     PRINT(message);
   }
 }
@@ -976,47 +876,30 @@ NOINLINE Call EvalMemoSession::enter(const UserModule& module,
                                      const std::shared_ptr<const Context>& context,
                                      const Arguments& arguments)
 {
-  ++stats_.calls;
   const auto *definingFile = dynamic_cast<const FileContext *>(defining_context.get());
   if (!definingFile || !isUserFile(inst)) return Call::Plain;
-  ++stats_.boundaries;
   EvaluationSession& session = *context->session();
 
-  const auto start = std::chrono::steady_clock::now();
   Hash128 key;
   uint64_t childrenKey[3] = {0, 0, 0};
-  const bool eligible = computeKey(module, *definingFile, inst, context, arguments, key, childrenKey);
-  stats_.keyTime += std::chrono::steady_clock::now() - start;
-  if (!eligible) {
+  if (!computeKey(module, *definingFile, inst, context, arguments, key, childrenKey)) {
     ++stats_.userCalls;
     return Call::Plain;
   }
 
   if (auto *variants = table.find(key)) {
-    bool matched = false;
     for (const auto& entry : *variants) {
       if (!matches(session, *entry)) continue;
-      matched = true;
       std::vector<const ModuleInstantiation *> statements;
       reused = reuse(session, *entry, inst, *context, statements);
-      if (!reused) break;  // evaluate instead; reuse() counted why
+      if (!reused) break;
       if (!recorders.empty()) {
         recorders.back()->nested.push_back({reused.get(), entry, std::move(statements)});
       }
       return Call::Reused;
     }
-    if (!matched) {
-      ++stats_.staleDollar;
-      if (debug) reason("$ variables differ for " + inst->name().str());
-    }
   }
 
-  ++stats_.misses;
-  if (debug) {
-    reason("miss " + inst->name().str() + " at " +
-           inst->location().filePath().filename().generic_string() + ":" +
-           std::to_string(inst->location().firstLine()));
-  }
   Recorder& recorder = pushRecorder(session.frames().size());
   recorder.key = key;
   std::copy(childrenKey, childrenKey + 3, recorder.childrenKey);
@@ -1051,26 +934,9 @@ NOINLINE std::shared_ptr<AbstractNode> EvalMemoSession::reuse(
   EvaluationSession& session, Entry& entry, const ModuleInstantiation *inst, const Context& context,
   std::vector<const ModuleInstantiation *>& statements)
 {
-  const auto start = std::chrono::steady_clock::now();
-  struct Timer {
-    std::chrono::steady_clock::time_point start;
-    std::chrono::nanoseconds& total;
-    ~Timer() { total += std::chrono::steady_clock::now() - start; }
-  } timer{start, stats_.reuseTime};
-  if (!relocate(entry, inst, context, statements)) {
-    ++stats_.relocateFailed;
-    if (debug) reason("statements not found in this parse, under " + inst->name().str());
-    return nullptr;
-  }
-  // From now on the entry, and those nested in it, share the copy's nodes,
-  // which point into this parse.
+  if (!relocate(entry, inst, context, statements)) return nullptr;
   auto copy = copyTree(entry, statements, inst);
-  if (!copy) {
-    ++stats_.cloneFailed;
-    return nullptr;
-  }
-  ++stats_.hits;
-  stats_.nodesCloned += entry.nodes;
+  if (!copy) return nullptr;
   stats_.userCalls += entry.calls;
   stats_.userCallsReused += entry.calls;
   replayReads(session, entry);
@@ -1080,24 +946,10 @@ NOINLINE std::shared_ptr<AbstractNode> EvalMemoSession::reuse(
 
 NOINLINE void EvalMemoSession::store(const std::shared_ptr<AbstractNode>& node, Recorder& recorder)
 {
-  const ModuleInstantiation *inst = recorder.inst;
-  if (recorder.impure || recorder.unhashable || !node) {
-    if (recorder.unhashable) {
-      ++stats_.unhashableDollar;
-      reason("unhashable $ read under " + inst->name().str());
-    } else {
-      ++stats_.impure;
-    }
-    return;
-  }
+  if (recorder.impure || recorder.unhashable || !node) return;
   auto entry = std::make_shared<Entry>();
   std::vector<const ModuleInstantiation *> statements;
-  const auto start = std::chrono::steady_clock::now();
-  const bool located = locate(*node, inst, *recorder.context, recorder.nested, *entry, statements);
-  stats_.locateTime += std::chrono::steady_clock::now() - start;
-  if (!located) {
-    ++stats_.unlocatable;
-    reason("a statement under " + inst->name().str() + " has no place to record");
+  if (!locate(*node, recorder.inst, *recorder.context, recorder.nested, *entry, statements)) {
     // Whatever was stored inside still belongs to the caller's result.
     if (!recorders.empty()) {
       auto& outer = recorders.back()->nested;
@@ -1125,8 +977,6 @@ NOINLINE void EvalMemoSession::store(const std::shared_ptr<AbstractNode>& node, 
   entry->calls = stats_.userCalls - recorder.callsBefore;
   entry->lastUsed = generation;
   table.store(recorder.key, entry);
-  ++stats_.stored;
-  stats_.nodesLocated += entry->nodeCodes.size() + 1;
   // leave() popped this call's recorder: the top one is the caller's.
   if (!recorders.empty()) recorders.back()->nested.push_back({node.get(), entry, std::move(statements)});
 }

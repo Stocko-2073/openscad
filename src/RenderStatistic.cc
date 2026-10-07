@@ -144,8 +144,6 @@ static std::string formatDuration(const std::chrono::milliseconds ms)
     .str();
 }
 
-// One itemized phase line, indented under the total. The name is padded to the
-// widest of the phases so the durations and percentages line up in a column.
 static void logPhase(const std::string& name, const std::chrono::milliseconds ms,
                      const std::chrono::milliseconds total, const size_t width,
                      const std::string& note = {})
@@ -224,7 +222,7 @@ RenderStatistic::Phase& RenderStatistic::phase(const std::string& name)
 void RenderStatistic::beginPhase(const std::string& name)
 {
   auto& phase = this->phase(name);
-  if (phase.running) return;  // already timing; keep the earlier start
+  if (phase.running) return;
   phase.begin = std::chrono::steady_clock::now();
   phase.running = true;
 }
@@ -423,8 +421,7 @@ void LogVisitor::printRenderingTime(const std::chrono::milliseconds ms,
     logPhase(phase.name, phase.ms, ms, width, phase.note);
   }
 
-  // Whatever the itemized phases don't cover: startup, event processing, time
-  // spent between phases. Only worth a line when it isn't just rounding noise.
+  // Time outside the phases (startup, event handling, gaps); under 1% is rounding noise.
   const auto other = ms - accounted;
   if (other.count() > 0 && other * 100 >= ms) logPhase("Other", other, ms, width);
 }

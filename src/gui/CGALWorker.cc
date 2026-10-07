@@ -75,8 +75,7 @@ void CGALWorker::work()
 
     // After the result, so the # subtrees come from the cache. Failing here keeps the result.
     result->overlays = overlay::collect(*this->tree, *this->tree->root());
-    // For the picker, which takes hull() and the like whole rather than evaluate one on a click:
-    // a render that finds a part in the cache uses nothing inside it, so the cache drops that first.
+    // On the worker, so the picker need not evaluate hull() and the like on a click.
     result->wholeGeometry = std::make_shared<const pick::WholeGeometry>(
       pick::holdWholeGeometry(evaluator, *this->tree->root(), this->wholeGeometry.get()));
     result->geometryTime = std::chrono::steady_clock::now() - renderStart;

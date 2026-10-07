@@ -51,7 +51,6 @@ public:
   std::vector<SelectedObject> findObject(int x, int y);
   int measure_state;
 
-  // What a right-click hit in the 3D view.
   struct PickResult {
     // Set only when the pixel shows geometry: the world-space ray through the pixel's center, from
     // the near clipping plane (t = 0) to the far plane (t = 1), and the t of the surface drawn there.

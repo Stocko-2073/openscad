@@ -29,12 +29,9 @@
 
 namespace {
 
-// What the renderers of frames already shown may hold together. Beyond it, a frame's buffers are
-// built each time it is shown.
 constexpr size_t kMaxFrameRendererBytes = size_t{2} << 30;
 
-// About what a renderer for the frame holds: buffers of 48 bytes for each corner of each triangle,
-// and the mesh it keeps for measuring.
+// Buffers of 48 bytes for each corner of each triangle, and the mesh kept for measuring.
 size_t estimatedRendererBytes(const OpenScad::Animate::FrameResult& frame)
 {
   size_t facets = frame.geometry ? frame.geometry->numFacets() : 0;
@@ -108,11 +105,7 @@ void Animate::on_e_tval_textChanged(const QString&)
   }
 
   this->animTVal = t;
-  // During timer-driven playback (inTimerTick_) and button-driven stepping
-  // (inButtonStep_), the prefetch cache delivers the frame. Skip the synchronous
-  // render to avoid double work and the GuiLocker contention that drops frames.
-  // Free-form scrubbing in the t field leaves both flags false — fall through to
-  // the sync path then.
+  // The tick and the step buttons show the frame themselves.
   if (!this->inTimerTick_ && !this->inButtonStep_) {
     mainWindow->actionRender();
   }
@@ -200,18 +193,13 @@ void Animate::incrementTVal()
     this->animStep = 0;
     this->animTVal = 0.0;
   }
-  // Cycle wrap (or any backwards jump): old "highest shown" no longer applies.
   if (this->animStep < prevStep) lastShownStep_ = -1;
 
-  // Update the time field, but suppress the synchronous render hop — we want
-  // the prefetch cache to drive the draw when possible.
   this->inTimerTick_ = true;
   const QString txt = QString::number(this->animTVal, 'f', 5);
   this->e_tval->setText(txt);
   this->inTimerTick_ = false;
 
-  // Dump-pictures mode renders each step synchronously for deterministic frame output; the render
-  // saves the picture when it is done.
   if (this->dumpPictures()) {
     mainWindow->actionRender();
     updatePauseButtonIcon();
@@ -219,19 +207,12 @@ void Animate::incrementTVal()
   }
 
   if (frameCache_) {
-    // If the source has been re-parsed (auto-reload, post-edit recompile),
-    // seed the cache with the new AST before trying to draw.
     auto cached = cachedSource_.lock();
     if (mainWindow->rootFile && cached != mainWindow->rootFile) {
       rebuildFrameCacheSource();
     }
-    // Try the exact requested step first. If it's not ready, fall back to the
-    // freshest Ready frame in the cache — for scenes whose compute time
-    // exceeds 1/fps this keeps something visible (slowed playback) instead of
-    // a blank GLView until workers catch up. We can't sync-fallback to
-    // actionRender here because that takes GuiLocker, calls instantiateRoot
-    // which sets the renderer to nullptr, and stomps on the in-flight prefetch
-    // chain.
+    // A miss shows the latest ready frame, not a render: a render parses the source again, and a
+    // new source empties the cache.
     if (!tryShowCachedFrame(this->animStep)) {
       auto fallback = frameCache_->latestReady();
       if (fallback && fallback->step != lastShownStep_) {
@@ -241,7 +222,6 @@ void Animate::incrementTVal()
     } else {
       lastShownStep_ = this->animStep;
     }
-    // Always refill the prefetch window starting one ahead of the current step.
     const int lookahead = frameCache_->workerCount();
     frameCache_->prefetchWindow(this->animStep + 1, lookahead);
   } else {
@@ -271,7 +251,7 @@ void Animate::showFrame(const OpenScad::Animate::CachedFrame& frame)
       mainWindow->showAnimationFrame(it->second.renderer);
       return;
     }
-    frameRendererBytes_ -= it->second.bytes;  // made for an earlier result of this step
+    frameRendererBytes_ -= it->second.bytes;
     frameRenderers_.erase(it);
   }
   auto renderer = mainWindow->createFrameRenderer(*frame.result);
@@ -286,8 +266,7 @@ void Animate::showFrame(const OpenScad::Animate::CachedFrame& frame)
 void Animate::dropFrameRenderers()
 {
   if (frameRenderers_.empty()) return;
-  // Their buffers are freed with the view's GL context current, as outside a paint it may not be,
-  // and whatever context was current is again after (see QGLView::mouseDoubleClickEvent()).
+  // Their buffers are freed with the view's GL context current, as outside a paint it may not be.
   QOpenGLContext *oldContext = getGLContext();
   mainWindow->qglview->makeCurrent();
   frameRenderers_.clear();
@@ -301,15 +280,10 @@ void Animate::dropMemoTables()
   if (frameCache_) frameCache_->dropMemoTables();
 }
 
-// Button-driven step/jump. Mirrors the playback path in incrementTVal(), but for
-// the paused case: the timer is stopped, so we drive the cache lookup + warming
-// directly instead of waiting for the next tick.
 void Animate::showCurrentStepFromCache()
 {
-  if (this->animNumSteps == 0) return; // nothing to show — matches updateTVal's guard
+  if (this->animNumSteps == 0) return;
 
-  // Normalize animStep/animTVal and update the t field, but suppress the
-  // synchronous render hop (inButtonStep_) so we can consult the cache first.
   this->inButtonStep_ = true;
   this->updateTVal();
   this->inButtonStep_ = false;
@@ -319,29 +293,18 @@ void Animate::showCurrentStepFromCache()
     return;
   }
 
-  // (Re)seed when the cached AST no longer matches: covers a cold cache (the
-  // animation was never played, so the timer never ran rebuildFrameCacheSource)
-  // and post-edit / auto-reload re-parses. The identity check stops us re-seeding
-  // on every step within a stable source — setSource clears frames_ and bumps the
-  // generation, which would throw away the warmed window. Mirrors incrementTVal.
   auto cached = cachedSource_.lock();
   if (!cached || cached != mainWindow->rootFile) {
     rebuildFrameCacheSource();
   }
 
-  // Hit -> instant draw, no recompile. Miss -> sync-render the correct frame now
-  // (immediate, and always current-camera-correct, exactly as before this
-  // change). Either way the centered prefetch below warms the neighbourhood so
-  // the NEXT step lands a hit.
   if (tryShowCachedFrame(this->animStep)) {
-    // A cached frame is rendered geometry, so it can be measured, as after a synchronous render.
     mainWindow->resetMeasurementsState(true, "Click to start measuring");
   } else {
     mainWindow->actionRender();
   }
 
-  // Warm BOTH directions: prefetchWindow only walks forward, so start half a
-  // window behind the parked step to cover back-stepping too (wrap is mod n).
+  // Centred on the step: the buttons step back as well as forward.
   const int lookahead = frameCache_->workerCount();
   frameCache_->prefetchWindow(this->animStep - lookahead / 2, lookahead);
 
@@ -350,17 +313,9 @@ void Animate::showCurrentStepFromCache()
 
 void Animate::onFrameReady(int step)
 {
-  // Only playback consumes async completions. A paused step has already drawn
-  // its frame synchronously (cache hit, or sync render on a miss) with the
-  // current camera, so there is nothing left to paint here — and repainting from
-  // a worker would risk clobbering it with the cache's stale camera snapshot.
+  // Paused, the current step is already drawn.
   if (!animateTimer->isActive()) return;
-  // Don't backtrack: if a slower worker finishes a step we already rendered
-  // past in this cycle, skip it. Otherwise show the just-finished frame —
-  // for scenes where compute > 1/fps this is the only path that ever paints,
-  // because by the time a worker finishes step N animStep has already moved
-  // past it. (Previously we required step == animStep here, which guaranteed
-  // a blank GLView for any non-trivial scene.)
+  // Not only animStep's frame: one slower than a tick is ready only once animStep has moved past it.
   if (lastShownStep_ != -1 && step <= lastShownStep_) return;
   if (tryShowCachedFrame(step)) {
     lastShownStep_ = step;
@@ -372,7 +327,7 @@ void Animate::seedFrameCache()
   if (!frameCache_ || !mainWindow) return;
   if (this->animNumSteps > 0 && mainWindow->rootFile && cachedSource_.lock() == mainWindow->rootFile &&
       cachedSteps_ == this->animNumSteps) {
-    lastShownStep_ = -1;  // playback starts over from animStep
+    lastShownStep_ = -1;
     frameCache_->prefetchWindow(this->animStep, frameCache_->workerCount());
     return;
   }
@@ -399,8 +354,7 @@ void Animate::rebuildFrameCacheSource()
                                 mainWindow->activeEditor->filepath.toStdString())
                                 .parent_path()
                                 .string();
-  // The frames' memo tables start as copies of the document's, which the render that parsed the
-  // source filled, unless a render is using it now.
+  // The frames' memo tables start as copies of the document's, unless a render is using it now.
   const memo::MemoTable *seed =
     GuiLocker::isLocked() ? nullptr : mainWindow->activeEditor->memoTable.get();
   frameCache_->setSource(mainWindow->rootFile, docPath, this->animNumSteps,
@@ -471,8 +425,7 @@ void Animate::cameraChanged()
 
 void Animate::editorContentChanged()
 {
-  // The frames are of the source last parsed, as the view is, and stay until a render parses the
-  // edit: dropping them here only had the workers make them again from that same source.
+  // The frames are of the source last parsed, as the view is, and stay until a render parses the edit.
   this->animateUpdate();  // for now so that we do not change the behavior
 }
 

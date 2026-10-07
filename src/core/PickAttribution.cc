@@ -40,7 +40,6 @@ constexpr double kDegenerate = 1e-12;
 // Barycentric slack, so a ray through a shared edge hits both triangles.
 constexpr double kEdgeSlack = 1e-9;
 
-// How close a primitive's face must come to the hit point, and how parallel to the hit face.
 struct Tolerance {
   double distance;
   double parallel;  // minimum |cos| between the face normals
@@ -60,16 +59,14 @@ Tolerance lossyTolerance(double maxCoordinate, const Tolerance& strict)
   return {std::max(strict.distance, 4e-6 + 2.5e-7 * maxCoordinate), std::cos(1e-2)};
 }
 
-// Faces we can split into triangle fans: triangles, or the convex polygons of a convex PolySet.
-// GeometryEvaluator::evaluateGeometry() applies the same rule before handing out a mesh.
+// Faces that split into triangle fans: triangles, or the convex polygons of a convex PolySet.
 std::shared_ptr<const PolySet> drawable(const std::shared_ptr<const PolySet>& ps)
 {
   if (ps->isTriangular() || bool(ps->convexValue())) return ps;
   return PolySetUtils::tessellate_faces(*ps);
 }
 
-// A mesh's vertices in world space. A mirroring matrix turns its faces inside out, which
-// `orientation` undoes for their normals.
+// A mirroring matrix turns the faces inside out, which `orientation` undoes for their normals.
 class WorldVertices
 {
 public:
@@ -95,7 +92,6 @@ private:
   const std::vector<Vector3d> *vertices;
 };
 
-// Calls f(i, j, k) with the vertex indices of each triangle of `ps`, splitting faces into fans.
 template <typename F>
 void forEachTriangle(const PolySet& ps, F&& f)
 {
@@ -104,8 +100,7 @@ void forEachTriangle(const PolySet& ps, F&& f)
   }
 }
 
-// Whether triangle abc lies wholly to one side of the box [lo, hi] along some axis. Cheap enough
-// to run on every triangle before the exact tests; kept to plain doubles for debug builds.
+// A cheap pre-test for every triangle, on plain doubles for the sake of debug builds.
 bool outsideBox(const double *a, const double *b, const double *c, const double *lo, const double *hi)
 {
   for (int k = 0; k < 3; ++k) {
@@ -146,7 +141,6 @@ double maxAbsCoordinate(const Vector3d& v)
   return v.cwiseAbs().maxCoeff();
 }
 
-// What one primitive offers at the hit point.
 struct Match {
   int index;
   bool parallel;     // has a face through the point, parallel to the hit face
@@ -208,15 +202,13 @@ std::vector<Match> matchesAt(const std::vector<Leaf>& leaves, const SurfaceHit& 
   return matches;
 }
 
-// `geom` as a mesh, if it is 3D.
 std::shared_ptr<const PolySet> meshOf(const std::shared_ptr<const Geometry>& geom)
 {
   if (!geom || geom->getDimension() != 3) return nullptr;
   return PolySetUtils::getGeometryAsPolySet(geom);
 }
 
-// Walks a subtree the way GeometryEvaluator builds it, collecting the primitives that end up in
-// its geometry.
+// Walks a subtree the way GeometryEvaluator builds it.
 class LeafCollector : public NodeVisitor
 {
 public:
@@ -238,7 +230,6 @@ public:
   Response visit(State& state, const CsgOpNode& node) override
   {
     if (state.isPrefix() && !isBackground(node) && node.type == OpenSCADOperator::DIFFERENCE) {
-      // Everything after the first operand cuts it.
       bool first = true;
       for (const auto *operand : operands(node)) {
         if (!first) this->cutters.insert(operand);
@@ -276,15 +267,12 @@ public:
   std::vector<Leaf> leaves;
 
 private:
-  // `%` subtrees are not part of the geometry. The start node's own modifier is ignored, so a
-  // `%render()` can still be looked into.
+  // The start node's own modifier is ignored, so a `%render()` can still be looked into.
   [[nodiscard]] bool isBackground(const AbstractNode& node) const
   {
     return &node != &this->start && node.modinst && node.modinst->isBackground();
   }
 
-  // The operands GeometryEvaluator combines: the node's children, with lists flattened into them
-  // (lazy union) and `%` ones left out.
   std::vector<const AbstractNode *> operands(const AbstractNode& node) const
   {
     std::vector<const AbstractNode *> result;
@@ -300,7 +288,6 @@ private:
     return result;
   }
 
-  // What `held` has for a whole node, if anything.
   const std::shared_ptr<const Geometry> *heldGeometry(const AbstractNode& node) const
   {
     if (!this->held) return nullptr;
@@ -308,7 +295,6 @@ private:
     return it == this->held->end() ? nullptr : &it->second;
   }
 
-  // Records whether `node` cuts material away: its parent does, or it cuts its parent difference().
   void enter(const State& state, const AbstractNode& node)
   {
     bool subtracted = this->cutters.count(&node) > 0;
@@ -331,8 +317,7 @@ private:
     } else if (const auto *geom = heldGeometry(node)) {
       ps = meshOf(*geom);
     } else if (this->evaluator.isSmartCached(node)) {
-      // A hull() or physics() can take long to evaluate; a right-click must not re-run one the
-      // cache has dropped.
+      // Only a lookup: a right-click must not re-run a hull() or physics() the cache has dropped.
       ps = meshOf(this->evaluator.evaluateGeometry(node, false));
     }
     if (ps && !ps->isEmpty()) {
@@ -355,9 +340,8 @@ private:
   std::unordered_map<const AbstractNode *, bool> subtracted;
 };
 
-// The nodes below `root` that LeafCollector takes whole, found by the same rules, going only where
-// the tree says there are some. Without a visitor, whose state costs ten times as much: on u-bot
-// this goes through 18k of 470k nodes in 1.1 ms.
+// The nodes below `root` that LeafCollector takes whole, by the same rules. A plain walk, as a
+// visitor's per-node State costs far more.
 std::vector<const AbstractNode *> wholeNodes(const Tree& tree, const AbstractNode& root)
 {
   std::vector<const AbstractNode *> found;
@@ -398,8 +382,8 @@ void appendSurface(const std::shared_ptr<const Geometry>& geom, std::vector<Plac
 
 bool isWhole(const AbstractNode& node)
 {
-  // By exact class, as neither has subclasses: the digests ask it of every node, and this costs a
-  // fifteenth of what dynamic_cast does (5 ns a node rather than 77).
+  // By exact class, as neither has subclasses: the digests ask it of every node, and dynamic_cast
+  // costs far more.
   const auto& type = typeid(node);
 #ifdef ENABLE_PHYSICS
   if (type == typeid(PhysicsNode)) return true;
@@ -413,7 +397,6 @@ std::optional<double> intersectTriangle(const Vector3d& origin, const Vector3d& 
   const Vector3d e1 = b - a, e2 = c - a;
   const Vector3d p = direction.cross(e2);
   const double det = e1.dot(p);
-  // Parallel to the triangle's plane, or a degenerate triangle.
   if (!(std::abs(det) > kDegenerate * e1.norm() * e2.norm() * direction.norm())) return {};
   const double inv = 1.0 / det;
   const Vector3d s = origin - a;

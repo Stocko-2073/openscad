@@ -67,7 +67,6 @@ bool takesEmptyOperands(const AbstractNode& node)
   return dynamic_cast<const AbstractIntersectionNode *>(&node) != nullptr;
 }
 
-// The digest of every group without operands.
 const Hash128& emptyGroup()
 {
   static const Hash128 digest = [] {
@@ -90,19 +89,13 @@ void NodeHasher::fileTime(const std::string& path)
 void AbstractNode::takeDigest(const AbstractNode& original)
 {
   // A list's own modifiers are part of its digest, and the original's may not be read: the memo
-  // copies nodes whose parse is gone (core/EvalMemo.h). A list computes its own again, from its
-  // children's, for as little as that costs.
+  // copies nodes whose parse is gone (core/EvalMemo.h). A list's digest is cheap to recompute.
   if (kindOf(*this) == Kind::List) return;
   const uint8_t state = original.digest_state.load(std::memory_order_acquire);
   if (!(state & kKept)) return;
   this->digest_a.store(original.digest_a.load(std::memory_order_relaxed), std::memory_order_relaxed);
   this->digest_b.store(original.digest_b.load(std::memory_order_relaxed), std::memory_order_relaxed);
   this->digest_state.store(state, std::memory_order_release);
-}
-
-bool AbstractNode::hasDigest() const
-{
-  return this->digest_state.load(std::memory_order_acquire) & kKept;
 }
 
 Hash128 NodeDigests::digest(const AbstractNode& node)

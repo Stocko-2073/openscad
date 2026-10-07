@@ -371,12 +371,9 @@ void GeometryEvaluator::smartCacheInsert(const AbstractNode& node,
 }
 
 /*!
-   The node's entries in the caches, as first found. Other threads share the caches (Animate's
-   frame workers, the render worker), and their insertions can evict an entry at any moment, such
-   as between the prefix visit that prunes a cached node's children and the postfix visit that
-   takes its geometry: the node then had nothing to be made from, and it and every node above it
-   came out empty, and were cached so. A node found cached therefore stays found, with its
-   geometry, for as long as this evaluator lives.
+   A node found cached stays found, with its geometry, for this evaluator's lifetime: other threads
+   share the caches, and their insertions can evict an entry between the prefix visit that prunes a
+   cached node's children and the postfix visit that takes its geometry.
  */
 const GeometryEvaluator::CachedGeometry& GeometryEvaluator::cached(const AbstractNode& node)
 {
@@ -685,8 +682,7 @@ Response GeometryEvaluator::visit(State& state, const RenderNode& node)
 #ifdef ENABLE_PHYSICS
 namespace {
 
-// Fixed-precision formatting with -0 normalization keeps the stats output
-// stable for regression tests.
+// `+ 0.0` turns -0 into 0.
 std::string physicsNumber(double v, int precision)
 {
   const double scale = std::pow(10.0, precision);
@@ -713,10 +709,6 @@ std::string physicsMatrix(const Transform3d& t)
 }  // namespace
 
 /*!
-   physics() unions its children into a single rigid body, drops it onto the
-   infinite floor z=0 until it comes to rest, and applies the resulting rigid
-   transform to the geometry.
-
    input: List of 3D objects
    output: any Geometry
  */
@@ -761,9 +753,7 @@ Response GeometryEvaluator::visit(State& state, const PhysicsNode& node)
               LOG(message_group::Warning, node.modinst->location(), this->tree.getDocumentPath(),
                   "physics(): %1$s", warning);
             }
-            // Publish the transform so the overlays can move background/
-            // highlight ghosts in the child hierarchy along with the settled
-            // pose.
+            // The overlays move `%` and `#` subtrees inside physics() with the settled pose.
             physicsTransformCacheStore(this->tree.digest(node), result.transform);
             mutableGeom->transform(result.transform);
             LOG(message_group::Echo, "%1$s",

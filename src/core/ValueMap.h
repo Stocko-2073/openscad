@@ -11,38 +11,16 @@
 #include "core/Value.h"
 
 /*
- * Variable storage for a single ContextFrame.
- *
- * Frames are overwhelmingly tiny. Instantiating a BOSL2-heavy model builds
- * ~39M of them, of which 54% hold nothing at all and 92% hold at most one
- * variable, while the interpreter probes them ~150M times looking names up.
- * A flat array scanned linearly therefore beats a hash map twice over: no
- * name hash per probe, and no heap allocation at all for the sizes that
- * dominate.
- *
- * Names are interned, so the scan compares pointers rather than characters.
- *
- * A few frames are not tiny at all, and they sit at the bottom of every
- * lookup chain: `include` merges the whole of BOSL2 into one file scope, so
- * that frame holds hundreds of variables and is scanned on the way to any
- * name it does not hold. Frames past index_threshold entries therefore carry
- * a side index. Measured over u-bot.scad, 92% of all scan steps were spent in
- * the frames that qualify.
- *
- * Unlike std::unordered_map, an insert invalidates iterators and references
- * to entries already held. Callers must not keep a Value reference obtained
- * from a frame across a set_variable() on that same frame.
+ * Variables of one ContextFrame, in a flat array since frames nearly always hold only a few;
+ * large ones get an index. An insert invalidates iterators and references to existing entries:
+ * never hold a Value reference from a frame across a set_variable() on that frame.
  */
 class ValueMap
 {
   using entry_t = std::pair<Identifier, Value>;
-  // Covers the 95% of frames that hold two variables or fewer without
-  // touching the heap.
   using map_t = boost::container::small_vector<entry_t, 2>;
   map_t map;
 
-  // Positions in `map`, keyed by name. Null until the frame outgrows the
-  // linear scan, which almost none do.
   std::unique_ptr<IdentifierMap<uint32_t>> index;
   static constexpr size_t index_threshold = 16;
 
@@ -74,8 +52,6 @@ public:
   }
   size_t size() const { return map.size(); }
 
-  // Returns false in the second position if the name was already present,
-  // matching std::unordered_map::insert_or_assign.
   std::pair<iterator, bool> insert_or_assign(const Identifier& name, Value&& value)
   {
     if (index) {

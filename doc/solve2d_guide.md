@@ -147,7 +147,7 @@ the actual solve runs.
 
 ## What constraints exist
 
-For v1, the vocabulary is small but covers most polygon profiles:
+The vocabulary is small but covers most polygon profiles:
 
 All constraint built-ins are prefixed with `con_` so they don't collide
 with user-defined names like `distance`, `angle`, or `parallel`.
@@ -453,32 +453,12 @@ Runnable examples ship with OpenSCAD; all are accessible from
 * `examples/Solver/solve2d_symmetric_house.scad` — a house silhouette
   using `con_pt_line_distance` and `con_at_midpoint` to size the walls
   and place the ridge.
-* `examples/Solver/solve2d_le_distance_smoke.scad` — slack `con_le_distance`
-  (loop converges in one iteration with empty active set).
-* `examples/Solver/solve2d_le_distance_binding.scad` — binding
-  `con_le_distance` (loop activates the constraint to push the bound).
-* `examples/Solver/solve2d_le_distance_infeasible.scad` — contradictory
-  equality + inequality (loop bails cleanly, `solved == false`).
-* `examples/Solver/solve2d_le_pt_line_distance.scad` — signed-distance
-  inequality.
-* `examples/Solver/solve2d_le_length_difference.scad` — bound on the
-  difference of two segment lengths.
-* `examples/Solver/solve2d_le_angle.scad` — bound on the angle between two
-  segments.
-* `examples/Solver/solve2d_ge_distance_smoke.scad`,
-  `solve2d_ge_distance_binding.scad`,
-  `solve2d_ge_distance_infeasible.scad`,
-  `solve2d_ge_pt_line_distance.scad`,
-  `solve2d_ge_length_difference.scad`,
-  `solve2d_ge_angle.scad` — `>=` counterparts of the above.
-* `examples/Solver/solve2d_seed_preview.scad` — `solve = false` returns a
-  Solution at the seed coords for ghosting alongside the solved sketch.
-* `examples/Solver/solve2d_directed_angle.scad` — reflex (270°) angle at
-  a chevron tip via `con_directed_angle`.
+* `examples/Solver/solve2d_angle.scad` — reading back the angle at a
+  vertex with `angle()`.
+* `examples/Solver/solve2d_pts.scad` — `pts()` in declaration order.
 
 ## Where to go next
 
 * Read the [formal spec](specs/solve2d.md) for normative behavior.
 * `submodules/SolveSpaceLib/include/slvs.h` — the underlying C API. The
-  full constraint vocabulary it offers is much larger than `solve2d`'s v1
-  surface.
+  full constraint vocabulary it offers is much larger than `solve2d`'s.

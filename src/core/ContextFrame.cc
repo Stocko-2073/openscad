@@ -85,8 +85,6 @@ bool ContextFrame::set_variable(const Identifier& name, Value&& value)
 {
   if (value.type() == Value::Type::FUNCTION) {
     function_bits |= name.bit();
-    // Tells the call-site cache that this name can no longer be resolved from
-    // the scope structure alone. See Identifier::hasFunctionValue().
     name.markFunctionValue();
   }
   if (name.isConfigVariable()) {

@@ -99,13 +99,9 @@ std::shared_ptr<AbstractNode> UserModule::instantiate(
   }
 
   StaticModuleNameStack name{inst->name()};  // push on static stack, pop at end of method!
-  // Evaluated after the push, as when they were the context's constructor
-  // argument: parent_module() in an argument sees this module.
+  // After the push, so parent_module() in an argument sees this module.
   Arguments arguments(inst->arguments, context);
 
-  // A memo boundary runs its body right here, like any other call, and the
-  // memo keeps its state on the heap: recursion goes as deep with it as
-  // without. See EvalMemoSession::enter().
   memo::EvalMemoSession *memo = context->session()->memo();
   if (memo) {
     switch (memo->enter(*this, defining_context, inst, context, arguments)) {

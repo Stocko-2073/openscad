@@ -53,10 +53,6 @@ If you want to run the hooks without committing, you can run
 `pre-commit run`. It will only check the staged versions of files
 though.
 
-# Regression Tests
-
-See `testing.md`
-
 # How to add new function/module
 
 * Implement

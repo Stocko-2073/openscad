@@ -43,15 +43,9 @@ public:
   template <typename T>
   std::optional<T> lookup(const Identifier& name) const;
 
-  /**
-   * @brief Union of Identifier::bit() over the functions defined here
-   *
-   * Lets a context frame reject a function lookup without probing the table.
-   * See ContextFrame::may_hold_function().
-   */
+  // OR of Identifier::bit() over the functions defined here.
   uint64_t functionBits() const { return function_bits; }
 
-  // Definitions in source order, as written. For core/EvalMemo, which hashes them.
   const std::vector<std::pair<std::string, std::shared_ptr<UserModule>>>& moduleDefinitions() const
   {
     return astModules;
@@ -64,12 +58,8 @@ public:
   AssignmentList assignments;
   std::vector<std::shared_ptr<ModuleInstantiation>> moduleInstantiations;
 
-  /*
-   * What this scope belongs to, set once after parsing (memo::annotate()), as
-   * are the matching back-links of the statements in it and the modules it
-   * defines. Incremental evaluation follows them to say where a statement
-   * is in a way that a later parse of the same text can answer.
-   */
+  // Set by memo::annotate() after parsing, with the parent_scope links of its statements and
+  // modules. Incremental evaluation uses them to locate a statement across reparses.
   struct Origin {
     enum class Kind : uint8_t { Unknown, File, ModuleBody, Children, Else };
     Kind kind = Kind::Unknown;
@@ -86,7 +76,6 @@ private:
   IdentifierMap<std::shared_ptr<UserModule>> modules;
   uint64_t function_bits{0};
 
-  // All below only used for printing:
   std::vector<std::pair<std::string, std::shared_ptr<UserModule>>> astModules;
   std::vector<std::pair<std::string, std::shared_ptr<UserFunction>>> astFunctions;
 };

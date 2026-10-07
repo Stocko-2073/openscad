@@ -1,8 +1,5 @@
-// solve2d_pts.scad — exercises pts(sol), which returns every point in the
-// solution in the order they were declared in solve2d().
-//
-// Names are deliberately z, a, m so insertion order ([z, a, m]) differs
-// from alphabetical order ([a, m, z]).
+// solve2d_pts.scad — pts(sol) returns every point in the order solve2d()
+// declared them: here z, a, m, not alphabetically.
 sol = solve2d([
   point("z", at = [0, 0]),
   con_fixed("z"),

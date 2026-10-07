@@ -20,7 +20,6 @@ namespace DatalessFiles {
 namespace {
 
 std::atomic<bool> deferReads{false};
-bool (*probeForTesting)(const fs::path&) = nullptr;
 
 std::mutex deferredMutex;
 std::vector<std::string> deferred;
@@ -29,7 +28,6 @@ std::vector<std::string> deferred;
 
 bool isDataless(const fs::path& path)
 {
-  if (probeForTesting) return probeForTesting(path);
 #if defined(__APPLE__) && defined(SF_DATALESS)
   struct stat st;
   return stat(path.c_str(), &st) == 0 && (st.st_flags & SF_DATALESS) != 0;
@@ -90,11 +88,6 @@ std::vector<std::string> materializeAll(const std::vector<std::string>& files)
     if (!ok[f]) failed.push_back(files[f]);
   }
   return failed;
-}
-
-void setProbeForTesting(bool (*probe)(const fs::path&))
-{
-  probeForTesting = probe;
 }
 
 }  // namespace DatalessFiles

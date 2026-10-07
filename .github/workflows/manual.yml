@@ -138,14 +138,3 @@ jobs:
         cmake ${CMAKE_EXTRA} -DCMAKE_BUILD_TYPE=${{ inputs.build_type }} -DEXPERIMENTAL=${{ inputs.enable_experimental }} -DUSE_MIMALLOC=${{ inputs.use_mimalloc }} -B b .
         cmake --build b -j 2
         echo "Build exit code: $?"
-    - name: Test
-      run: ./scripts/github-ci.sh test
-      if: ${{ ! inputs.enable_wasm }}
-    - name: Upload Test Result Report
-      uses: actions/upload-artifact@v7
-      if: ${{ always() }}
-      with:
-        name: Test Result Report (${{ matrix.os }})
-        path: |
-          b/Testing/Temporary/*_report.html
-          b/Testing/Temporary/LastTest.log

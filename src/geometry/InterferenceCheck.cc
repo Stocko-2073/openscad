@@ -41,17 +41,13 @@ std::shared_ptr<const AbstractNode> findNode(const std::shared_ptr<const Abstrac
   return root->getNodeByID(index, path);
 }
 
-// Builds the picker-style chain for `nodeIndex` inside `part`: the node itself,
-// its ancestors, up to and including the top-level part, filtered to the
-// current file when requested. Returned outermost first.
 std::vector<ChainStep> buildChain(const Part& part, int nodeIndex, const Tree& tree, const Options& opts)
 {
   std::vector<ChainStep> chain;
   std::deque<std::shared_ptr<const AbstractNode>> path;
   if (!part.node->getNodeByID(nodeIndex, path)) return chain;
 
-  // getNodeByID appends ancestors while unwinding, so path[0] is the primitive
-  // and path.back() is the part node. Walk it in reverse for outermost-first.
+  // getNodeByID() fills the path innermost first.
   for (auto it = path.rbegin(); it != path.rend(); ++it) {
     const auto& step = *it;
     if (step->name() == "root") continue;
@@ -70,10 +66,6 @@ std::vector<ChainStep> buildChain(const Part& part, int nodeIndex, const Tree& t
   return chain;
 }
 
-// Attributes a collision to the primitives of each part that overlap the pair's
-// intersection region: those that add material, not those a difference()
-// cuts away with. Leaves and per-leaf manifolds are memoized across collisions
-// so a part involved in several pairs is only evaluated once.
 class PrimitiveAttributor
 {
 public:
@@ -108,8 +100,7 @@ private:
   {
     auto it = leavesByPart_.find(part.number);
     if (it == leavesByPart_.end()) {
-      // Top-level parts are direct children of the root, so the identity
-      // matrix is the true world frame.
+      // Parts are direct children of the root, so the identity is the world frame.
       it = leavesByPart_
              .emplace(part.number, pick::collectLeaves(tree_, *part.node, Transform3d::Identity(), true))
              .first;
@@ -191,13 +182,11 @@ const Part *Report::part(int number) const
 
 std::string pickerDisplayName(const AbstractNode& node)
 {
-  // Remove the "module" prefix if any, as it induces confusion between the
-  // module declaration and the instantiation (same rule as the picker menu).
+  // Drop the "module" prefix, which confuses the module's declaration with its instantiation.
   const std::string vname = node.verbose_name();
   const size_t first_position = (vname.find("module") == std::string::npos) ? 0 : 7;
   if (!vname.empty()) return vname.size() > first_position ? vname.substr(first_position) : "";
-  // verbose_name can be empty (e.g. for-loop groups); fall back to the
-  // instantiation's name so the entry isn't blank.
+  // verbose_name() is empty for e.g. for-loop groups.
   if (node.modinst) return node.modinst->name().str();
   return "?";
 }
@@ -252,7 +241,7 @@ Report run(const Tree& tree, const Options& opts)
     part.name = pickerDisplayName(*child);
     part.description = child->toString();
     part.loc = sourceRef(*child, tree);
-    if (child->modinst && child->modinst->isBackground()) {  // skip % ghosts
+    if (child->modinst && child->modinst->isBackground()) {
       part.status = PartStatus::SkippedBackground;
       report.parts.push_back(std::move(part));
       continue;
@@ -290,11 +279,11 @@ Report run(const Tree& tree, const Options& opts)
     if (parts[i].status != PartStatus::Checked) continue;
     for (size_t j = i + 1; j < parts.size(); ++j) {
       if (parts[j].status != PartStatus::Checked) continue;
-      if (!parts[i].bbox.intersects(parts[j].bbox)) continue;  // cheap cull
+      if (!parts[i].bbox.intersects(parts[j].bbox)) continue;
       ++report.pairsTested;
       auto overlap = std::make_shared<const ManifoldGeometry>(*parts[i].manifold * *parts[j].manifold);
       const double vol = manifoldVolume(*overlap);
-      if (vol <= kVolumeEps) continue;  // flush faces / numerical noise
+      if (vol <= kVolumeEps) continue;
       Collision collision;
       collision.partA = parts[i].number;
       collision.partB = parts[j].number;

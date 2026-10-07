@@ -9,10 +9,7 @@
 #include "geometry/Geometry.h"
 #include "utils/Hash128.h"
 
-// Thread-safe singleton wrapper around an LRU Cache, keyed by nodes' geometry
-// digests (core/NodeDigest.h). The mutex guards concurrent access from
-// animation pre-fetch workers; single-threaded callers pay one uncontended lock
-// per op.
+// Keyed by geometry digests (core/NodeDigest.h). Locked: animation pre-fetch workers share it.
 class CGALCache
 {
 public:

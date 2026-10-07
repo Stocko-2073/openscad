@@ -106,7 +106,6 @@ parts:
             -DMANIFOLD_PYBIND=OFF \
             -DMANIFOLD_TEST=OFF \
             -DENABLE_PYTHON=ON \
-            -DENABLE_TESTS=OFF \
             -DEXPERIMENTAL=ON \
             -DSUFFIX=nightly \
             -DSNAPSHOT=ON

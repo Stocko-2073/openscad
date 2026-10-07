@@ -28,8 +28,7 @@ namespace {
 
 constexpr const char *kLatestReleaseUrl =
   "https://api.github.com/repos/BelfrySCAD/BOSL2/releases/latest";
-// Staging and swap folders in the update root; any left over from an
-// interrupted update are removed on the next launch.
+// Of the staging and swap folders in the update root.
 constexpr const char *kScratchPrefix = ".BOSL2-";
 
 QNetworkRequest makeRequest(const QUrl& url, int timeoutMs)
@@ -52,9 +51,8 @@ BOSL2Updater::Unpacked failed(const QString& error)
   return {{}, std::nullopt, error};
 }
 
-// Unpacks a GitHub zipball, whose entries all sit under one
-// "<owner>-<repo>-<sha>/" folder, into a new staging folder in root. Entries
-// named .git* are left out, as they are from the built-in copy.
+// A GitHub zipball's entries all sit under one "<owner>-<repo>-<sha>/" folder. Entries named
+// .git* are left out, as they are from the built-in copy.
 BOSL2Updater::Unpacked unpack(const QByteArray& zipData, const fs::path& root)
 {
   QTemporaryDir staging(QString::fromStdString((root / kScratchPrefix).generic_string()) +
@@ -263,8 +261,7 @@ void BOSL2Updater::install(const Unpacked& unpacked, const Version& latest)
   }
   fs::remove_all(old, ec);
 
-  // The first download, or one replacing a copy older than the built-in, changes
-  // which folder is on the library path.
+  // The install can change which BOSL2 folder is on the library path.
   refresh_library_path();
   if (previous) {
     LOG("BOSL2 updated from %1$s to %2$s; the next render uses it.",

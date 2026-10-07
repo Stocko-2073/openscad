@@ -35,17 +35,10 @@ public:
   [[nodiscard]] boost::optional<InstantiableModule> lookup_special_module(const Identifier& name,
                                                                           const Location& loc) const;
 
-  // See Context::scopeOwner(). Serials start at one so that zero can mean
-  // "no scope on this chain", which nothing ever matches.
+  // Starts at one: zero means "no scope on this chain" and never matches.
   [[nodiscard]] uint64_t nextScopeSerial() { return ++scope_serial_counter; }
 
-  /*
-   * This evaluation's function-lookup cache, one entry per call site. It lives
-   * on the session rather than on the AST node so that concurrent evaluations
-   * of the same script -- the GUI's animation prefetch -- cannot read each
-   * other's half-written entries. See
-   * FunctionCall::evaluate_function_expression.
-   */
+  // Per session, not on the AST: animation prefetch evaluates a script on several threads.
   [[nodiscard]] FunctionLookupCache& functionLookupCache(size_t site)
   {
     if (site >= function_lookup_cache.size()) {
@@ -56,13 +49,9 @@ public:
 
   [[nodiscard]] const std::string& documentRoot() const { return document_root; }
 
-  /*
-   * Incremental evaluation, when the caller turned it on for this session. See
-   * core/EvalMemo.h. Null otherwise, which is the default everywhere.
-   */
+  // Null unless incremental evaluation is on for this session.
   [[nodiscard]] memo::EvalMemoSession *memo() const { return memo_session; }
   void setMemo(memo::EvalMemoSession *memo) { memo_session = memo; }
-  // The special-variable stack, bottom first.
   [[nodiscard]] const std::vector<ContextFrame *>& frames() const { return stack; }
   ContextMemoryManager& contextMemoryManager() { return context_memory_manager; }
   HeapSizeAccounting& accounting() { return context_memory_manager.accounting(); }

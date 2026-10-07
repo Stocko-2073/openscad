@@ -186,10 +186,7 @@ std::shared_ptr<AbstractNode> SourceFile::instantiate(
   const std::shared_ptr<const Context>& context,
   std::shared_ptr<const FileContext> *resulting_file_context) const
 {
-  /*
-   * Holds the script profile only for the duration of this evaluation: its
-   * entries point into the AST, which a re-parse is free to replace.
-   */
+  // Clears the profile on return: its entries point into the AST, which a re-parse may replace.
   const ScriptProfile::ScopedRun profile_run;
 
   auto node = std::make_shared<RootNode>();

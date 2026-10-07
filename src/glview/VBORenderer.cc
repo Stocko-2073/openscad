@@ -148,7 +148,6 @@ void VBORenderer::setOverlays(std::vector<overlay::Mesh> overlays)
 
 namespace {
 
-// Interference overlaps are drawn through the geometry; the rest is depth-tested against it.
 bool isXRay(const overlay::Mesh& mesh) { return mesh.kind == overlay::Kind::Interference; }
 
 }  // namespace
@@ -187,12 +186,10 @@ void VBORenderer::prepareOverlays()
 
 void VBORenderer::drawOverlays(const ShaderUtils::ShaderInfo *shaderinfo) const
 {
-  // Picking sees the geometry only.
   if (shaderinfo && shaderinfo->type == ShaderUtils::ShaderType::SELECT_RENDERING) return;
   if (overlay_vertex_state_containers_.size() != 2) return;
 
-  // Translucent: tested against the geometry's depth without writing any, and pulled forward so a
-  // # subtree lying on the surface tints it.
+  // Translucent, so no depth writes; pulled forward so a # subtree lying on the surface tints it.
   GL_TRACE0("glDepthMask(GL_FALSE)");
   GL_CHECKD(glDepthMask(GL_FALSE));
   GL_TRACE0("glDepthFunc(GL_LEQUAL)");

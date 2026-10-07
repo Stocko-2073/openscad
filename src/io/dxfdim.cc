@@ -55,7 +55,6 @@ namespace fs = std::filesystem;
 
 static Value builtin_dxf_dim(Arguments arguments, const Location& loc)
 {
-  // Depends on more than its arguments, so a call that ran it cannot be reused.
   memo::EvalMemoSession::noteImpure(arguments.session());
   static const std::vector<Identifier> optional{"file", "layer", "origin", "scale", "name"};
   const Parameters parameters =
@@ -164,7 +163,6 @@ static Value builtin_dxf_dim(Arguments arguments, const Location& loc)
 
 static Value builtin_dxf_cross(Arguments arguments, const Location& loc)
 {
-  // Depends on more than its arguments, so a call that ran it cannot be reused.
   memo::EvalMemoSession::noteImpure(arguments.session());
   auto *session = arguments.session();
   static const std::vector<Identifier> optional{"file", "layer", "origin", "scale", "name"};

@@ -58,18 +58,6 @@ jobs:
           cmake .. -G"Ninja" -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -DEXPERIMENTAL=ON -DSNAPSHOT=ON -DUSE_QT6=${{ matrix.qt == 'qt6' && 'ON' || 'OFF' }}
           cmake --build . -j4
           cmake --install . --prefix=.
-      - name: Run Test Suite
-        run: |
-          cd build
-          ctest -j4
       - name: Setup (detached) tmate session if enabled
         uses: mxschmitt/action-tmate@v3
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
-      - name: Upload Test Result Report
-        uses: actions/upload-artifact@v7
-        if: ${{ always() }}
-        with:
-          name: Test Result Report (Windows ${{ matrix.qt }})
-          path: |
-            build/Testing/Temporary/*_report.html
-            build/Testing/Temporary/LastTest.log

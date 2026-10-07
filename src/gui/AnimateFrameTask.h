@@ -16,10 +16,8 @@ class FrameCache;
 class MemoTablePool;
 struct CachedFrame;
 
-// Pre-computes one animation frame's geometry and overlays on a worker thread, as
-// F6 renders them. Touches no Qt GUI / GL state. Reads the shared SourceFile
-// (immutable post-parse) and the per-frame inputs from the FrameCache. Evaluates
-// with a memo table from `memoTables`, unless that is null.
+// Pre-computes one animation frame on a worker thread, as F6 renders it. Touches no Qt GUI / GL
+// state; the SourceFile it shares is immutable once parsed.
 class FrameTask : public QRunnable
 {
 public:

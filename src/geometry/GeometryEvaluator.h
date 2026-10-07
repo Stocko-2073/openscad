@@ -27,8 +27,7 @@ public:
   GeometryEvaluator(const Tree& tree);
 
   std::shared_ptr<const Geometry> evaluateGeometry(const AbstractNode& node, bool allownef);
-  // True when node's geometry is in the geometry or CGAL cache, so evaluating it is only a lookup.
-  // Once true for a node, it stays true for this evaluator, which keeps what it found.
+  // Once true for a node, stays true for this evaluator, which keeps what it found.
   bool isSmartCached(const AbstractNode& node);
 
   Response visit(State& state, const AbstractNode& node) override;
@@ -111,7 +110,6 @@ private:
     std::shared_ptr<const Geometry> const_pointer;
   };
 
-  // A node's entries in the geometry and CGAL caches, as this evaluator first found them.
   struct CachedGeometry {
     bool inGeometryCache = false;
     bool inCGALCache = false;
@@ -142,7 +140,6 @@ private:
   Response lazyEvaluateRootNode(State& state, const AbstractNode& node);
 
   std::map<int, Geometry::Geometries> visitedchildren;
-  // The nodes found in a cache so far, with what was found; see cached().
   std::unordered_map<const AbstractNode *, CachedGeometry> foundCached;
   const Tree& tree;
   std::shared_ptr<const Geometry> root;

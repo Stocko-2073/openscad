@@ -69,18 +69,8 @@ bool field_xy(const ObjectType& obj, const std::string& key, double& x, double& 
   return obj.get(key).getVec2(x, y);
 }
 
-// Deterministic initial coordinates for a point with no `at=`. The base
-// pattern (attempt 0) is a golden-angle spiral around the origin: non-
-// collinear, non-coincident, all distinct distances. Higher attempts perturb
-// the base with a Mersenne Twister seeded from (idx, attempt) so multi-start
-// retries escape bad basins of attraction (a flat staircase like (1, 0.5),
-// (2, 1.0), ... lands Newton on symmetry axes for problems like a square
-// anchored at a single corner). Seeding is deterministic, so the same
-// (idx, attempt, length_scale) yields the same coordinates across runs.
-// length_scale stretches the spiral so unseeded points start in the same
-// neighbourhood as seeded points / length-bearing constraints; without this
-// a kilometre-scale sketch starts unseeded points at unit distance and
-// Newton has to traverse three orders of magnitude on its first step.
+// Golden-angle spiral: the seeds are non-collinear and at distinct distances, so Newton is not
+// trapped on a symmetry axis.
 std::pair<double, double> default_unseeded_seed(size_t idx, int attempt,
                                                 double length_scale = 1.0)
 {
@@ -99,19 +89,8 @@ std::pair<double, double> default_unseeded_seed(size_t idx, int attempt,
   return {radius * std::cos(angle), radius * std::sin(angle)};
 }
 
-// Apply a jitter to a user-provided seed on retry attempts (>0). First
-// attempt returns the seed unchanged so a sketch that converges does so
-// without disturbing user intent. Subsequent attempts perturb by a fraction
-// of length_scale so that a fully-seeded sketch with inequalities (which has
-// no other degree of freedom in the multi-start loop) can still escape
-// branch-cut traps where a directed-angle decomposition or same-side
-// inequality lands on the wrong half-plane.
-//
-// Jitter radius grows with attempt: small at first (1% of length_scale) so
-// almost-correct seeds don't move much, doubling each attempt up to the full
-// length_scale. By the last attempt the perturbation is large enough to
-// commonly cross a half-plane boundary in a typical sketch. Deterministic
-// per (idx, attempt) — same input gives same output across runs.
+// Without this, retries of a fully seeded sketch restart from the same point and cannot leave a
+// wrong half-plane. The radius starts small so near-correct seeds barely move.
 std::pair<double, double> jittered_seed(double u, double v,
                                         size_t idx, int attempt,
                                         double length_scale)
@@ -131,10 +110,6 @@ std::pair<double, double> jittered_seed(double u, double v,
 }
 
 }  // namespace
-
-// ---------------------------------------------------------------------------
-// Entity factories
-// ---------------------------------------------------------------------------
 
 Value builtin_point(Arguments arguments, const Location& loc)
 {
@@ -160,10 +135,6 @@ Value builtin_point(Arguments arguments, const Location& loc)
   }
   return obj;
 }
-
-// ---------------------------------------------------------------------------
-// Constraint factories
-// ---------------------------------------------------------------------------
 
 Value make_two_point_constraint(const char *user_name, const char *kind, Arguments arguments, const Location& loc)
 {
@@ -694,10 +665,6 @@ Value builtin_con_symmetric_line(Arguments arguments, const Location& loc)
   return obj;
 }
 
-// ---------------------------------------------------------------------------
-// solve2d
-// ---------------------------------------------------------------------------
-
 namespace {
 
 struct PointDecl {
@@ -705,7 +672,6 @@ struct PointDecl {
   bool has_seed = false;
   double u = 0.0;
   double v = 0.0;
-  // Filled during build phase:
   Slvs_hParam u_param = 0;
   Slvs_hParam v_param = 0;
   Slvs_hEntity entity = 0;
@@ -713,55 +679,39 @@ struct PointDecl {
 
 struct ConstraintDecl {
   std::string kind;
-  std::string name;  // for failed-constraint reporting; here we use the constraint index
+  std::string name;
   std::vector<std::string> points;
   double valA = 0.0;
-  // If non-empty, indices into inequalities[] whose presence in the active set
-  // suppresses this equality constraint. Used by composite expansions (e.g.
-  // con_pt_on_segment) where the equality becomes redundant once a bound is
-  // tight, and emitting both would make the system rank-deficient.
+  // Indices into inequalities[]. An active one makes this equality redundant, and keeping both
+  // would leave the system rank-deficient.
   std::vector<size_t> suppress_when_active;
 };
 
 struct InequalityDecl {
-  std::string kind;                  // "le_distance", "le_pt_line_distance", ...
-  std::string name;                  // user-visible summary for active_inequalities
+  std::string kind;
+  std::string name;
   std::vector<std::string> points;
-  double valA = 0.0;                 // d / diff / deg, depending on kind
+  double valA = 0.0;
 };
 
-// Per-directed_angle metadata used by retry seeding. con_directed_angle
-// expands into a magnitude angle + (sometimes) a half-plane inequality, but
-// neither carries the directed (CCW) target, so the seed retry logic also
-// stores the original deg here. On attempts > 0 the seed for p4 is rotated
-// onto the angle ray from p3 (using p1->p2 as the reference direction);
-// see build_and_solve_once. Without this, libslvs's Newton settles into a
-// wrong-angle local minimum (REDUNDANT_OKAY → reported as INCONSISTENT)
-// when the user's seed for p4 happens to be at a far-off angle from the
-// target, and Cartesian-only jitter rarely escapes that basin.
+// Retry seeding needs the CCW target, which the angle + side expansion does not carry.
 struct DirectedAngleSeed {
   size_t p1_idx = 0;
   size_t p2_idx = 0;
   size_t p3_idx = 0;
   size_t p4_idx = 0;
-  double deg = 0.0;                  // wrapped into [0, 360)
+  double deg = 0.0;  // wrapped into [0, 360)
 };
 
-// Tolerances that scale with the sketch. All length-unit residuals and
-// violations are compared against (TOL * length_scale) so the same geometry
-// behaves identically at mm, m, or μm scales. Dimensionless and degree
-// residuals use scale-independent tolerances. See compute_length_scale().
-constexpr double RESIDUAL_TOL_REL = 1e-2;     // length-unit residuals (relative)
-constexpr double RESIDUAL_TOL_DIM = 1e-2;     // dimensionless residuals
-constexpr double RESIDUAL_TOL_DEG = 1e-2;     // degree residuals (1/100 degree)
-constexpr double VIOLATION_TOL_REL = 1e-6;    // length-unit violations (relative)
-constexpr double DEGENERATE_REL = 1e-12;      // length / length_scale below which a vector is zero
+// *_REL tolerances are multiplied by length_scale, so a sketch behaves the same in mm, m or μm.
+constexpr double RESIDUAL_TOL_REL = 1e-2;
+constexpr double RESIDUAL_TOL_DIM = 1e-2;
+constexpr double RESIDUAL_TOL_DEG = 1e-2;
+constexpr double VIOLATION_TOL_REL = 1e-6;
+constexpr double DEGENERATE_REL = 1e-12;
 
 enum class ResidualUnit { Length, Dimensionless, Degree };
 
-// Classify a constraint's residual by physical units. Drives the unit-aware
-// REDUNDANT_OKAY recovery threshold so a 1% slop on a 1000-unit distance
-// constraint isn't held to the same absolute bound as a 1° angle constraint.
 inline ResidualUnit residual_unit_for(const std::string& kind)
 {
   if (kind == "parallel" || kind == "perpendicular" ||
@@ -784,11 +734,7 @@ inline double residual_threshold(ResidualUnit u, double length_scale)
   return RESIDUAL_TOL_REL * length_scale;
 }
 
-// Median magnitude across seeds and length-bearing constraint values.
-// Median (not max) so an outlier — e.g. one large bound — doesn't dominate
-// scale derived from a cluster of unit-magnitude seeds. Returns 1.0 if there
-// is nothing length-bearing to sample, in which case all callers fall back to
-// scale-1 behaviour matching pre-change examples.
+// Median rather than max, so one outlier such as a large bound does not set the scale.
 inline double compute_length_scale(const std::vector<PointDecl>& points,
                                    const std::vector<ConstraintDecl>& constraints,
                                    const std::vector<InequalityDecl>& inequalities)
@@ -838,17 +784,7 @@ bool collect_point_ref(const ConstraintDecl& c, size_t idx, const std::string& f
   return true;
 }
 
-// Compute a residual for `c` given the solved point coordinates. Returns
-// the absolute error of the constraint as a non-negative number; lower is
-// better, zero means satisfied. Returns 0 for unknown kinds, missing
-// points, and degenerate inputs (zero-length lines) so that we don't
-// generate spurious failures.
-//
-// Used to recover from a SolveSpace quirk: when the Jacobian is rank-
-// deficient at the solution (REDUNDANT_OKAY internally) the C wrapper
-// reports SLVS_RESULT_INCONSISTENT regardless of whether Newton actually
-// converged. Recomputing residuals lets us tell "redundant but solved"
-// from "actually broken" without patching libslvs.
+// 0 for unknown kinds, missing points and degenerate input, so these never count as failures.
 double constraint_residual(const ConstraintDecl& c,
                            const std::map<std::string, SolutionType::Point2d>& pts)
 {
@@ -921,13 +857,8 @@ double constraint_residual(const ConstraintDecl& c,
       if (m1 < DEGENERATE || m2 < DEGENERATE) return 0.0;
       double cosA = std::max(-1.0, std::min(1.0, dot(v1, v2) / (m1 * m2)));
       double angle_deg = std::acos(cosA) * 180.0 / M_PI;
-      // libslvs's SLVS_C_ANGLE residual is cos(actual)-cos(valA·π/180), which
-      // is symmetric in valA → -valA and periodic mod 360°, and an angle of
-      // 270° is equivalent to 90° (acos returns the magnitude in [0,180]).
-      // Reduce target to [0,180] before differencing so any libslvs-converged
-      // solution registers a small residual; otherwise valA outside [-180,180]
-      // produces a residual ≥ 90° even when the geometry is correct, defeating
-      // the REDUNDANT_OKAY recovery path.
+      // SLVS_C_ANGLE's residual is cos(actual) - cos(valA), even and 360°-periodic in valA, so
+      // fold the target into acos's [0, 180] before comparing.
       double target = std::fmod(std::abs(c.valA), 360.0);
       if (target > 180.0) target = 360.0 - target;
       return std::abs(angle_deg - target);
@@ -991,10 +922,7 @@ double constraint_residual(const ConstraintDecl& c,
   return 0.0;
 }
 
-// Signed violation for inequality g(x) <= rhs:
-//   positive ⇒ violated by that amount
-//   non-positive ⇒ slack (constraint satisfied)
-// Returns 0 for unknown kinds and degenerate inputs (no false positives).
+// > 0: violated by that amount; <= 0: satisfied. Unknown kinds and degenerate input give 0.
 double inequality_violation(const InequalityDecl& ineq,
                             const std::map<std::string, SolutionType::Point2d>& pts)
 {
@@ -1008,8 +936,6 @@ double inequality_violation(const InequalityDecl& ineq,
   auto sub = [](const P& a, const P& b) -> P { return {a[0]-b[0], a[1]-b[1]}; };
   auto norm = [](const P& v) { return std::sqrt(v[0]*v[0] + v[1]*v[1]); };
 
-  // ge_* variants share the same g(x) - rhs computation but flip the sign:
-  // g(x) >= rhs is violated when g(x) < rhs ⇒ violation = rhs - g(x).
   const double sense = (ineq.kind.rfind("ge_", 0) == 0) ? -1.0 : 1.0;
 
   P a, b;
@@ -1025,7 +951,6 @@ double inequality_violation(const InequalityDecl& ineq,
     P v = sub(b_, a_);
     double m = norm(v);
     if (m < 1e-12) return 0.0;
-    // signed distance: cross_z(p-a, v) / |v|
     double signed_dist = ((p_[0]-a_[0])*v[1] - (p_[1]-a_[1])*v[0]) / m;
     return sense * (signed_dist - ineq.valA);
   }
@@ -1054,19 +979,14 @@ double inequality_violation(const InequalityDecl& ineq,
         !get(ineq.points[2], b_)) return 0.0;
     P v = sub(b_, a_);
     double m = norm(v);
-    if (m < 1e-12) return 0.0;  // degenerate segment
-    // Project p onto the directed segment a→b and report the signed distance
-    // outside the segment (length units). Lower bound violated ⇒ p is `s` units
-    // before a; upper bound violated ⇒ p is `s` units past b. The previous
-    // dot-product form returned length² and made the active-set tolerance
-    // scale-dependent.
+    if (m < 1e-12) return 0.0;
     if (ineq.kind == "pt_on_segment_lower") {
       P pa = sub(p_, a_);
-      double s = (pa[0]*v[0] + pa[1]*v[1]) / m;  // signed distance along v from a
+      double s = (pa[0]*v[0] + pa[1]*v[1]) / m;
       return -s;
     } else {
       P pb = sub(p_, b_);
-      double s = (pb[0]*v[0] + pb[1]*v[1]) / m;  // signed distance along v from b
+      double s = (pb[0]*v[0] + pb[1]*v[1]) / m;
       return s;
     }
   }
@@ -1077,19 +997,12 @@ double inequality_violation(const InequalityDecl& ineq,
         !get(ineq.points[2], p_) || !get(ineq.points[3], q_)) return 0.0;
     P v = sub(b_, a_);
     double m = norm(v);
-    if (m < 1e-12) return 0.0;  // degenerate line a==b
-    // Signed perpendicular distance from line a→b: positive = left, negative = right,
-    // zero = on the line. Length units; previously the cross product alone gave
-    // length² and the product gave length⁴, both scale-dependent against a fixed
-    // VIOLATION threshold.
+    if (m < 1e-12) return 0.0;
     auto signed_dist = [&](const P& x) {
       return ((b_[0]-a_[0])*(x[1]-a_[1]) - (b_[1]-a_[1])*(x[0]-a_[0])) / m;
     };
     double dp = signed_dist(p_);
     double dq = signed_dist(q_);
-    // Magnitude of violation = perpendicular distance of the closer point to
-    // the line. If satisfied, return -mag as slack so the threshold check
-    // (v > tol) sees a clearly-non-violated value.
     double mag = std::min(std::abs(dp), std::abs(dq));
     bool violated = (ineq.kind == "same_side") ? (dp * dq < 0.0) : (dp * dq > 0.0);
     return violated ? mag : -mag;
@@ -1101,13 +1014,9 @@ double inequality_violation(const InequalityDecl& ineq,
         !get(ineq.points[2], p_)) return 0.0;
     P v = sub(b_, a_);
     double m = norm(v);
-    if (m < 1e-12) return 0.0;  // degenerate line a==b
-    // Signed perpendicular distance from line a→b. Length units (previously
-    // length² from the bare cross product, which made the violation threshold
-    // scale-dependent).
+    if (m < 1e-12) return 0.0;
+    // Positive when p is left of a→b.
     double signed_dist = ((b_[0]-a_[0])*(p_[1]-a_[1]) - (b_[1]-a_[1])*(p_[0]-a_[0])) / m;
-    // oriented_left wants signed_dist >= 0; violated when signed_dist < 0.
-    // oriented_right wants signed_dist <= 0; violated when signed_dist > 0.
     return (ineq.kind == "oriented_left") ? -signed_dist : signed_dist;
   }
   return 0.0;
@@ -1121,19 +1030,10 @@ struct SolveOnceResult {
   std::map<std::string, SolutionType::Point2d> points;
   std::vector<std::string> failed_constraint_names;
 
-  // For active-set loop: handle assigned to each active inequality, so the
-  // outer loop can intersect this with sys.failed to know which actives to
-  // drop. Keys are indices into the inequalities vector.
   std::map<size_t, Slvs_hConstraint> active_ineq_handles;
-  // Indices of active inequalities found in sys.failed.
   std::vector<size_t> failed_active_ineqs;
 };
 
-// One Slvs_Solve cycle: build the Slvs_System from `points`, `constraints`,
-// and any active inequalities, run the solver, apply REDUNDANT_OKAY residual
-// recovery, return results.
-// `points` is non-const because each PointDecl receives assigned u_param /
-// v_param / entity handles (used here to read back coordinates).
 SolveOnceResult build_and_solve_once(
     std::vector<PointDecl>& points,
     const std::map<std::string, size_t>& name_to_idx,
@@ -1148,11 +1048,6 @@ SolveOnceResult build_and_solve_once(
 {
   SolveOnceResult out;
 
-  // Build phase: assemble Slvs_System
-  // Group 1: workplane params (origin + normal). Always fixed.
-  // Group 2: all point params and all constraints. Anchoring of individual
-  //          points is expressed via con_fixed (SLVS_C_WHERE_DRAGGED), not
-  //          group membership.
   const Slvs_hGroup g_fixed = 1;
   const Slvs_hGroup g_solve = 2;
 
@@ -1163,7 +1058,6 @@ SolveOnceResult build_and_solve_once(
   Slvs_hEntity next_entity = 200;
   Slvs_hConstraint next_constraint = 1;
 
-  // Workplane: origin at (0,0,0), oriented to XY plane.
   Slvs_hParam ox = next_param++;
   Slvs_hParam oy = next_param++;
   Slvs_hParam oz = next_param++;
@@ -1189,18 +1083,7 @@ SolveOnceResult build_and_solve_once(
   Slvs_hEntity wrkpl = next_entity++;
   sentities.push_back(Slvs_MakeWorkplane(wrkpl, g_fixed, origin_h, normal_h));
 
-  // Points. `at=` supplies a seed (initial guess); points without a seed get
-  // a deterministic non-collinear default from default_unseeded_seed (scaled by
-  // length_scale so the spiral starts in the same neighbourhood as user seeds
-  // and length-bearing constraint values). The `attempt` counter perturbs both
-  // the spiral default and any user-provided seeds (jittered_seed); attempt 0
-  // honours the user's seed exactly, attempts 1..N-1 jitter by a growing
-  // fraction of length_scale so a fully-seeded sketch with inequalities can
-  // still escape branch-cut traps (e.g. a directed-angle landed on the wrong
-  // half-plane). Points constrained by con_fixed are exempt from jitter
-  // because libslvs's SLVS_C_WHERE_DRAGGED pins to the *initial* parameter
-  // value — perturbing it would silently un-anchor the user's reference frame.
-  // All point params live in g_solve — pinning is the job of con_fixed.
+  // SLVS_C_WHERE_DRAGGED pins a point where it starts, so a fixed point's seed must not be jittered.
   std::vector<bool> is_fixed(points.size(), false);
   for (const auto& c : constraints) {
     if (c.kind == "fixed" && c.points.size() == 1) {
@@ -1209,11 +1092,6 @@ SolveOnceResult build_and_solve_once(
     }
   }
 
-  // Pass 1: pick a base initial position for each point — verbatim seed at
-  // attempt 0, jittered_seed at later attempts (unseeded points get the
-  // golden-angle spiral). Store in init_xy so Pass 2 can override the seed
-  // for directed_angle target points using the now-known positions of their
-  // pivots.
   std::vector<std::pair<double, double>> init_xy(points.size());
   size_t unseeded_idx = 0;
   for (size_t i = 0; i < points.size(); ++i) {
@@ -1228,23 +1106,10 @@ SolveOnceResult build_and_solve_once(
     }
   }
 
-  // Pass 2: rotate each con_directed_angle target onto the angle ray, but
-  // only when the current seed is far enough from the target angle that
-  // libslvs's Newton can't be expected to traverse the gap. Near 0° or 180°
-  // the SLVS_C_ANGLE residual cos(actual)-cos(target) is locally flat in
-  // the actual angle, so a 100°+ swing through that ridge regularly traps
-  // Newton in a wrong-angle local minimum (REDUNDANT_OKAY → reported as
-  // INCONSISTENT) that pure Cartesian jitter doesn't escape. When the seed
-  // is already within a 90° wedge of the target the user's seed usually
-  // encodes near-correct distances to other anchors — projecting then
-  // would preserve the angle but smash those approximations and land
-  // Newton in a worse basin. Only run on retry attempts; attempt 0 honours
-  // the user's verbatim seed. The radius |p4 - p3| is preserved so any
-  // sibling con_distance(p3, p4) converges in one step. Skips: fixed p4
-  // (would un-anchor the user's frame), zero-length reference line p1->p2
-  // (degenerate).
+  // SLVS_C_ANGLE's cos residual is flat near 0° and 180°, so Newton cannot swing p4 far. Seeds
+  // within 90° of the ray are left alone: they usually carry good distances to other points.
   if (attempt > 0) {
-    constexpr double PROJECT_THRESHOLD_RAD = M_PI / 2.0;  // 90°
+    constexpr double PROJECT_THRESHOLD_RAD = M_PI / 2.0;
     for (const auto& das : directed_angle_seeds) {
       if (das.p4_idx >= points.size() || is_fixed[das.p4_idx]) continue;
       const auto& [p1u, p1v] = init_xy[das.p1_idx];
@@ -1268,7 +1133,6 @@ SolveOnceResult build_and_solve_once(
     }
   }
 
-  // Pass 3: emit Slvs_MakeParam / Slvs_MakePoint2d using the chosen seeds.
   for (size_t i = 0; i < points.size(); ++i) {
     auto& p = points[i];
     p.u_param = next_param++;
@@ -1279,14 +1143,12 @@ SolveOnceResult build_and_solve_once(
     sentities.push_back(Slvs_MakePoint2d(p.entity, g_solve, wrkpl, p.u_param, p.v_param));
   }
 
-  // Helper to create line entities on the fly for constraints that need them.
   auto make_line = [&](Slvs_hEntity ptA, Slvs_hEntity ptB) -> Slvs_hEntity {
     Slvs_hEntity h = next_entity++;
     sentities.push_back(Slvs_MakeLineSegment(h, g_solve, wrkpl, ptA, ptB));
     return h;
   };
 
-  // Map a point name to an entity handle, warning and returning 0 on miss.
   auto pt_entity = [&](const std::string& kind, const std::string& name) -> Slvs_hEntity {
     auto it = name_to_idx.find(name);
     if (it == name_to_idx.end()) {
@@ -1301,9 +1163,6 @@ SolveOnceResult build_and_solve_once(
   std::map<Slvs_hConstraint, std::string> constraint_name_by_h;
 
   for (const auto& c : constraints) {
-    // Skip constraints that are suppressed by an active inequality (used by
-    // composite expansions like con_pt_on_segment where the on-line equality
-    // becomes rank-redundant once a segment endpoint coincidence is enforced).
     bool suppressed = false;
     for (size_t idx : c.suppress_when_active) {
       if (active_set.count(idx)) { suppressed = true; break; }
@@ -1593,8 +1452,6 @@ SolveOnceResult build_and_solve_once(
       out.active_ineq_handles[idx] = ch;
     } else if ((ineq.kind == "pt_on_segment_lower" ||
                 ineq.kind == "pt_on_segment_upper") && ineq.points.size() == 3) {
-      // When this bound is active, p coincides with the corresponding endpoint.
-      // Lower bound active ⇒ p == a; upper bound active ⇒ p == b.
       Slvs_hEntity p = pt_entity(ineq.kind, ineq.points[0]);
       Slvs_hEntity endpoint = pt_entity(
           ineq.kind,
@@ -1608,13 +1465,10 @@ SolveOnceResult build_and_solve_once(
       out.active_ineq_handles[idx] = ch;
     } else if ((ineq.kind == "same_side" || ineq.kind == "opposite_side")
                && ineq.points.size() == 4) {
-      // Active ⇒ pin p to the line through a and b. Both kinds share this
-      // binding form: the dividing line between the two half-planes is the
-      // same line ab. q is a sign reference only and never gets pinned.
       Slvs_hEntity a = pt_entity(ineq.kind, ineq.points[0]);
       Slvs_hEntity b = pt_entity(ineq.kind, ineq.points[1]);
       Slvs_hEntity p = pt_entity(ineq.kind, ineq.points[2]);
-      // q (ineq.points[3]) is intentionally not fetched: sign reference, not bound.
+      // q (ineq.points[3]) is only a sign reference and is not bound.
       if (!a || !b || !p) continue;
       Slvs_hConstraint ch = next_constraint++;
       Slvs_hEntity line = make_line(a, b);
@@ -1625,8 +1479,6 @@ SolveOnceResult build_and_solve_once(
       out.active_ineq_handles[idx] = ch;
     } else if ((ineq.kind == "oriented_left" ||
                 ineq.kind == "oriented_right") && ineq.points.size() == 3) {
-      // Active ⇒ pin p to the line through a and b. Same binding form as
-      // same_side; the half-plane sign is implicit in the kind name.
       Slvs_hEntity a = pt_entity(ineq.kind, ineq.points[0]);
       Slvs_hEntity b = pt_entity(ineq.kind, ineq.points[1]);
       Slvs_hEntity p = pt_entity(ineq.kind, ineq.points[2]);
@@ -1641,7 +1493,6 @@ SolveOnceResult build_and_solve_once(
     }
   }
 
-  // Solve
   Slvs_System sys;
   std::memset(&sys, 0, sizeof(sys));
   sys.param = sparams.data();
@@ -1661,12 +1512,10 @@ SolveOnceResult build_and_solve_once(
   out.solved = (sys.result == SLVS_RESULT_OKAY);
   out.dof = sys.dof;
 
-  // Read back point coords by looking up each point's u_param and v_param.
   std::map<Slvs_hParam, double> param_value;
   for (const auto& p : sparams) {
     param_value[p.h] = p.val;
   }
-  // sparams data was modified in-place by Slvs_Solve, so re-read from the underlying buffer.
   for (int i = 0; i < sys.params; ++i) {
     param_value[sys.param[i].h] = sys.param[i].val;
   }
@@ -1682,20 +1531,13 @@ SolveOnceResult build_and_solve_once(
     } else {
       out.failed_constraint_names.push_back("constraint #" + std::to_string(h));
     }
-    // Check if this failed handle is one of our active inequalities.
     for (const auto& [idx, hh] : out.active_ineq_handles) {
       if (hh == h) out.failed_active_ineqs.push_back(idx);
     }
   }
 
-  // Walk every constraint's residual and judge it against a unit-appropriate
-  // tolerance scaled by length_scale. This recovers from libslvs's
-  // REDUNDANT_OKAY → INCONSISTENT mapping (see
-  // submodules/SolveSpaceLib/libslvs/lib.cpp:234-237) when Newton actually
-  // converged but the Jacobian was rank-deficient: every residual is small, so
-  // we promote to solved. The per-unit threshold keeps a 1% slop on a 1000-unit
-  // distance from being held to the same absolute bound as a 1° angle, and
-  // makes mm/μm sketches behave the same as unit-scale ones.
+  // libslvs reports a converged but rank-deficient solve (REDUNDANT_OKAY) as INCONSISTENT, so a
+  // solve whose residuals are all within tolerance counts as solved.
   double max_residual = 0.0;
   bool all_within_threshold = true;
   auto judge = [&](const ConstraintDecl& c) {
@@ -1708,8 +1550,6 @@ SolveOnceResult build_and_solve_once(
   for (const auto& c : constraints) {
     judge(c);
   }
-  // Active inequalities are treated as equalities by the solver, so include
-  // their residuals in the gate too. Same pseudo-constraint mapping as before.
   for (size_t idx : active_set) {
     const auto& ineq = inequalities[idx];
     ConstraintDecl pseudo;
@@ -1727,16 +1567,13 @@ SolveOnceResult build_and_solve_once(
       pseudo.kind = "angle";
       pseudo.points = ineq.points;
     } else if (ineq.kind == "pt_on_segment_lower" && ineq.points.size() == 3) {
-      // Active ⇒ p coincides with a. Pseudo: coincident{p, a}.
       pseudo.kind = "coincident";
       pseudo.points = {ineq.points[0], ineq.points[1]};
     } else if (ineq.kind == "pt_on_segment_upper" && ineq.points.size() == 3) {
-      // Active ⇒ p coincides with b. Pseudo: coincident{p, b}.
       pseudo.kind = "coincident";
       pseudo.points = {ineq.points[0], ineq.points[2]};
     } else if ((ineq.kind == "same_side" || ineq.kind == "opposite_side")
                && ineq.points.size() == 4) {
-      // Active ⇒ p lies on line ab. Pseudo: pt_on_line{p, a, b}.
       pseudo.kind = "pt_on_line";
       pseudo.points = {ineq.points[2], ineq.points[0], ineq.points[1]};
     } else {
@@ -1749,7 +1586,7 @@ SolveOnceResult build_and_solve_once(
   if (sys.result == SLVS_RESULT_INCONSISTENT && all_within_threshold) {
     out.solved = true;
     out.failed_constraint_names.clear();
-    out.failed_active_ineqs.clear();   // don't punish a recovered solve
+    out.failed_active_ineqs.clear();
   }
 
   return out;
@@ -1758,11 +1595,11 @@ SolveOnceResult build_and_solve_once(
 constexpr int MAX_OUTER_ITERATIONS = 50;
 
 struct SolveLoopResult {
-  SolveOnceResult last;          // final solve's results
-  int iterations = 0;            // outer-loop iteration count
-  std::set<size_t> active_set;   // final active set
-  bool converged = false;        // true ⇒ feasible solution found
-  std::string failure_reason;    // "cycle" / "max_iter" / "infeasible_base" / ""
+  SolveOnceResult last;
+  int iterations = 0;
+  std::set<size_t> active_set;
+  bool converged = false;
+  std::string failure_reason;
 };
 
 SolveLoopResult solve_with_inequalities(
@@ -1778,10 +1615,6 @@ SolveLoopResult solve_with_inequalities(
 {
   SolveLoopResult result;
   std::set<std::set<size_t>> visited;
-  // All violations are now in length units (signed distance). Threshold scales
-  // with sketch so a μm sketch doesn't mistake unavoidable rounding for a
-  // 1nm-deep violation, and a km sketch isn't allowed to drift 1nm off a line
-  // before the active-set kicks in.
   const double violation_tol = VIOLATION_TOL_REL * length_scale;
 
   for (int iter = 0; iter < MAX_OUTER_ITERATIONS; ++iter) {
@@ -1798,7 +1631,6 @@ SolveLoopResult solve_with_inequalities(
                                        loc, doc_root, attempt, length_scale);
 
     if (result.last.solved) {
-      // Check inactive inequalities for violations.
       std::vector<size_t> violators;
       for (size_t i = 0; i < inequalities.size(); ++i) {
         if (result.active_set.count(i)) continue;
@@ -1811,7 +1643,6 @@ SolveLoopResult solve_with_inequalities(
       }
       for (size_t i : violators) result.active_set.insert(i);
     } else {
-      // Slvs failed; drop SolveSpace-flagged active inequalities.
       if (result.last.failed_active_ineqs.empty()) {
         result.failure_reason = "infeasible_base";
         return result;
@@ -1828,12 +1659,8 @@ SolveLoopResult solve_with_inequalities(
 
 Value builtin_solve2d(Arguments arguments, const Location& loc)
 {
-  // libslvs (SolveSpace) keeps internal global state across Slvs_Solve calls
-  // (e.g. SolveSpace::Param IdList allocator, Expr children pool). Concurrent
-  // calls — possible now that animation pre-fetch workers re-evaluate the
-  // script in parallel — corrupt that state and abort. Serialise the whole
-  // builtin behind a single mutex; this is safe and the cost is negligible
-  // because solve2d is already the heavy operation in any frame that uses it.
+  // libslvs keeps global state across Slvs_Solve calls, and animation prefetch evaluates scripts
+  // on several threads.
   static std::mutex slvs_mutex;
   const std::lock_guard<std::mutex> slvs_lock(slvs_mutex);
 
@@ -1863,7 +1690,6 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
   std::vector<InequalityDecl> inequalities;
   std::vector<DirectedAngleSeed> directed_angle_seeds;
 
-  // Parse phase
   const VectorType& items = params["items"].toVector();
   for (const auto& item : items) {
     std::string kind;
@@ -1991,7 +1817,7 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         ineq.name = std::string(fn) + "(" + a + "," + b + "," +
                     std::to_string(ineq.valA) + ")";
         inequalities.push_back(std::move(ineq));
-        continue;  // skip the constraints.push_back below
+        continue;
       } else if (kind == "le_pt_line_distance" || kind == "ge_pt_line_distance") {
         InequalityDecl ineq;
         ineq.kind = kind;
@@ -2069,15 +1895,9 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         field_string(obj, "b", b);
         const std::string prefix = "con_pt_on_segment(" + p + "," + a + "," + b + ")";
 
-        // The lower/upper inequalities will be appended next, so their indices
-        // are known up front. They're recorded on the on_line equality so
-        // build_and_solve_once can suppress on_line whenever a bound is active
-        // (POINTS_COINCIDENT(p, endpoint) implies p on line — emitting both
-        // makes SolveSpace bail with rank-deficiency before Newton runs).
         const size_t lower_idx = inequalities.size();
         const size_t upper_idx = inequalities.size() + 1;
 
-        // 1. Always-on equality: p lies on the infinite line through a, b.
         ConstraintDecl on_line;
         on_line.kind = "pt_on_line";
         on_line.points = {p, a, b};
@@ -2085,14 +1905,12 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         on_line.suppress_when_active = {lower_idx, upper_idx};
         constraints.push_back(std::move(on_line));
 
-        // 2. Lower bound: g_lower = -dot(p - a, b - a) <= 0  (i.e. t >= 0).
         InequalityDecl lower;
         lower.kind = "pt_on_segment_lower";
         lower.points = {p, a, b};
         lower.name = prefix + ":start";
         inequalities.push_back(std::move(lower));
 
-        // 3. Upper bound: g_upper = dot(p - b, b - a) <= 0  (i.e. t <= 1).
         InequalityDecl upper;
         upper.kind = "pt_on_segment_upper";
         upper.points = {p, a, b};
@@ -2112,14 +1930,10 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
                                    c_ + "," + d_ + "," + std::to_string(deg) +
                                    ")";
 
-        // Wrap into [0, 360) so users passing 360-ε (rounded from a fraction
-        // like 360 * (1 - 1e-16)), -90, or 720 don't get silently dropped.
-        // fmod(360.0, 360.0) is exactly 0.0 so the wrap collapses cleanly.
         deg = std::fmod(deg, 360.0);
         if (deg < 0.0) deg += 360.0;
 
-        // Magnitude in [0, 180] for the line-line equality. The half-plane
-        // disambiguates which of the two solutions Newton converges to.
+        // The angle constraint is unsigned; the side inequality below picks the direction.
         const double magnitude = (deg <= 180.0) ? deg : 360.0 - deg;
 
         ConstraintDecl angle_c;
@@ -2129,24 +1943,13 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
         angle_c.name = prefix + ":angle";
         constraints.push_back(std::move(angle_c));
 
-        // At deg == 0 (parallel same direction) and deg == 180 (parallel
-        // opposite direction) the half-plane is undefined — the two rays
-        // are colinear and there's no left/right. con_angle alone with
-        // magnitude 0 or 180 already enforces both orientations correctly.
-        // The window is widened to 1e-3° (was 1e-9°) so floating-point wobble
-        // near the parallel branches doesn't add a side inequality whose
-        // cross-product violation magnitude is dominated by sin(ε)·|v|² noise.
+        // At 0° and 180° the lines are parallel and have no side; near them a side inequality
+        // would only constrain floating-point noise.
         constexpr double PARALLEL_EPS = 1e-3;
         if (std::abs(deg) > PARALLEL_EPS &&
             std::abs(deg - 180.0) > PARALLEL_EPS) {
-          // CCW angle from line p1→p2 to line p3→p4: deg ∈ (0, 180) lands
-          // p4 on the LEFT of directed line p1→p2 (positive cross
-          // product); deg ∈ (180, 360) lands it on the RIGHT (negative
-          // cross product). When activated, the inequality pins p4 to
-          // line p1p2, which conflicts with the magnitude angle equality
-          // and forces the active-set loop to bail; multi-start (with at
-          // least one unseeded point) then perturbs the seeds to land on
-          // the correct branch.
+          // Activating this conflicts with the angle equality, so a seed on the wrong side is fixed
+          // by multi-start retries, not the active set.
           InequalityDecl side;
           side.kind = (deg < 180.0) ? "oriented_left" : "oriented_right";
           side.points = {a, b, d_};
@@ -2154,10 +1957,6 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
           inequalities.push_back(std::move(side));
         }
 
-        // Record the directed angle so retry attempts can rotate p4's seed
-        // onto the angle ray. Resolved point names → indices are needed at
-        // seed time; skip silently if any name is unknown (the angle/side
-        // expansion above will already have queued a useful warning).
         auto p1_it = name_to_idx.find(a);
         auto p2_it = name_to_idx.find(b);
         auto p3_it = name_to_idx.find(c_);
@@ -2185,16 +1984,8 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
 
   auto data = std::make_shared<SolutionType::Data>();
 
-  // Median magnitude across user seeds and length-bearing constraint values.
-  // Used to scale residual/violation tolerances and the unseeded-seed spiral
-  // so a sketch in mm vs. m vs. μm produces identical solver behaviour.
   const double length_scale = compute_length_scale(points, constraints, inequalities);
 
-  // solve=false short-circuit: report each point at its seed (the `at=`
-  // value, or the deterministic golden-angle default for unseeded points)
-  // without invoking the solver. Useful for previewing a sketch's initial
-  // layout before constraints take effect. solved(sol) is false because no
-  // solve has happened.
   if (!do_solve) {
     size_t unseeded_idx = 0;
     for (const auto& p : points) {
@@ -2214,17 +2005,6 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
     return Value(SolutionPtr(SolutionType(std::move(data))));
   }
 
-  // Multi-start: attempt 0 uses the user's seeds verbatim (and the
-  // deterministic golden-angle default for unseeded points). Attempts 1..N-1
-  // perturb both — unseeded points get a different basin, seeded points get a
-  // small jitter (~0.1% of length_scale, see jittered_seed). This second
-  // behaviour is what rescues fully-seeded sketches with inequalities (e.g.
-  // a directed-angle decomposition that needs to flip half-planes); without
-  // it, a fully-seeded sketch would have no degree of freedom to escape a
-  // wrong-branch first attempt. Retry attempts also rotate the target point
-  // of each con_directed_angle onto its angle ray (see build_and_solve_once
-  // Pass 2), so the libslvs Newton doesn't have to rediscover a 100°+ swing
-  // through a cosine residual that is locally flat near 0° and 180°.
   bool any_unseeded = false;
   for (const auto& p : points) if (!p.has_seed) { any_unseeded = true; break; }
   constexpr int MAX_SEED_ATTEMPTS = 8;
@@ -2274,10 +2054,6 @@ Value builtin_solve2d(Arguments arguments, const Location& loc)
 
   return Value(SolutionPtr(SolutionType(std::move(data))));
 }
-
-// ---------------------------------------------------------------------------
-// Solution accessors
-// ---------------------------------------------------------------------------
 
 namespace {
 
@@ -2468,10 +2244,6 @@ Value builtin_angle(Arguments arguments, const Location& loc)
   if (raw < 0) raw += 2.0 * M_PI;
   return Value(raw * 180.0 / M_PI);
 }
-
-// ---------------------------------------------------------------------------
-// Registration
-// ---------------------------------------------------------------------------
 
 void register_builtin_solve()
 {

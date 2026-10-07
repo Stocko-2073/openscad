@@ -16,11 +16,9 @@ struct PhysicsParams {
   bool nudge{false};
 };
 
-// Input to the settling simulation, in model units (mm).
+// In model units (mm).
 struct PhysicsInput {
-  // Collision points; the simulator builds their convex hull. Against the
-  // half-space floor a convex hull is exact: any contact between a solid and
-  // a half-space happens on the solid's convex hull.
+  // The simulator collides their convex hull, which is exact against the half-space floor.
   std::vector<Vector3d> points;
   Vector3d com{Vector3d::Zero()};  // center of mass of the true solid
   double volume{0.0};              // mm^3
@@ -30,26 +28,18 @@ struct PhysicsInput {
 };
 
 struct PhysicsResult {
-  // Model-space rigid transform mapping the input solid to its resting pose:
-  // x_final = translate(Pf) * rotate(Qf) * translate(-com) * x.
+  // Maps the input solid to its resting pose: translate(Pf) * rotate(Qf) * translate(-com).
   Transform3d transform{Transform3d::Identity()};
   double settleTime{0.0};  // simulated seconds until sleep (or cutoff)
   bool slept{false};
   std::vector<std::string> warnings;
 };
 
-// Drops the solid described by `in` from its modeled pose onto the infinite
-// static floor z=0 under -Z gravity, stepping a fixed-timestep simulation
-// until the body sleeps or params.max_time simulated seconds elapse.
-// Deterministic (fixed timestep, single-threaded solver, no RNG) and
-// thread-safe (each call uses an isolated physics world).
+// Drops the solid from its modeled pose onto the floor z=0 under -Z gravity, until it sleeps or
+// params.max_time elapses. Deterministic, and thread-safe: each call has its own physics world.
 PhysicsResult simulatePhysics(const PhysicsInput& in);
 
-// Side cache of simulated transforms, keyed by the node's geometry digest
-// (Tree::digest()). GeometryEvaluator publishes the transform here so the
-// overlays (core/ModifierOverlays) can position background (%) and highlight
-// (#) ghosts in the child hierarchy to follow the settled pose. Entries are tiny
-// and live for the process lifetime, mirroring the geometry caches.
-// Thread-safe (parallel animate evaluates frames concurrently).
+// Settled transforms by the physics node's Tree::digest(), for the overlays (core/ModifierOverlays)
+// to move the # and % subtrees below it. Entries are tiny and never evicted. Thread-safe.
 void physicsTransformCacheStore(const Hash128& key, const Transform3d& transform);
 bool physicsTransformCacheLookup(const Hash128& key, Transform3d& transform);

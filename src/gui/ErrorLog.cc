@@ -118,10 +118,8 @@ void ErrorLog::resizeEvent(QResizeEvent *event)
 
 void ErrorLog::resetRows()
 {
-  // Do NOT call errorLogModel->clear(): that wipes headers and column count
-  // too, forcing a full re-setup. removeRows preserves them and keeps the
-  // model identity stable across the widget's lifetime, which avoids stale
-  // QHeaderView persistent-index bookkeeping after repeated recompiles.
+  // Not clear(): that also wipes the headers and column count, and setting them up again on
+  // every recompile leaves stale QHeaderView persistent-index bookkeeping.
   if (errorLogModel->rowCount() > 0) {
     errorLogModel->removeRows(0, errorLogModel->rowCount());
   }

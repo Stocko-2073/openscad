@@ -67,14 +67,8 @@ FrameTask::FrameTask(QPointer<FrameCache> owner,
 
 void FrameTask::run()
 {
-  // Worker thread: never touch GUI / GL state. We only use the immutable
-  // SourceFile and produce geometry.
-  //
-  // Silence PRINT/LOG entirely on this thread. The output handler reaches into
-  // Qt widgets (main-thread only) and the print machinery has shared global
-  // buffers (lastmessages/print_messages_stack). Workers are speculative
-  // anyway — if a frame fails, the user will see the real error when they
-  // scrub to that t value and the synchronous render runs on the GUI thread.
+  // The output handler reaches into Qt widgets, and the print machinery has shared global buffers.
+  // A failed frame's errors show when its step is rendered on the GUI thread.
   PrintSuppressGuard print_suppress;
   // Likewise progress, which goes to the GUI's F6 render when one is running.
   ProgressSuppressGuard progress_suppress;
@@ -90,8 +84,6 @@ void FrameTask::run()
 
   auto result = std::make_shared<FrameResult>();
   bool ok = false;
-  // This frame's memo table (core/EvalMemo.h), from the pool the cache shares with its tasks: a
-  // table serves one evaluation at a time, and the GUI thread's renders use the document's.
   std::unique_ptr<memo::MemoTable> memo_table;
 
   try {
@@ -106,15 +98,14 @@ void FrameTask::run()
 
     if (is_cancelled(cancel_flag_)) throw ProgressCancelException();
 
-    AbstractNode::resetIndexCounter();  // numbers this frame's nodes from 1, as the GUI does its trees
-    printedDeprecations.clear();        // and records its deprecations as a render does
+    AbstractNode::resetIndexCounter();
+    printedDeprecations.clear();  // records deprecations as a render does
     std::shared_ptr<const FileContext> file_context;
     std::shared_ptr<AbstractNode> absolute_root;
     std::vector<std::shared_ptr<AbstractNode>> replaced;
     if (memo_tables_) memo_table = memo_tables_->take();
     {
-      // Detached and destroyed before the session, whose values it holds, also when the
-      // evaluation throws; the table stays consistent then.
+      // Destroyed before the session, whose values it holds, even when evaluation throws.
       std::optional<memo::EvalMemoSession> memo;
       if (memo_table) {
         memo.emplace(*memo_table, *source_file_);
@@ -122,16 +113,11 @@ void FrameTask::run()
       }
       const auto detach = sg::make_scope_guard([&session]() noexcept { session.setMemo(nullptr); });
       absolute_root = source_file_->instantiate(*builtin_context, &file_context);
-      if (memo) {
-        result->userCalls = memo->stats().userCalls;
-        result->userCallsReused = memo->stats().userCallsReused;
-        replaced = memo->takeReplaced();
-      }
+      if (memo) replaced = memo->takeReplaced();
     }
     if (memo_table) {
-      // What this frame did not use was evaluated at other times, and only the calls that do not
-      // depend on $t carry over to the next frame. Given back now, the table can serve the next
-      // frame while this one's geometry is made.
+      // What this frame did not use was evaluated at other times; only calls that do not depend
+      // on $t carry over. Given back now, the table serves the next frame while this one renders.
       memo_table->evict(0);
       memo_tables_->give(std::move(memo_table));
     }
@@ -141,7 +127,6 @@ void FrameTask::run()
       throw EvaluationException("instantiation produced no root node");
     }
 
-    // Honour the root modifier (!) just like MainWindow::instantiateRoot does.
     std::shared_ptr<AbstractNode> root_node = find_root_tag(absolute_root);
     if (!root_node) root_node = absolute_root;
 
@@ -162,16 +147,11 @@ void FrameTask::run()
 
     result->overlays = overlay::collect(*tree, *root_node);
 
-    // Don't retain file_context — its ContextMemoryManager (owned by the
-    // session) is destructed below and asserts that all managed contexts have
-    // been released. The GUI's render path doesn't retain it either; geometry
-    // owns its meshes outright (no raw pointers back into the FileContext).
-    // Nor the tree, which the frame no longer needs, and which is freed here
-    // rather than when the GUI thread drops the frame.
+    // The result keeps neither file_context, which must not outlive the session, nor the tree,
+    // which is freed here rather than on the GUI thread.
 
     ok = true;
   } catch (const ProgressCancelException&) {
-    // Cancelled — leave ok=false, frame goes to Cancelled below.
   } catch (const HardWarningException&) {
     LOG(message_group::Warning, "Animation pre-fetch frame %1$d cancelled on warning.", frame_->step);
   } catch (const std::exception& e) {

@@ -316,6 +316,5 @@ future revisions:
 * Caching of solver results across `solve2d` calls.
 * Importing native SolveSpace `.slvs` files.
 * The numeric value of `residual(sol)` beyond zero on success.
-* Inequality constraints of the form `g(x) >= rhs` (a `con_ge_*` family).
 * Two-sided distance constraints (e.g. `|signed_dist(p, line)| <= d` as a
   single built-in).

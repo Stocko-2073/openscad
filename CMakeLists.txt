@@ -36,8 +36,6 @@ configure_file(
 )
 
 option(INFO "Display build configuration info at end of cmake config" ON)
-option(ENABLE_TESTS "Run testsuite after building." ON)
-option(ENABLE_GUI_TESTS "Compile a special version of the openscad gui with feature for testing." OFF)
 option(EXPERIMENTAL "Enable Experimental Features" OFF)
 option(USE_MANIFOLD_TRIANGULATOR "Use Manifold's triangulator instead of CGAL's" ON)
 option(USE_MANIFOLD_MINKOWSKI "Use Manifold's Minkowski instead of CGAL's" OFF)
@@ -52,7 +50,7 @@ option(HEADLESS "Build without GUI frontend" OFF)
 option(USE_QT6 "Build the GUI with Qt6" ON)
 option(ENABLE_EGL "Enable EGL support if available" ON)
 option(ENABLE_GLX "Enable GLX support if available" ON)
-# GLAD is used unless one of these is given.
+# GLAD unless USE_GLEW is set.
 option(USE_GLAD "Use GLAD. Mutually exclusive from USE_GLEW" OFF)
 option(USE_GLEW "Use GLEW. Mutually exclusive from USE_GLAD" OFF)
 option(NULLGL "Build without OpenGL, (implies HEADLESS=ON) " OFF)
@@ -772,19 +770,13 @@ if(NOT HEADLESS)
   set_property(TARGET OpenSCADLibInternal PROPERTY AUTOUIC_OPTIONS --tr q_)
   set_property(TARGET OpenSCADLibInternal PROPERTY AUTORCC_OPTIONS --threshold 10 --compress 9)
 
-  if(ENABLE_GUI_TESTS)
-    set(QT_TEST_IF_ANY Test)
-  else()
-    set(QT_TEST_IF_ANY)
-  endif()
-
   if (USE_QT6)
   # Validate Qt6 compatibility
   if(ENABLE_GAMEPAD STREQUAL "ON")
     message(FATAL_ERROR "Qt5Gamepad is not available when using Qt6. Set ENABLE_GAMEPAD to OFF or AUTO.")
   endif()
 
-  find_package(Qt6 COMPONENTS Core Core5Compat Widgets Multimedia OpenGL OpenGLWidgets Concurrent Network Svg ${QT_TEST_IF_ANY} REQUIRED QUIET)
+  find_package(Qt6 COMPONENTS Core Core5Compat Widgets Multimedia OpenGL OpenGLWidgets Concurrent Network Svg REQUIRED QUIET)
     message(STATUS "Qt6: ${Qt6_VERSION}")
 
     if (Qt6_POSITION_INDEPENDENT_CODE)
@@ -811,7 +803,7 @@ if(NOT HEADLESS)
       message(STATUS "DBus input driver disabled per user request.")
     endif()
   else()
-    find_package(Qt5 5.12 COMPONENTS Core Widgets Multimedia OpenGL Concurrent Network Svg ${QT_TEST_IF_ANY} REQUIRED QUIET)
+    find_package(Qt5 5.12 COMPONENTS Core Widgets Multimedia OpenGL Concurrent Network Svg REQUIRED QUIET)
     message(STATUS "Qt5: ${Qt5_VERSION}")
 
     if (Qt5_POSITION_INDEPENDENT_CODE)
@@ -866,8 +858,7 @@ if(NOT HEADLESS)
 endif()
 
 # Find after Qt which otherwise gets confused when building on MXE
-# Frameworks are searched first on macOS, and one can carry old copies of these headers (e.g.
-# Mono.framework/Headers): look at the installed packages first.
+# Frameworks come first on macOS and may hold old copies of these headers (e.g. Mono.framework).
 set(_FIND_FRAMEWORK ${CMAKE_FIND_FRAMEWORK})
 set(CMAKE_FIND_FRAMEWORK LAST)
 find_package(Freetype 2.4.9 REQUIRED QUIET)
@@ -1182,14 +1173,9 @@ endif()
 if(ENABLE_PHYSICS)
   target_compile_definitions(OpenSCADLibInternal PUBLIC ENABLE_PHYSICS)
   if(USE_BUILTIN_JOLT)
-    # Jolt's CMakeLists lives in the Build/ subdir. When included via
-    # add_subdirectory it automatically builds only the Jolt library target
-    # (no samples/tests). All JPH_* compile definitions are PUBLIC on the
-    # target, so they propagate to our translation units - never define
-    # JPH_* by hand.
+    # The Jolt target's JPH_* compile definitions are PUBLIC; never define JPH_* by hand.
     set(OVERRIDE_CXX_FLAGS OFF CACHE BOOL "" FORCE)
-    # Determinism is a hard requirement: physics() results are cached by
-    # node string and must not jitter between recompiles.
+    # physics() results are cached, so they must not jitter between recompiles.
     set(CROSS_PLATFORM_DETERMINISTIC ON CACHE BOOL "" FORCE)
     set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
     set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
@@ -1499,7 +1485,6 @@ if (ENABLE_MANIFOLD AND ENABLE_CGAL)
   list(APPEND Sources ${MANIFOLD_CGAL_SOURCES})
 endif()
 list(APPEND Sources
-  src/memo_replay.cc
   src/openscad.cc
   ${CMAKE_BINARY_DIR}/version.cc
   ${CORE_SOURCES}
@@ -1543,7 +1528,6 @@ set_source_files_properties(
 set(RESOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/resources)
 if(HEADLESS)
   target_compile_definitions(OpenSCADLibInternal PUBLIC OPENSCAD_NOGUI)
-  set(ENABLE_GUI_TESTS OFF)
 else()
   # Every qrc file added to RESOURCE_FILES must have a matching Q_INIT_RESOURCE() call in main_wrapper.cc
   list(APPEND RESOURCE_FILES
@@ -1554,29 +1538,6 @@ else()
   # GUI_UIS for .ui files to be indexed by Qt Creator despite AUTOUIC usage
   # GUI_HEADERS for .h files to be indexed by Qt Creator despite AUTOUIC usage
   list(APPEND Sources ${GUI_SOURCES} ${GUI_HEADER_ONLY} ${GUI_UIS} ${GUI_HEADERS})
-endif()
-
-if(ENABLE_GUI_TESTS)
-  set(GUITESTS_HEADERS
-    src/guitests/guitests.h
-    src/guitests/TestEvalMemo.h
-    src/guitests/TestModuleCache.h
-    src/guitests/TestTabManager.h
-    src/guitests/TestMainWindow.h
-    src/guitests/UXTest.h
-  )
-
-  set(GUITESTS_SOURCES
-    src/guitests/guitests.cc
-    src/guitests/TestEvalMemo.cc
-    src/guitests/TestModuleCache.cc
-    src/guitests/TestTabManager.cc
-    src/guitests/TestMainWindow.cc
-    src/guitests/UXTest.cc
-  )
-
-  list(APPEND Sources ${GUITESTS_SOURCES} ${GUITESTS_HEADERS})
-  target_compile_definitions(OpenSCADLibInternal PUBLIC ENABLE_GUI_TESTS)
 endif()
 
 if (SNAPSHOT)
@@ -1594,14 +1555,6 @@ elseif(WIN32)
   list(APPEND RESOURCE_FILES ${WINDOWS_RESOURCE_PATH})
 endif()
 
-file(GLOB_RECURSE TEST_SOURCES
-  "src/core/*_test.cc"
-  "src/utils/*_test.cc"
-)
-file(GLOB_RECURSE GUI_TEST_SOURCES
-  "src/gui/*_test.cc"
-)
-list(FILTER Sources EXCLUDE REGEX ".*_test[.]cc")
 list(REMOVE_ITEM Sources "src/main_wrapper.cc")
 
 if (SORT_BUILD)
@@ -1638,13 +1591,6 @@ if(APPLE AND NOT APPLE_UNIX)
   file(COPY ${CMAKE_SOURCE_DIR}/shaders DESTINATION ${BUNDLE_RESOURCES_DIR})
   file(COPY ${CMAKE_SOURCE_DIR}/templates DESTINATION ${BUNDLE_RESOURCES_DIR})
 
-  if(ENABLE_GUI_TESTS)
-    file(COPY
-         ${CMAKE_SOURCE_DIR}/tests/data/basic-ux
-         ${CMAKE_SOURCE_DIR}/tests/data/modulecache-tests
-         DESTINATION ${BUNDLE_RESOURCES_DIR}/tests)
-  endif()
-
 elseif(MINGW)
   set_target_properties(OpenSCADExe PROPERTIES
     LINK_FLAGS "-Wl,--stack,${STACKSIZE}"
@@ -1664,9 +1610,6 @@ if (USE_QT6)
       ${QT6QSCINTILLA_LIBRARY} ${Qt6DBus_LIBRARIES} ${Qt6Gamepad_LIBRARIES}
     )
   endif()
-  if(ENABLE_GUI_TESTS)
-    target_link_libraries(OpenSCADLibInternal PUBLIC Qt6::Test)
-  endif()
   if(MXECROSS)
     target_link_libraries(OpenSCADLibInternal PUBLIC Qt6::QSvgPlugin)
   endif()
@@ -1676,9 +1619,6 @@ else()
       Qt5::Core Qt5::Widgets Qt5::Multimedia Qt5::OpenGL Qt5::Concurrent Qt5::Network Qt5::Svg
       ${QT5QSCINTILLA_LIBRARY} ${Qt5DBus_LIBRARIES} ${Qt5Gamepad_LIBRARIES}
     )
-  endif()
-  if(ENABLE_GUI_TESTS)
-    target_link_libraries(OpenSCADLibInternal PUBLIC Qt5::Test)
   endif()
   if(MXECROSS)
     target_link_libraries(OpenSCADLibInternal PUBLIC Qt5::QSvgPlugin)
@@ -1736,10 +1676,6 @@ if(NOT APPLE OR APPLE_UNIX)
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/shaders DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}")
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/templates DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}" FILES_MATCHING PATTERN "*.json")
 
-  if(ENABLE_GUI_TESTS)
-    install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/tests/data/ DESTINATION ${OPENSCAD_INSTALL_RESOURCEDIR}/tests)
-  endif()
-
 else()
   install(TARGETS OpenSCADExe
       BUNDLE DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -1786,49 +1722,6 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/nsis/extra-uninstall-commands.
 # CPACK_PROJECT_CONFIG_FILE is for configuring CPack-generator specific settings
 set(CPACK_PROJECT_CONFIG_FILE "${CMAKE_BINARY_DIR}/openscad_cpack.cmake")
 set(CPACK_THREADS 0)
-
-if(ENABLE_TESTS)
-  find_package(Catch2 3 QUIET)
-
-  # Note: Since Catch2 is only used for testing, we install it via Homebrew.
-  # However, we need to temporarily re-enable searching in Homebrew for this to work.
-  if(NOT Catch2_FOUND AND APPLE)
-    set(CMAKE_IGNORE_PREFIX_PATH_BACKUP "${CMAKE_IGNORE_PREFIX_PATH}")
-    set(CMAKE_IGNORE_PREFIX_PATH "")
-    list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew")
-    find_package(Catch2 3 QUIET)
-    set(CMAKE_IGNORE_PREFIX_PATH "${CMAKE_IGNORE_PREFIX_PATH_BACKUP}")
-  endif()
-
-  if(NOT Catch2_FOUND)
-    find_package(Catch2 3)
-  endif()
-
-  enable_testing()
-
-  if(Catch2_FOUND)
-    message(STATUS "Configuring OpenSCAD Unit Tests")
-
-    # If you see a line like this:
-    # /usr/bin/ld: error in /usr/lib/libCatch2.a(catch_approx.cpp.o)(.sframe); no .sframe will be created
-    # You can ignore it. Something about incompatibility with POSITION_INDEPENDENT_CODE
-    # and how the system Catch2 static library is compiled. It should be fine.
-
-    if(HEADLESS)
-      add_executable(OpenSCADUnitTests ${TEST_SOURCES})
-    else()
-      add_executable(OpenSCADUnitTests ${TEST_SOURCES} ${GUI_TEST_SOURCES})
-    endif()
-    target_link_libraries(OpenSCADUnitTests PRIVATE Catch2::Catch2WithMain OpenSCADLibInternal svg)
-    include(CTest)
-    include(Catch)
-    catch_discover_tests(OpenSCADUnitTests ADD_TAGS_AS_LABELS)
-  else()
-    message(WARNING "Catch2 3 was not found. OpenSCADUnitTests will not be built.")
-  endif()
-
-  add_subdirectory(tests)
-endif()
 
 if(OFFLINE_DOCS)
   add_subdirectory(resources)

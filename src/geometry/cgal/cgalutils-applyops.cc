@@ -132,8 +132,6 @@ std::shared_ptr<const Geometry> applyOperator3D(const Geometry::Geometries& chil
       if (item.first) item.first->progress_report();
     }
   }
-  // union && difference assert triggered by tests/data/scad/bugs/rotate-diff-nonmanifold-crash.scad and
-  // tests/data/scad/bugs/issue204.scad
   catch (const CGAL::Failure_exception& e) {
     std::string opstr = op == OpenSCADOperator::INTERSECTION ? "intersection"
                         : op == OpenSCADOperator::DIFFERENCE ? "difference"

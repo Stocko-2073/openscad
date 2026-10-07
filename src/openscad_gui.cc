@@ -82,10 +82,6 @@
 #include "platform/CocoaUtils.h"
 #include "utils/printutils.h"
 
-#ifdef ENABLE_GUI_TESTS
-#include "guitests/guitests.h"
-#endif
-
 Q_DECLARE_METATYPE(Message);
 Q_DECLARE_METATYPE(std::shared_ptr<const Geometry>);
 Q_DECLARE_METATYPE(std::shared_ptr<const RenderResult>);
@@ -199,7 +195,7 @@ void registerDefaultIcon(const QString&)
 #endif
 
 int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& original_path, int argc,
-        char **argv, const std::string& gui_test, const bool reset_window_settings)
+        char **argv, const bool reset_window_settings)
 {
   configureOpenGLContext();
   OpenSCADApp app(argc, argv);
@@ -209,11 +205,6 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
   QCoreApplication::setOrganizationName("OpenSCAD");
   QCoreApplication::setOrganizationDomain("openscad.org");
   QCoreApplication::setApplicationName("OpenSCAD");
-#ifdef ENABLE_GUI_TESTS
-  // Tests open files, toggle actions and change preferences, all of which are saved: keep them
-  // out of the settings of the OpenSCAD the user runs.
-  if (gui_test != "none") QCoreApplication::setApplicationName("OpenSCAD GUI Tests");
-#endif
   QCoreApplication::setApplicationVersion(QString::fromStdString(std::string(openscad_versionnumber)));
   QGuiApplication::setApplicationDisplayName("OpenSCAD");
   QGuiApplication::setDesktopFileName(DESKTOP_FILENAME);
@@ -234,8 +225,7 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
 
   FontCache::registerProgressHandler(dialogInitHandler);
 
-  // Compiles run on the main thread: skip include<>/use<> files still in iCloud
-  // instead of freezing the window until they download (see MainWindow).
+  // Compiles run on the main thread: skip files still in iCloud rather than wait for them.
   DatalessFiles::setDeferReads(true);
 
   QSettingsCached settings;
@@ -301,11 +291,6 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
 
   auto showOnStartup = settings.value("launcher/showOnStartup");
   bool showLauncher = noInputFiles && (showOnStartup.isNull() || showOnStartup.toBool());
-#ifdef ENABLE_GUI_TESTS
-  if (gui_test != "none") {
-    showLauncher = false;
-  }
-#endif
 
   if (showLauncher) {
     LaunchingScreen launcher;
@@ -332,9 +317,8 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
     inputFilesList.append(assemblePath(original_path, infile));
   }
   new MainWindow(inputFilesList);
-  // Once the console exists to report it: fetch a newer BOSL2 release if there
-  // is one. GUI tests stay offline.
-  if (gui_test == "none") (new BOSL2Updater(&app))->start();
+  // After the window, so its console can report the update.
+  (new BOSL2Updater(&app))->start();
   QObject::connect(&app, &QCoreApplication::aboutToQuit, []() {
     QSettingsCached{}.release();
 #ifdef Q_OS_MACOS
@@ -378,20 +362,6 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
     }
   }
 #endif
-
-#ifdef ENABLE_GUI_TESTS
-  // Adds a singleshot timer that will be executed when the application will be started.
-  // the timer validates that each mainwindow respects the expected UX behavior.
-  if (gui_test != "none") {
-    QTimer::singleShot(0, [&]() {
-      int failureCount = 0;
-      for (auto w : app.windowManager.getWindows()) {
-        failureCount += runAllTest(w);
-      }
-      app.exit(failureCount);
-    });
-  }
-#endif  // ENABLE_GUI_TESTS
 
   InputDriverManager::instance()->init();
   return app.exec();

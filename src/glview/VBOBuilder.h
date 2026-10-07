@@ -19,26 +19,20 @@
 
 enum ShaderAttribIndex { BARYCENTRIC_ATTRIB };
 
-// The vertices indexed rendering has emitted since the last clear(), found by their bytes: the key
-// is a whole interleaved vertex, the value the index it was given, in the order added. The caller
-// keeps the vertices, one after another, where they would be interleaved anyway; this is an
-// open-addressing table of their indices, so adding one allocates nothing but the occasional
-// growth. A surface of half a million triangles adds 1.6M vertices.
+// Element index of each distinct interleaved vertex added since clear(), keyed by its bytes. Only
+// indices are stored, so inserting allocates only to grow; the caller keeps the vertices.
 class ElementsMap
 {
 public:
   [[nodiscard]] static uint64_t hash(const GLbyte *vertex, size_t stride);
-  // Starts fetching the slot of a vertex with this hash, for an insert() soon after.
   void prefetch(uint64_t hash) const;
-  // The index of the `stride` bytes at `vertex`, and whether they were new and given the next
-  // index. `keys` holds the vertices added since clear(), the one with index i at keys + i * stride;
-  // the caller stores a new one there before the next insert().
+  // `keys` holds the vertices added since clear(), index i at keys + i * stride; when the result is
+  // new, the caller stores the vertex there before the next insert().
   std::pair<GLuint, bool> insert(const GLbyte *vertex, size_t stride, const GLbyte *keys, uint64_t hash);
   std::pair<GLuint, bool> insert(const GLbyte *vertex, size_t stride, const GLbyte *keys)
   {
     return insert(vertex, stride, keys, ElementsMap::hash(vertex, stride));
   }
-  // Makes room for `count` vertices, so that adding them does not grow the table.
   void reserve(size_t count, size_t stride, const GLbyte *keys);
   [[nodiscard]] size_t size() const { return size_; }
   // Costs what was added since the last clear(), however large the table grew before.
@@ -48,7 +42,7 @@ private:
   void rehash(size_t slot_count, size_t stride, const GLbyte *keys);
 
   std::vector<uint64_t> slots_;  // high half a tag from the hash, low half index + 1; 0 if empty
-  std::vector<size_t> used_;     // the slots that are not empty
+  std::vector<size_t> used_;
   size_t size_{0};
 };
 
@@ -403,19 +397,13 @@ public:
 private:
   inline void setElementsSize(size_t elements_size) { elements_size_ = elements_size; }
 
-  // Whether triangles may be written straight into the interleaved buffer, as emitTriangle() does:
-  // it was allocated up front, and the vertex is a float position, normal and color, followed by
-  // the barycentric bytes exactly when they are enabled.
+  // Whether emitTriangle() applies: a buffer allocated up front, with the vertex layout it writes.
   bool directTriangles(bool enable_barycentric);
-  // create_triangle() for directTriangles(): the same vertices, without staging each in the
-  // attribute vectors.
+  // create_triangle() without staging each vertex in the attribute vectors.
   void emitTriangle(const Color4f& color, const Vector3d& p0, const Vector3d& p1, const Vector3d& p2,
                     size_t primitive_index, size_t shape_size, bool enable_barycentric, bool mirror);
-  // Appends an interleaved vertex to the buffer allocated up front; with elements, only if it is
-  // new, and its index either way. `hash` is its ElementsMap::hash() when there are elements.
+  // `hash` is the vertex's ElementsMap::hash(), used only with elements.
   void emitVertex(const GLbyte *vertex, size_t stride, uint64_t hash);
-  // Where the elements map finds the vertices it was given since it was cleared: they end at the
-  // write offset of the buffer allocated up front, or else are kept in staged_keys_.
   const GLbyte *elementsKeys(size_t stride);
 
   std::unique_ptr<VertexStateFactory> factory_;
@@ -436,6 +424,6 @@ private:
 
   VertexData elements_;
   ElementsMap elements_map_;
-  std::vector<GLbyte> vertex_;       // createVertex()'s vertex, interleaved
+  std::vector<GLbyte> vertex_;
   std::vector<GLbyte> staged_keys_;  // the elements map's vertices, without a buffer allocated up front
 };

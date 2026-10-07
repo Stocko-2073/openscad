@@ -128,11 +128,6 @@ Follow the instructions for the platform you're compiling on below.
 * [pkg-config (0.26 -> )](https://www.freedesktop.org/wiki/Software/pkg-config/)
 * [double-conversion (2.0.1 -> )](https://github.com/google/double-conversion/)
 
-For the test suite, additional requirements are:
-* Python3 (3.8 -> )
-* [Ghostscript (10.x ->)](https://www.ghostscript.com/index.html)
-* [Catch2 (3.0 ->)](https://github.com/catchorg/Catch2)
-
 ### Getting the source code
 
 Install git (https://git-scm.com/) onto your system. Then run a clone:
@@ -300,9 +295,7 @@ If you had problems compiling from source, raise a new issue in the
 This site and it's subpages can also be helpful:
 https://en.wikibooks.org/wiki/OpenSCAD_User_Manual/Building_OpenSCAD_from_Sources
 
-Once built, you can run tests with `ctest` from the `build` directory.
-
-Note: Both `cmake --build` and `ctest` accepts a `-j N` argument for distributing the load over `N` parallel processes.
+Note: `cmake --build` accepts a `-j N` argument for distributing the load over `N` parallel processes.
 
 ### Running CI workflows locally
 

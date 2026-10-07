@@ -9,12 +9,6 @@
 #pragma warning(disable : 26486)  // Disable warning for dangling pointers
 #endif                            // defined(_MSC_VER)
 
-// Tracks each thread's stack growth from a per-thread anchor. The anchor
-// (`ptr`) is taken from a local variable on first `check()` for the current
-// thread, so recursion depth is measured relative to the calling thread's
-// stack — not the main thread's. Without this, workers (animation pre-fetch)
-// would compare addresses on a foreign stack and trip the recursion guard
-// immediately.
 class StackCheck
 {
 public:
@@ -38,7 +32,7 @@ private:
   StackCheck() : limit(PlatformUtils::stackLimit()) {}
 
   unsigned long limit;
-  // Per-thread stack anchor: each thread sets its own on its first check().
+  // Per thread: animation prefetch workers must measure against their own stack.
   static inline thread_local unsigned char *ptr = nullptr;
 };
 #if defined(_MSC_VER)

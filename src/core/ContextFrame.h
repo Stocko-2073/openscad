@@ -23,8 +23,6 @@ public:
 
   ContextFrame(ContextFrame&& other) = default;
 
-  // Not virtual: this runs ~150M times instantiating a large model, so it is
-  // defined here to be inlined into the context-chain walk.
   boost::optional<const Value&> lookup_local_variable(const Identifier& name) const
   {
     const ValueMap& variables = name.isConfigVariable() ? config_variables : lexical_variables;
@@ -35,13 +33,7 @@ public:
     return boost::none;
   }
 
-  /*
-   * Bloom filter over the names this frame could answer lookup_local_function
-   * for. A clear bit is conclusive, so the chain walk can skip the frame
-   * outright; a set bit only means "ask". Instantiating a large model performs
-   * ~99M frame probes on the function-lookup chain, most of them against
-   * frames that hold no function at all.
-   */
+  // Bloom filter over lookup_local_function(): false rules the frame out, true means "ask".
   bool may_hold_function(const Identifier& name) const
   {
     return (function_bits & name.bit()) != 0;
@@ -72,7 +64,6 @@ public:
   void apply_variables(ContextFrame&& other);
 
   EvaluationSession *session() const { return evaluation_session; }
-  // The $ variables this frame binds. For core/EvalMemo, which hashes the visible ones.
   [[nodiscard]] const ValueMap& configVariables() const { return config_variables; }
   const std::string& documentRoot() const;
 
@@ -80,8 +71,7 @@ protected:
   ValueMap lexical_variables;
   ValueMap config_variables;
   EvaluationSession *evaluation_session;
-  // See may_hold_function(). Only ever gains bits, so it can go stale in the
-  // safe direction when a function-valued variable is overwritten.
+  // Only ever gains bits; a stale bit costs only a needless lookup.
   uint64_t function_bits{0};
 
 public:

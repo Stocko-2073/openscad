@@ -13,8 +13,7 @@
 
 BuiltinContext::BuiltinContext(EvaluationSession *session) : Context(session)
 {
-  // The builtin table holds far more than 64 names, so a filter over it would
-  // be saturated anyway. Accept every name.
+  // The builtin table holds far more than 64 names, so its filter would be saturated anyway.
   function_bits = ~uint64_t(0);
 }
 

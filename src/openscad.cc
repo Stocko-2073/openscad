@@ -111,7 +111,6 @@
 #include "glview/RenderSettings.h"
 #include "handle_dep.h"
 #include "io/export.h"
-#include "memo_replay.h"
 #include "openscad_gui.h"
 #include "openscad_mimalloc.h"
 #include "platform/PlatformUtils.h"
@@ -441,8 +440,6 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
 
   // Do we have an explicit root node (! modifier)?
   std::shared_ptr<const AbstractNode> root_node;
-  // Declared out here only so the single printAll below can see it; the
-  // non-geometry export formats leave it null.
   std::shared_ptr<const Geometry> root_geom;
   bool evaluated_geometry = false;
   const Location *nextLocation = nullptr;
@@ -456,15 +453,12 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
   Tree tree(root_node, fparent.string());
 
 #ifdef ENABLE_MANIFOLD
-  // Runs ahead of the export so the report is written for every format, and so
-  // it still lands on disk when --hardwarnings turns the first Warning below
-  // into an exception. The leaf geometry it evaluates stays cached for the
-  // export that follows.
+  // Ahead of the export, so the report is written for every format and reaches disk before
+  // --hardwarnings can turn a Warning below into an exception.
   if (cmd.interferenceCheck) {
     const RenderStatistic::ScopedPhase phase(renderStatistic, RenderStatistic::PHASE_INTERFERENCE);
     interference::Options opts;
-    // Same expression the parser uses for Location::fileName(), so chain steps
-    // from the main file compare equal.
+    // As Location::fileName() spells it, so steps in the main file compare equal.
     opts.currentFile = fpath.generic_string();
     const interference::Report report = interference::run(tree, opts);
     const bool toStdout = cmd.interferenceFile == "-";
@@ -508,7 +502,6 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
     constexpr bool allownef = true;
     root_geom = geomevaluator.evaluateGeometry(*tree.root(), allownef);
     if (!root_geom) root_geom = std::make_shared<PolySet>(3);
-    // Force creation of concrete geometry (mostly for testing)
     if (cmd.viewOptions.renderer == RenderType::BACKEND_SPECIFIC && root_geom->getDimension() == 3) {
       if (auto geomlist = std::dynamic_pointer_cast<const GeometryList>(root_geom)) {
         auto flatlist = geomlist->flatten();
@@ -524,7 +517,6 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
       }
       LOG("Converted to backend-specific geometry");
     }
-    // A picture shows the # and % subtrees over the result, as the 3D view does.
     std::vector<overlay::Mesh> overlays;
     if (export_format == FileFormat::PNG) overlays = overlay::collect(tree, *tree.root());
     renderStatistic.endPhase(RenderStatistic::PHASE_GEOMETRY);
@@ -553,20 +545,7 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
     renderStatistic.endPhase(RenderStatistic::PHASE_EXPORT);
   }
 
-  /*
-   * Outside the export_format chain above, so that the formats which need no
-   * geometry -- echo, csg, ast, param -- can report their phase times
-   * too: `--summary time -o x.echo` used to print nothing at all, and the echo
-   * path is the cheapest way to time script evaluation on its own, with no
-   * geometry stage and no export write to add noise. printAll already tolerates
-   * a null geometry.
-   *
-   * But only when a summary was actually asked for. With no --summary and no
-   * --summary-file, printAll still logs the cache statistics and the rendering
-   * time, which for a geometry export is the familiar default output and for an
-   * echo export would be new console noise -- and the echo regression tests
-   * compare the console output verbatim.
-   */
+  // Without geometry, only on request: an echo export's file receives everything logged.
   if (evaluated_geometry || !cmd.summaryOptions.empty() || !cmd.summaryFile.empty()) {
     renderStatistic.printAll(root_geom, camera, cmd.summaryOptions, cmd.summaryFile);
   }
@@ -870,9 +849,7 @@ int openscad_main(int argc, char **argv)
   // Before the banner, which reports the BOSL2 that include <BOSL2/...> resolves to.
   parser_init();
 
-  // Launch banner for every invocation (GUI or command line). Written straight
-  // to stderr rather than through LOG() so it never lands in an .echo export,
-  // is not silenced by --quiet, and cannot mix into a report on stdout.
+  // stderr, not LOG(): kept out of .echo exports and stdout reports, and never silenced by --quiet.
   std::cerr << "OpenSCAD for AI Agents, by Stocko.  See --help for additional AI friendly tools\n"
             << BOSL2Library::describe() << std::endl;
 
@@ -980,20 +957,6 @@ int openscad_main(int argc, char **argv)
       "per source location, and report them after evaluation")
     ("profile-file", po::value<std::string>(),
       "write the full per-location profile to the given file as TSV (implies --profile)")
-    ("memo-replay", po::value<std::vector<std::string>>()->multitoken(),
-      "incremental evaluation harness: evaluate the given .scad files in order with one memo "
-      "table, as a series of saves would, and report the reuse at each step; FILE@T evaluates "
-      "FILE at $t = T, as an animation frame")
-    ("memo-verify", "with --memo-replay, also evaluate each step from scratch and compare the "
-      "node trees and messages; exit nonzero on any difference")
-    ("memo-geometry", "with --memo-replay, also time each step's geometry evaluation, keeping the "
-      "geometry caches across steps as the GUI does")
-    ("memo-keep", po::value<int>(),
-      "with --memo-replay, evict after each step what the last N steps did not use, as the GUI "
-      "does after each render (by default nothing is evicted)")
-    ("memo-selftest", po::value<std::string>(),
-      "evaluate a .scad file twice with incremental evaluation and compare each run with a "
-      "fresh evaluation (--memo-replay FILE FILE --memo-verify)")
     ("interference-check",
       "AI-agent tool: detect parts that overlap (interfere) and report exactly which source "
       "lines produced the overlapping material. Runs alongside any export, e.g.\n"
@@ -1030,12 +993,6 @@ int openscad_main(int argc, char **argv)
 #endif
     ;
   // clang-format on
-
-#ifdef ENABLE_GUI_TESTS
-  // clang-format off
-  desc.add_options()("run-all-gui-tests", "special gui testing mode - run all the tests");
-  // clang-format on
-#endif
 
   po::options_description hidden("Hidden options");
   // clang-format off
@@ -1251,23 +1208,6 @@ int openscad_main(int argc, char **argv)
 
   PRINTDB("Application location detected as %s", applicationPath);
 
-  if (vm.count("memo-replay") || vm.count("memo-selftest")) {
-    std::vector<std::string> files;
-    if (vm.count("memo-selftest")) {
-      const auto file = vm["memo-selftest"].as<std::string>();
-      files = {file, file};
-    } else {
-      files = vm["memo-replay"].as<std::vector<std::string>>();
-    }
-    const bool verify = vm.count("memo-verify") || vm.count("memo-selftest");
-    try {
-      const int keep = vm.count("memo-keep") ? vm["memo-keep"].as<int>() : -1;
-      return memo_replay(files, commandline_commands, verify, vm.count("memo-geometry") > 0, keep);
-    } catch (const HardWarningException&) {
-      return 1;
-    }
-  }
-
   auto cmdlinemode = false;
   if (!output_files.empty()) {  // cmd-line mode
     cmdlinemode = true;
@@ -1324,12 +1264,8 @@ int openscad_main(int argc, char **argv)
     if (vm.count("export-format")) {
       LOG("Ignoring --export-format option");
     }
-    std::string gui_test = "none";
-    if (vm.count("run-all-gui-tests")) {
-      gui_test = "all";
-    }
     auto reset_window_settings = vm.count("reset-window-settings") > 0;
-    rc = gui(inputFiles, original_path, argc, argv, gui_test, reset_window_settings);
+    rc = gui(inputFiles, original_path, argc, argv, reset_window_settings);
 #endif
   } else {
     LOG("Requested GUI mode but can't open display!\n");

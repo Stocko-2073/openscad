@@ -32,15 +32,14 @@ public:
   const std::shared_ptr<const AbstractNode>& root() const { return this->root_node; }
 
   const std::string getString(const AbstractNode& node, const std::string& indent) const;
-  // The text key that geometry digests replace, for debugging: dumps the whole tree.
+  // For debugging: dumps the whole tree.
   const std::string getIdString(const AbstractNode& node) const;
   const std::string getDocumentPath() const;
 
   // What the geometry caches keep `node`'s geometry under (core/NodeDigest.h).
   Hash128 digest(const AbstractNode& node) const { return this->digests.digest(node); }
-  // Whether a node below `node` has a # or % modifier.
   bool hasModifierBelow(const AbstractNode& node) const { return this->digests.hasModifierBelow(node); }
-  // Whether a node below `node` is one that the picker names whole (core/PickAttribution.h).
+  // Whether pick::isWhole() holds for a node below `node`.
   bool hasWholeBelow(const AbstractNode& node) const { return this->digests.hasWholeBelow(node); }
 
 private:

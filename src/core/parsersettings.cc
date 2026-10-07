@@ -145,16 +145,14 @@ fs::path get_library_for_path(const fs::path& localpath)
   return {};
 }
 
-// OPENSCADPATH, resolved against the launch directory once so a later
-// refresh_library_path() rebuilds the same entries.
+// Resolved against the launch directory once, so refresh_library_path() rebuilds the same entries.
 static std::vector<std::string> openscadpath_dirs;
 
 void refresh_library_path()
 {
   librarypath = openscadpath_dirs;
 
-  // Built-in BOSL2 (or the newer release the GUI downloaded) ranks above the
-  // user's libraries folder so a stale hand-installed copy there cannot shadow it.
+  // Ahead of the user's libraries folder, so a stale hand-installed BOSL2 there cannot shadow it.
   const fs::path bosl2 = BOSL2Library::activeRoot();
   if (!bosl2.empty()) add_librarydir(bosl2.generic_string());
 

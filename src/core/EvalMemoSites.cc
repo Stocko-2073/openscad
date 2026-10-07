@@ -1,8 +1,3 @@
-/*
- * Where the statements of stored nodes are, and finding them again in a
- * later parse. See Anchor and Site in core/EvalMemo.h.
- */
-
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -31,8 +26,8 @@ namespace {
 
 // What a path word does at the index in its upper bits.
 enum PathOp : uint32_t {
-  kPathChildren = 0,    // go into that statement's children block
-  kPathElse = 1,        // go into that statement's else block
+  kPathChildren = 0,
+  kPathElse = 1,
   kPathDefinition = 2,  // go into the body of the module Entry::names[index]; the next
                         // word is how many definitions of that name follow it
   kPathStatement = 3,   // that statement: the end of the path
@@ -45,12 +40,9 @@ uint32_t pathWord(uint32_t index, PathOp op)
 
 constexpr uint32_t kNotFound = UINT32_MAX;
 
-// Enclosing calls looked at, at most. Only recursion gets anywhere near: each
-// level is a module whose body contains the call site of the next.
 constexpr size_t kMaxEnclosing = 256;
 
-// Catches a path that leads to a different statement. Everything else about
-// the statement is covered by its anchor's structural hash.
+// Catches a path that leads to a different statement; the anchor's hash covers the rest.
 uint64_t fingerprint(const ModuleInstantiation& statement)
 {
   Hasher h;
@@ -62,7 +54,6 @@ uint64_t fingerprint(const ModuleInstantiation& statement)
   return h.finish().a;
 }
 
-// How many modules of the same name `scope` defines after `module`.
 uint32_t laterDefinitions(const UserModule& module, const LocalScope& scope)
 {
   const auto& definitions = scope.moduleDefinitions();
@@ -89,13 +80,8 @@ const UserModule *findDefinition(const LocalScope& scope, const Identifier& name
   return nullptr;
 }
 
-/*
- * The children blocks of the user-module calls enclosing a call made from
- * `context`, nearest first: the one whose body contains the call site, then
- * the one whose body contains that call's site, and so on. children() inside
- * a children block reaches exactly these. Returns false if there were more
- * than kMaxEnclosing.
- */
+// The children blocks of the user-module calls enclosing `context`, nearest first, which are what
+// children() reaches from there. False if there are more than kMaxEnclosing.
 bool enclosingChildren(const Context& context, std::vector<const LocalScope *>& out)
 {
   const Context *c = &context;
@@ -113,12 +99,6 @@ bool enclosingChildren(const Context& context, std::vector<const LocalScope *>& 
   return true;
 }
 
-/*
- * Copies an entry's stored subtree, pointing each copy at its statement in the
- * current parse, and the nested entries' parts with the statements of their
- * sites translated. The entries take their copies only once all is done. The
- * copies keep the geometry digests the stored nodes have (core/NodeDigest.h).
- */
 struct TreeCopy {
   uint64_t generation;
   std::vector<std::pair<Entry *, std::shared_ptr<AbstractNode>>> copies;
@@ -147,8 +127,7 @@ struct TreeCopy {
                                       const std::vector<const ModuleInstantiation *>& statements,
                                       size_t& next)
   {
-    // Near the stack limit: evaluate instead, which then fails as a fresh
-    // evaluation would, its frames being larger than these.
+    // Near the stack limit, evaluate instead, which then fails as a fresh evaluation would.
     if (StackCheck::inst().check()) return nullptr;
     if (next >= entry.nodeCodes.size()) return nullptr;
     const uint32_t code = entry.nodeCodes[next++];
@@ -181,10 +160,6 @@ struct TreeCopy {
 
 }  // namespace
 
-/*
- * One locate(): walks the stored subtree and gives each distinct statement a
- * site, working out each scope's place once.
- */
 struct EvalMemoSession::Located {
   Located(EvalMemoSession& session, const ModuleInstantiation *inst, const Context& context,
           Entry& entry)
@@ -192,8 +167,7 @@ struct EvalMemoSession::Located {
   {
   }
 
-  // A scope's anchor in `entry`, or -1 if it has none, and the path to it from
-  // there as a range of `words`.
+  // A scope's anchor in `entry` (-1 if none) and the path to it from there, as words[begin, end).
   struct ScopePath {
     int32_t anchor = -1;
     uint32_t begin = 0;
@@ -215,22 +189,17 @@ struct EvalMemoSession::Located {
   bool enclosingComplete = true;
   std::vector<const LocalScope *> enclosing;
 
-  // The statement of each site so far.
   std::vector<const ModuleInstantiation *> statements;
 
-  // Results of the boundaries inside this call, by their roots, and the
-  // statements that made them.
   std::unordered_map<const AbstractNode *, const NestedResult *> nestedRoots;
   std::unordered_set<const ModuleInstantiation *> nestedCalls;
   std::vector<bool> siteCallsNested;
 
-  size_t nodes = 1;
   const ModuleInstantiation *lastStatement = nullptr;
   uint32_t lastSite = 0;
 
-  // 0 if `scope` is not an enclosing call's children block, its depth if it
-  // is, and -1 if that cannot be told: recursion through one call site puts
-  // a block at two depths, and past kMaxEnclosing the list is incomplete.
+  // 0 if `scope` is no enclosing call's children block, else its depth, or -1 if that cannot be
+  // told: recursion can put a block at two depths, and the list stops at kMaxEnclosing.
   int enclosingDepth(const LocalScope *scope)
   {
     if (!enclosingKnown) {
@@ -275,7 +244,6 @@ struct EvalMemoSession::Located {
     return index;
   }
 
-  // `parent`'s path with one more step.
   ScopePath extend(const ScopePath& parent, uint32_t step, uint32_t operand, bool hasOperand)
   {
     ScopePath path;
@@ -340,7 +308,6 @@ struct EvalMemoSession::Located {
         if (outer->origin.file) path.anchor = definitionAnchor(*module, *outer->origin.file);
         return;
       }
-      // A module defined inside another module's body.
       const uint32_t later = laterDefinitions(*module, *outer);
       if (later == kNotFound) return;
       ScopePath parent;
@@ -351,8 +318,7 @@ struct EvalMemoSession::Located {
       return;
     }
     default:
-      // A file's own statements never run under a call, and an unknown scope
-      // was not made by the parser.
+      // A file's statements never run under a call, and the parser makes no unknown scopes.
       return;
     }
   }
@@ -383,10 +349,8 @@ struct EvalMemoSession::Located {
     return true;
   }
 
-  // A node below the root, and its subtree.
   bool walk(const AbstractNode& node)
   {
-    ++nodes;
     if (!node.modinst) return false;
     if (node.modinst != lastStatement) {
       if (!site(node.modinst, lastSite)) return false;
@@ -403,7 +367,6 @@ struct EvalMemoSession::Located {
     return true;
   }
 
-  // A nested entry's subtree: one code, and a site here for each of its sites.
   bool nest(const NestedResult& result, uint32_t rootSite)
   {
     Entry::Nested nested;
@@ -415,15 +378,11 @@ struct EvalMemoSession::Located {
     }
     entry.nodeCodes.push_back(Entry::kNested | static_cast<uint32_t>(entry.nested.size()));
     entry.nested.push_back(std::move(nested));
-    nodes += result.entry->nodes - 1;
     return true;
   }
 
-  /*
-   * A children block whose call ran again inside the subtree may have run as
-   * that inner call's children rather than the anchor's, which its place
-   * alone cannot tell apart.
-   */
+  // A children block whose call ran again inside the subtree may have run as that inner call's
+  // children rather than the anchor's, which its place alone cannot tell apart.
   bool unambiguous() const
   {
     for (size_t i = 0; i < entry.anchors.size(); ++i) {
@@ -449,7 +408,6 @@ bool EvalMemoSession::locate(const AbstractNode& root, const ModuleInstantiation
     if (!located.walk(*child)) return false;
   }
   if (!located.unambiguous()) return false;
-  entry.nodes = located.nodes;
   statements = std::move(located.statements);
   return true;
 }

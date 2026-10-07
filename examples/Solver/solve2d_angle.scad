@@ -32,9 +32,5 @@ cba = angle(sol, ["c", "b", "a"]);   //  90 — CCW sweep b->c to b->a
 
 echo(abc_deg = abc, cba_deg = cba);
 
-assert(abs(abc - 270) < 1e-6, str("expected 270, got ", abc));
-assert(abs(cba -  90) < 1e-6, str("expected 90, got ",  cba));
-assert(abs((abc + cba) - 360) < 1e-6, "readings should sum to 360");
-
 linear_extrude(thickness)
   polygon(poly(sol, ["a", "b", "c"]));

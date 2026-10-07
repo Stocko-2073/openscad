@@ -121,8 +121,7 @@ void QGLView::viewAll()
 void QGLView::initializeGL()
 {
 #ifdef USE_GLEW
-  // GLEW needs initializing.
-  // ..in a separate compilation unit to avoid duplicate symbols with x.
+  // In a separate compilation unit to avoid duplicate symbols with x.
   initializeGlew();
 #endif
 #ifdef USE_GLAD
@@ -166,7 +165,6 @@ std::string QGLView::getRendererInfo() const
   info << gl_extensions_dump();
   return info.str();
 }
-
 
 void QGLView::resizeGL(int w, int h)
 {
@@ -614,11 +612,10 @@ QGLView::PickResult QGLView::pickObject(QPoint position)
   this->makeCurrent();
   auto guard = sg::make_scope_guard([this]() { this->doneCurrent(); });
 
-  // Update the selector with the right image size
   this->selector->reset(this);
 
   const auto depth = this->selector->depthAt(this->getRenderer(), position.x(), position.y());
-  if (!depth) return result;  // outside the view, or background
+  if (!depth) return result;
 
   // depthAt() drew with this->modelview and this->projection (its setupCamera() refreshed them) into
   // a framebuffer of cam.pixel_width x cam.pixel_height logical pixels, the units of `position`.

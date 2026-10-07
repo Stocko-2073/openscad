@@ -22,12 +22,8 @@ public:
   static const std::string& at(int idx) { return stack[idx]; }
 
 private:
-  // thread_local: the new parallel animate prefetch (Animate.cc / AnimateFrameTask)
-  // evaluates frames concurrently on worker threads. A single shared stack
-  // races on push_back/pop_back and corrupts the heap (libmalloc reports
-  // "pointer being freed was not allocated" on UserModule::instantiate exit).
-  // Per-thread is also semantically correct: $parent_modules is the depth of
-  // *this evaluation's* module call stack.
+  // Per thread: animation prefetch evaluates frames concurrently, and $parent_modules
+  // counts only the current evaluation's module calls.
   static thread_local std::vector<std::string> stack;
 };
 
@@ -53,6 +49,5 @@ public:
   std::string name;
   AssignmentList parameters;
   const std::shared_ptr<LocalScope> body;
-  // The scope that defines this module. See LocalScope::origin.
   const LocalScope *parent_scope{nullptr};
 };

@@ -172,8 +172,6 @@ static ContextFrame parse_without_defaults(Arguments arguments, const Location& 
 {
   ContextFrame output{arguments.session()};
 
-  // Argument lists are short, so a scanned array beats a tree and keeps this
-  // allocation-free for the sizes that occur in practice.
   boost::container::small_vector<Identifier, 8> named_arguments;
   const auto already_named = [&named_arguments](const Identifier& name) {
     return std::find(named_arguments.begin(), named_arguments.end(), name) != named_arguments.end();

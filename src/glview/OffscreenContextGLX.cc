@@ -83,7 +83,7 @@ public:
                               GLX_ALPHA_SIZE,
                               8,
                               GLX_DEPTH_SIZE,
-                              24,  // depth-stencil
+                              24,
                               GLX_STENCIL_SIZE,
                               8,
                               None};

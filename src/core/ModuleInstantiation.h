@@ -45,13 +45,11 @@ public:
   bool tag_highlight{false};
   bool tag_background{false};
 
-  // Times this site instantiated, and -- for the looping builtins -- times the
-  // body ran. Both for --profile; see core/ScriptProfile.h.
+  // For --profile: instantiations, and body runs of the looping builtins.
   mutable uint64_t profileCount{0};
   mutable uint64_t profileIterations{0};
 
-  // The scope this statement is in, and its index among the scope's
-  // moduleInstantiations. See LocalScope::origin.
+  // Where this statement is in its scope's moduleInstantiations; see LocalScope::origin.
   const LocalScope *parent_scope{nullptr};
   uint32_t parent_index{0};
 

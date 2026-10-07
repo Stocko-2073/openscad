@@ -46,8 +46,7 @@ AbstractNode::AbstractNode(const ModuleInstantiation *mi)
 {
 }
 
-// Indices must be unique within a tree, and a copy usually joins the tree of
-// the node it copies.
+// A fresh index: a copy usually joins its original's tree, where indices must be unique.
 AbstractNode::AbstractNode(const AbstractNode& other)
   : BaseVisitable(other),
     std::enable_shared_from_this<AbstractNode>(other),

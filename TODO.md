@@ -2,8 +2,6 @@
 
 ## Animate
 
-Left over from finding why playback re-rendered every frame.
-
 ### Frames first played while a render runs start from empty memo tables
 
 The frame tasks fork their memo tables from the document's, but the cache forks
@@ -26,7 +24,7 @@ the text, the Customizer's values and the files included and used.
 A design that assigns `$vpr`, `$vpt`, `$vpd` or `$vpf` moves the view when the
 GUI thread evaluates it (`MainWindow::instantiateRoot()`), but `FrameTask`
 drops each frame's file context, so cached frames are all shown with the camera
-of the last render. This dates from the frame cache (f88bbaec8).
+of the last render.
 
 ### A changed `use`d file leaves the frames as they were
 
@@ -40,6 +38,5 @@ and goes on playing frames made with the old file.
 
 `xcode-select` points at Xcode 26.6, so a fresh configure builds with its SDK,
 and that build crashes importing AMF or SVG (for AMF, in mimalloc's `free()`
-called from `AmfImporter::processNode()`): the 205 regression tests that import
-AMF or SVG fail, at 36a9d71ae too. `build-release` still has the Command Line
-Tools SDK in its cache.
+called from `AmfImporter::processNode()`). `build-release` still has the Command
+Line Tools SDK in its cache.

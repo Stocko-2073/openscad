@@ -29,7 +29,6 @@ const char *kindName(ScriptProfile::Kind kind)
   return "?";
 }
 
-// Fixed width so the name column lines up between "call" and "module".
 std::string paddedKind(ScriptProfile::Kind kind)
 {
   std::string name = kindName(kind);
@@ -51,12 +50,6 @@ std::string grouped(uint64_t n)
   return out;
 }
 
-/*
- * "BOSL2/shapes3d.scad:412:19". Shown relative to the script's own directory
- * where that is shorter, and otherwise relative to whichever library directory
- * the file came from -- a library sitting outside the project would otherwise
- * report as a long climb through "..".
- */
 std::string where(const Location *location)
 {
   if (!location || location->isNone()) return "<unknown>";

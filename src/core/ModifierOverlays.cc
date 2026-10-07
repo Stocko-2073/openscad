@@ -37,16 +37,14 @@ bool isHighlight(const AbstractNode& node)
   return node.modinst && node.modinst->isHighlight();
 }
 
-// A subtree to draw. `matrix` places the node's parent: evaluateGeometry() applies the node's own
-// transform.
+// `matrix` places the node's parent: evaluateGeometry() applies the node's own transform.
 struct Target {
   Kind kind;
   std::shared_ptr<const AbstractNode> node;
   Transform3d matrix;
 };
 
-// Walks the tree the way GeometryEvaluator places it, collecting the `#` and `%` subtrees. It
-// goes only where there are some, which the tree knows from computing the geometry digests.
+// Walks the tree the way GeometryEvaluator places it.
 class TargetCollector : public NodeVisitor
 {
 public:

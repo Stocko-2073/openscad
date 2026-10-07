@@ -12,7 +12,6 @@ struct Hash128 {
   bool operator==(const Hash128& o) const { return a == o.a && b == o.b; }
   bool operator!=(const Hash128& o) const { return !(*this == o); }
   bool operator<(const Hash128& o) const { return a < o.a || (a == o.a && b < o.b); }
-  // 32 hex digits, for messages.
   [[nodiscard]] std::string hex() const;
 };
 
@@ -20,8 +19,7 @@ struct Hash128Hash {
   size_t operator()(const Hash128& h) const noexcept { return static_cast<size_t>(h.a ^ (h.b << 1)); }
 };
 
-// Order-sensitive 128-bit hash of a word sequence. Not cryptographic; two
-// lanes of murmur3's finalizer, which is a bijection per word.
+// Order-sensitive, non-cryptographic 128-bit hash: two lanes of murmur3's finalizer.
 class Hasher128
 {
 public:

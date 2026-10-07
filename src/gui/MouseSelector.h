@@ -9,7 +9,7 @@
 #include "glview/fbo.h"
 
 /**
- * Finds what was drawn at a location of the view: draws it offscreen and reads the depth back.
+ * Reads the depth under the mouse by redrawing the view offscreen.
  */
 class MouseSelector
 {

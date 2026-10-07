@@ -17,7 +17,7 @@ sol = solve2d([
   point("c"),
 
   // The shape: a horizontal leg of length 'leg', then a perpendicular
-  // upward leg of the same length.
+  // leg of the same length.
   con_horizontal("a", "b"),
   con_distance("a", "b", leg),
   con_perpendicular("a", "b", "c"),

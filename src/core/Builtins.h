@@ -38,8 +38,6 @@ private:
   static void initKeywordList();
 
   AssignmentList assignments;
-  // Probed for every builtin call in a script, so these are open-addressed on
-  // the interned name's index rather than hashed.
   IdentifierMap<BuiltinFunction *> functions;
   IdentifierMap<AbstractModule *> modules;
 

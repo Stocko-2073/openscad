@@ -1,13 +1,6 @@
 #pragma once
 
 // Static interference check shared by the GUI render (F6) and the command line.
-//
-// Each direct child of the root node is treated as one "part". Pairs whose
-// bounding boxes touch are confirmed with an exact Manifold intersection, and a
-// pair interferes when the intersection volume exceeds kVolumeEps. Optionally,
-// every colliding pair is attributed to the primitives that actually contribute
-// volume to the overlap, each with an ancestor chain formatted like the 3D-view
-// right-click picker menu.
 
 #include <cstdint>
 #include <memory>
@@ -23,12 +16,9 @@ class Tree;
 
 namespace interference {
 
-// Minimum overlap volume (model units^3) for a pair to count as interfering.
-// Flush mating faces yield ~zero-volume intersections, so they stay below this.
+// Overlap volume (model units^3) a pair must exceed to interfere; flush mating faces stay below it.
 constexpr double kVolumeEps = 1e-5;
 
-// A node's source location, resolved for reporting. `valid` is false when the
-// node has no source reference (e.g. implicit group nodes).
 struct SourceRef {
   bool valid = false;
   std::string absPath;  // Location::fileName(): absolute, generic form
@@ -39,7 +29,6 @@ struct SourceRef {
   int endColumn = 0;
 };
 
-// One step of a picker-style ancestor chain.
 struct ChainStep {
   int nodeIndex = 0;
   std::string name;   // picker display name (verbose_name without "module ")
@@ -47,9 +36,8 @@ struct ChainStep {
   SourceRef loc;
 };
 
-// A primitive that contributes volume to a collision.
 struct Primitive {
-  int part = 0;  // part number the primitive belongs to
+  int part = 0;
   int nodeIndex = 0;
   std::string name;
   std::string description;  // AbstractNode::toString()
@@ -98,27 +86,21 @@ struct Report {
 };
 
 struct Options {
-  // Absolute, generic-form path of the main file (as Location::fileName()
-  // reports it). When non-empty, chain steps from any other file, from library
-  // files, or without a source reference are dropped, mirroring the GUI's
-  // "restrict right-click menu to current file" setting.
+  // Location::fileName() of the main file. If set, chains keep only the steps located in it.
   std::string currentFile;
-  // Attribute collisions to the primitives that overlap and build their
-  // chains. The GUI only needs the pair result, so it turns this off.
+  // Attribute collisions to the primitives that overlap and build their chains.
   bool primitives = true;
 };
 
 // Runs the check over the direct children of tree.root().
 Report run(const Tree& tree, const Options& opts);
 
-// Logs one Warning per colliding pair plus an Echo summary, exactly as the GUI
-// console has always shown them.
+// One Warning per colliding pair, then an Echo summary.
 void logReport(const Report& report, const Tree& tree);
 
-// Writes the agent-oriented JSON document (pretty-printed, trailing newline).
 void writeJson(const Report& report, const Tree& tree, const Options& opts, std::ostream& out);
 
-// Picker helpers, kept identical to MainWindow::rightClick().
+// Picker helpers, kept identical to MainWindow::addPickerMenuSteps().
 std::string pickerDisplayName(const AbstractNode& node);
 bool isCurrentFileStep(const AbstractNode& node, const std::string& currentFile);
 SourceRef sourceRef(const AbstractNode& node, const Tree& tree);

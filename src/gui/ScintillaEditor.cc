@@ -1193,7 +1193,6 @@ bool ScintillaEditor::handleKeyEventNavigateNumber(QKeyEvent *keyEvent)
     if (cmd && (cmd->command() == QsciCommand::Undo || cmd->command() == QsciCommand::Redo))
       QTimer::singleShot(0, this, &ScintillaEditor::renderRequest);
     else if (cmd || !keyEvent->text().isEmpty()) {
-      // any insert or command (but not undo/redo) cancels the render after undo
       renderAfterUndo = false;
     }
   }
@@ -1238,7 +1237,6 @@ bool ScintillaEditor::handleWheelEventNavigateNumber(QWheelEvent *wheelEvent)
     if (cmd && (cmd->command() == QsciCommand::Undo || cmd->command() == QsciCommand::Redo))
       QTimer::singleShot(0, this, &ScintillaEditor::renderRequest);
     else if (cmd || wheelEvent->angleDelta().y()) {
-      // any insert or command (but not undo/redo) cancels the render after undo
       renderAfterUndo = false;
     }
   }

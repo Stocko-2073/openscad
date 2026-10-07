@@ -554,12 +554,12 @@ void MainWindow::loadViewSettings()
   if (settings.value("view/showScaleProportional", true).toBool()) {
     viewActionShowScaleProportional->setChecked(true);
   }
-  // Restore without firing the slot (which would recompile during setup).
+  // Its toggled slot would render during setup.
   viewActionShowInterference->blockSignals(true);
   viewActionShowInterference->setChecked(settings.value("view/showInterference", false).toBool());
   viewActionShowInterference->blockSignals(false);
 #ifndef ENABLE_MANIFOLD
-  viewActionShowInterference->setVisible(false);  // the exact test needs Manifold
+  viewActionShowInterference->setVisible(false);
 #endif
   viewTogglePerspective();
 
@@ -794,8 +794,7 @@ void MainWindow::compile(bool reload, bool forcedone)
       }
     }
 
-    // Rather than evaluate the design without a file still in iCloud, wait for
-    // it to download; then this render runs again.
+    // An include still in iCloud: render again once it has downloaded.
     if (downloadDeferredFiles(true)) {
       compileDone(false);
       return;
@@ -832,7 +831,7 @@ bool MainWindow::downloadDeferredFiles(bool recompileAfter)
   for (const auto& file : deferred) {
     if (!this->failedDownloads.count(file)) fetch.push_back(file);
   }
-  if (fetch.empty()) return true;  // already reported
+  if (fetch.empty()) return true;
   if (recompileAfter) this->recompileAfterDownload = true;
   if (this->downloadingDeferredFiles) return true;  // compiles again when done, skipping any new ones
   this->downloadingDeferredFiles = true;
@@ -864,7 +863,6 @@ void MainWindow::deferredFilesDownloaded(const std::vector<std::string>& failed)
 
 void MainWindow::recompileDownloadedFiles()
 {
-  // A render or export still running: compile once it is done.
   if (GuiLocker::isLocked()) {
     QTimer::singleShot(autoReloadPollingPeriodMS, this, &MainWindow::recompileDownloadedFiles);
     return;
@@ -958,33 +956,12 @@ void MainWindow::compileEnded()
   GuiLocker::unlock();
   if (this->renderRequested) QTimer::singleShot(0, this, &MainWindow::renderWhenUnlocked);
   if (designActionAutoReload->isChecked()) autoReloadTimer->start();
-#ifdef ENABLE_GUI_TESTS
-  emit compilationDone(this->rootFile.get());
-#endif
 }
-
-#ifdef ENABLE_GUI_TESTS
-std::shared_ptr<AbstractNode> MainWindow::instantiateRootFromSource(SourceFile *file)
-{
-  EvaluationSession session{file->getFullpath()};
-  ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(&session)};
-  setRenderVariables(builtin_context);
-
-  std::shared_ptr<const FileContext> file_context;
-  std::shared_ptr<AbstractNode> node = this->rootFile->instantiate(*builtin_context, &file_context);
-
-  return node;
-}
-#endif  // ifdef ENABLE_GUI_TESTS
 
 namespace {
 
-/*
- * Renders that an unused entry of a document's memo table survives (MemoTable::evict()): enough
- * to undo an edit or two, or to bring back a part disabled meanwhile, without evaluating it
- * again. Each costs up to a tree: an edit leaves behind the results of the calls it changed, the
- * top-level call's among them, which hold the whole old tree.
- */
+// Renders an unused memo table entry survives (MemoTable::evict()): enough to undo an edit or
+// two without evaluating again. Each kept render can hold a whole old tree.
 constexpr uint64_t kMemoKeepRenders = 2;
 
 }  // namespace
@@ -1007,12 +984,9 @@ void MainWindow::instantiateRoot()
 {
   const RenderStatistic::ScopedPhase phase(renderStatistic, RenderStatistic::PHASE_EVALUATION);
 
-  // Go on and instantiate root_node, then call the continuation slot
-
   // Remove previous CSG tree
   this->absoluteRootNode.reset();
 
-  // Picker attribution refers to the old tree's node indices.
   resetPickMemo();
   this->animationFrameShown = false;
 
@@ -1031,9 +1005,8 @@ void MainWindow::instantiateRoot()
 
     AbstractNode::resetIndexCounter();
 
-    // Reuse what the document's last renders evaluated (core/EvalMemo.h). Printing processes
-    // events, so Flush Caches, the preference or closing the tab may drop the editor's table
-    // while this evaluation uses it: hold on to it here too.
+    // Held here too: printing processes events, and Flush Caches, the preference or closing the
+    // tab may drop the editor's table meanwhile.
     std::shared_ptr<memo::MemoTable> memoTable;
     if (Settings::Settings::reuseModuleResults.value()) {
       if (!activeEditor->memoTable) activeEditor->memoTable = std::make_shared<memo::MemoTable>();
@@ -1044,8 +1017,7 @@ void MainWindow::instantiateRoot()
     ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(&session)};
     setRenderVariables(builtin_context);
 
-    // Detached and destroyed before the session, whose values it holds, also when the
-    // evaluation throws; the table stays consistent then.
+    // Destroyed before the session, whose values it holds, even when evaluation throws.
     std::optional<memo::EvalMemoSession> memo;
     if (memoTable) {
       memo.emplace(*memoTable, *this->rootFile);
@@ -1067,7 +1039,6 @@ void MainWindow::instantiateRoot()
                                      "reused " + std::to_string(stats.userCallsReused) + " of " +
                                        std::to_string(stats.userCalls) + " module calls");
       }
-      // Freeing the trees the reused calls held, and evicting, can wait until this is shown.
       this->memoReplaced = memo->takeReplaced();
       this->memoToTrim = memoTable;
       memo.reset();
@@ -1569,9 +1540,8 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
   if (event->type() == QEvent::Close) {
     if (qobject_cast<Dock *>(obj) && !static_cast<QCloseEvent *>(event)->spontaneous()) {
       saveWindowStateOnClose();
-      // Clicking a dock's close button also sends a non-spontaneous close event.
-      // Keep the snapshot while Qt closes the other windows during quit, but allow
-      // a later save if this was only a dock close (or quitting was canceled).
+      // A dock's close button sends this too. Unless the app is quitting, which is known once
+      // the other windows have closed, allow a later save.
       QTimer::singleShot(0, this, [this]() {
         if (!isClosing) windowStateSaved = false;
       });
@@ -1797,10 +1767,6 @@ void MainWindow::on_designActionReloadAndRender_triggered()
   actionReloadRender();
 }
 
-/*!
-   Renders (F6) if the file or one of its dependencies changed: compile() only reaches
-   cgalRender() then.
- */
 void MainWindow::actionReloadRender()
 {
   if (GuiLocker::isLocked()) return;
@@ -1815,7 +1781,7 @@ void MainWindow::actionReloadRender()
 
 void MainWindow::prepareCompile(const char *afterCompileSlot, bool procevents)
 {
-  this->failedDownloads.clear();  // try downloading them again
+  this->failedDownloads.clear();
   setCurrentOutput();
   autoReloadTimer->stop();
   LOG(" ");
@@ -1832,11 +1798,8 @@ std::shared_ptr<Renderer> MainWindow::createFrameRenderer(const OpenScad::Animat
 
 void MainWindow::showAnimationFrame(const std::shared_ptr<Renderer>& renderer)
 {
-  // Draw the frame's geometry. rootGeom, rootNode and absoluteRootNode stay those of the last
-  // render: they are rebuilt by the next instantiateRoot() when playback ends or a render is
-  // triggered, and exports keep using the rendered geometry.
+  // rootGeom, rootNode and absoluteRootNode stay the last render's: exports use that geometry.
   resetPickMemo();
-  // The frame's node indices don't match rootNode, so the picker has nothing to name.
   this->animationFrameShown = true;
   this->geomRenderer = renderer;
   viewModeRender();
@@ -1907,8 +1870,7 @@ void MainWindow::on_designAction3DPrint_triggered()
 
 void MainWindow::on_designActionRender_triggered()
 {
-  // F6 renders from scratch. F5, auto-reload and the renders that follow an edit reuse what
-  // earlier renders made.
+  // F6 renders from scratch; every other render reuses what earlier renders made.
   this->renderFromScratch = true;
   actionRender();
 }
@@ -1916,8 +1878,7 @@ void MainWindow::on_designActionRender_triggered()
 void MainWindow::actionRender()
 {
   if (GuiLocker::isLocked()) {
-    // A compile, render or export is running: render once it is done, so the view ends up showing
-    // the latest text. Requests made meanwhile make one render, from scratch if one asked for it.
+    // Render once unlocked, so the view ends up showing the latest text.
     if (!this->renderRequested) {
       this->renderRequested = true;
       QTimer::singleShot(autoReloadPollingPeriodMS, this, &MainWindow::renderWhenUnlocked);
@@ -1937,8 +1898,8 @@ void MainWindow::actionRender()
 
 void MainWindow::dropRenderCaches()
 {
-  // With the GUI locked, no render is using them. The geometry caches are the other windows' too;
-  // a file the document uses is parsed again only if it changed, as for any render.
+  // The GUI is locked, so no render is using them. The geometry caches are other windows' too;
+  // parsed files stay, as they are parsed again whenever they change.
   activeEditor->memoTable.reset();
   animateWidget->dropMemoTables();
   this->pickWholeGeometry.reset();
@@ -1946,7 +1907,7 @@ void MainWindow::dropRenderCaches()
   CGALCache::instance()->clear();
   dxf_dim_cache.clear();
   dxf_cross_cache.clear();
-  this->shownResult.reset();  // the result gets new buffers even if it is unchanged
+  this->shownResult.reset();
 }
 
 void MainWindow::renderWhenUnlocked()
@@ -1962,9 +1923,8 @@ void MainWindow::renderWhenUnlocked()
 void MainWindow::cgalRender()
 {
   rootGeom.reset();
-  resetPickMemo();  // the F6 surface comes from rootGeom
+  resetPickMemo();
   if (!this->rootFile || !this->rootNode) {
-    // Nothing to render, as after a parse error: show nothing rather than the last result.
     this->geomRenderer = nullptr;
     viewModeRender();
     compileEnded();
@@ -1997,8 +1957,7 @@ std::shared_ptr<Renderer> MainWindow::createGeometryRenderer(
 #if defined(USE_POLYSET_FOR_CGAL)
   renderer = std::make_shared<PolySetRenderer>(geom);
 #else
-  // Choose PolySetRenderer for PolySet and Polygon2d, and for Manifold since we
-  // know that all geometries are convertible to PolySet.
+  // Under the Manifold backend every geometry converts to PolySet.
   if (!geom || RenderSettings::inst()->backend3D == RenderBackend3D::ManifoldBackend ||
       std::dynamic_pointer_cast<const PolySet>(geom) || std::dynamic_pointer_cast<const Polygon2d>(geom)) {
     renderer = std::make_shared<PolySetRenderer>(geom);
@@ -2017,7 +1976,6 @@ std::shared_ptr<Renderer> MainWindow::resultRenderer(const RenderResult& result)
               this->shownResult->renderer.lock() == this->geomRenderer;
   if (result.digest) shown.digest = *result.digest;
   for (const auto& mesh : result.overlays) {
-    // An overlay made otherwise, as interference is, is new every time.
     if (mesh.identity == Hash128{}) same = false;
     shown.overlays.push_back(mesh.identity);
   }
@@ -2048,7 +2006,6 @@ void MainWindow::actionRenderDone(const std::shared_ptr<const RenderResult>& res
     interference::logReport(*result->interference, this->tree);
   }
 #endif
-  // A render that failed before holding any leaves the last one's to the next.
   if (result->wholeGeometry) this->pickWholeGeometry = result->wholeGeometry;
   const std::shared_ptr<const Geometry>& root_geom = result->geometry;
   if (root_geom) {
@@ -2154,21 +2111,14 @@ void MainWindow::leftClick(QPoint mouse)
   }
 }
 
-/**
- * Call the mouseselection to determine the id of the clicked-on object.
- * Use the generated ID and try to find it within the list of products
- * And finally move the cursor to the beginning of the selected object in the editor
- */
 void MainWindow::rightClick(QPoint position)
 {
   // Nothing to select
   if (!this->qglview->renderer || !this->rootNode || !this->rootGeom) {
     return;
   }
-  // An animation frame comes from its own tree, whose nodes rootNode doesn't have.
   if (this->animationFrameShown) return;
 
-  // Name the primitives that made the surface under the cursor.
   const QGLView::PickResult picked = this->qglview->pickObject(position);
   const std::vector<int> primitives = pickPrimitives(picked);
   const int index = primitives.empty() ? -1 : primitives.front();
@@ -2199,16 +2149,12 @@ void MainWindow::rightClick(QPoint position)
   }
 }
 
-/**
- * Adds one entry per step of a getNodeByID() path, primitive first, to a picker menu.
- */
 void MainWindow::addPickerMenuSteps(QMenu& menu,
                                     const std::deque<std::shared_ptr<const AbstractNode>>& path)
 {
   std::stringstream ss;
   const bool currentFileOnly = Settings::Settings::pickMenuCurrentFileOnly.value();
   for (const auto& step : path) {
-    // Skip certain node types
     if (step->name() == "root") {
       continue;
     }
@@ -2239,24 +2185,18 @@ void MainWindow::addPickerMenuSteps(QMenu& menu,
     auto location = step->modinst->location();
     ss.str("");
 
-    // Remove the "module" prefix if any as it induce confusion between the module declaration and
-    // instanciation
+    // Drop any "module" prefix: it reads like the declaration, not the instantiation.
     const int first_position = (step->verbose_name().find("module") == std::string::npos) ? 0 : 7;
     std::string name = step->verbose_name().substr(first_position);
 
-    // It happens that the verbose_name is empty (eg: in for loops), when this happens instead of
-    // letting empty entry in the menu we prefer using the name in the modinstanciation.
     if (step->verbose_name().empty()) name = step->modinst->name();
 
-    // Check if the path is contained in a library (using parsersettings.h)
     const fs::path libpath = get_library_for_path(location.filePath());
     if (!libpath.empty()) {
       // Display the library (without making the window too wide!)
       ss << name << " (library " << location.fileName().substr(libpath.string().length() + 1) << ":"
          << location.firstLine() << ")";
     } else if (renderedEditor->filepath.toStdString() == location.fileName()) {
-      // removes the "module" prefix if any as it makes it not clear if it is module declaration or
-      // call.
       ss << name << " (" << location.filePath().filename().string() << ":" << location.firstLine()
          << ")";
     } else {
@@ -2265,10 +2205,8 @@ void MainWindow::addPickerMenuSteps(QMenu& menu,
                       fs::path(renderedEditor->filepath.toStdString()).parent_path())
           .generic_string();
 
-      // Set the displayed name relative to the active editor window
       ss << name << " (" << relative_filename << ":" << location.firstLine() << ")";
     }
-    // Prepare the action to be sent
     auto action = menu.addAction(QString::fromStdString(ss.str()));
     if (editorDock->isVisible()) {
       action->setProperty("id", step->idx);
@@ -2277,16 +2215,12 @@ void MainWindow::addPickerMenuSteps(QMenu& menu,
   }
 }
 
-/**
- * Adds a submenu for each further primitive whose face is at the clicked point (coincident faces)
- * after the first one's chain.
- */
+// Submenus for the other primitives with a face at the clicked point (coincident faces).
 void MainWindow::addPickerAlsoHere(QMenu& menu, const std::vector<int>& primitives)
 {
   constexpr int maxSubmenus = 8;
   int added = 0;
-  // Skip chains that show the same first entry as one already in the menu: "current file only"
-  // can reduce two primitives to the same module call.
+  // "Current file only" can reduce two primitives to the same module call.
   QSet<QString> shown;
   if (!menu.actions().isEmpty()) shown.insert(menu.actions().front()->text());
   for (size_t i = 1; i < primitives.size() && added < maxSubmenus; ++i) {
@@ -2301,7 +2235,6 @@ void MainWindow::addPickerAlsoHere(QMenu& menu, const std::vector<int>& primitiv
     const QAction *first = submenu->actions().front();
     shown.insert(first->text());
     submenu->setTitle(QString(_("Also here: %1")).arg(first->text()));
-    // Hovering the submenu's title highlights its primitive, like its first entry would.
     if (first->property("id").isValid()) {
       submenu->menuAction()->setProperty("id", first->property("id"));
       connect(submenu->menuAction(), &QAction::hovered, this,
@@ -2313,10 +2246,7 @@ void MainWindow::addPickerAlsoHere(QMenu& menu, const std::vector<int>& primitiv
   }
 }
 
-/**
- * Names the primitives whose faces make the rendered surface under the cursor, best first. Empty
- * when the cursor is over nothing.
- */
+// Node indices of the primitives whose faces make the surface under the cursor, best first.
 std::vector<int> MainWindow::pickPrimitives(const QGLView::PickResult& picked)
 {
   // This runs geometry code on the GUI thread: never during a compile or render.
@@ -2790,9 +2720,8 @@ void MainWindow::on_designActionFlushCaches_triggered()
   SourceFileCache::instance()->clear();
   for (auto *window : scadApp->windowManager.getWindows()) window->dropMemoTables();
 #ifdef USE_MIMALLOC
-  // Nothing hands this memory back to the system while the window idles: much of it was
-  // allocated by render threads that have ended, and Manifold frees its large buffers on a
-  // thread of its own, a moment from now. Collect once those frees have run.
+  // While idle, mimalloc returns no memory to the system, much of it from ended render threads.
+  // Manifold frees its large buffers on a thread of its own, so collect a moment later.
   QTimer::singleShot(1000, this, [] { mi_collect(true); });
 #endif
 
@@ -3191,8 +3120,6 @@ QString MainWindow::getDockBaseName(const QString& title) const
 
 void MainWindow::onTabManagerAboutToCloseEditor(EditorInterface *closingEditor)
 {
-  // This slots is in charge of closing properly the render when the
-  // associated editor is about to close.
   if (closingEditor == renderedEditor) {
     renderedEditor = nullptr;
 
@@ -3219,8 +3146,7 @@ void MainWindow::onTabManagerEditorContentReloaded(EditorInterface *reloadedEdit
     // when a new editor is created, it is important to compile the initial geometry
     // so the customizer panels are ok.
     parseDocument(reloadedEditor);
-    // The customizer only reads the file itself, so a skipped include does not
-    // matter here; fetch it now so the first render has it.
+    // The customizer needs only this file; fetch skipped includes now for the first render.
     downloadDeferredFiles(false);
   } catch (const HardWarningException&) {
     exceptionCleanup();
@@ -3255,8 +3181,6 @@ void MainWindow::onTabManagerEditorChanged(EditorInterface *newEditor)
   colorListDock->setNameSuffix(name);
   viewportControlDock->setNameSuffix(name);
 
-  // If there is no renderedEditor we request for a new render if the
-  // auto-reload is enabled.
   if (renderedEditor == nullptr && designActionAutoReload->isChecked() && !MainWindow::isEmpty()) {
     actionRender();
   }
@@ -3427,8 +3351,7 @@ void MainWindow::setColorScheme(const QString& scheme)
   RenderSettings::inst()->colorscheme = scheme.toStdString();
   this->qglview->setColorScheme(scheme.toStdString());
   this->qglview->update();
-  // The renderer's buffers have the colors of the old scheme: the next render makes new ones, and
-  // animation frames shown again do too.
+  // Renderer buffers hold the old scheme's colors: don't reuse them.
   this->shownResult.reset();
   this->animateWidget->dropFrameRenderers();
 }
@@ -3901,8 +3824,6 @@ void MainWindow::setupMenusAndActions()
   updateRecentFileActions();
 
   show_examples();
-  // F5 used to preview. It renders, reusing what earlier renders made, where F6 renders from
-  // scratch.
   auto *renderAction = new QAction(this);
   renderAction->setShortcut(QKeySequence(Qt::Key_F5));
   connect(renderAction, &QAction::triggered, this, &MainWindow::actionRender);

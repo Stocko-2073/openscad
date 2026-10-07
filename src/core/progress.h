@@ -20,12 +20,10 @@ void progress_update(const std::shared_ptr<const AbstractNode>& node, int mark);
 // exact node
 void progress_tick();
 
-// Whether this thread's evaluations leave progress unreported; see ProgressSuppressGuard.
 extern thread_local bool progress_report_suppressed;
 
-// Keeps the evaluations on this thread, while it lives, from reporting progress. The report function
-// is the render's that set it up (the GUI's F6, reporting to its progress bar and taking its cancel
-// button), and Animate's frame workers evaluate on other threads beside it.
+// For evaluations beside a render, such as Animate's frame workers: the progress report function,
+// with its progress bar and cancel button, belongs to the render.
 class ProgressSuppressGuard
 {
 public:

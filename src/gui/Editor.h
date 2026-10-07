@@ -102,13 +102,12 @@ private:
   QSize initialSizeHint;
 
 public:
-  bool contentsRendered;  // Set if the source code has changes since the last render (F6)
+  bool contentsRendered;  // Set if the source code has changes since the last render
   int findState;
   QString filepath;
   std::string autoReloadId;
   std::vector<IndicatorData> indicatorData;
   ParameterWidget *parameterWidget;
-  // What this document's renders evaluated, for the next ones to reuse (core/EvalMemo.h):
-  // made by its first render, dropped by Flush Caches and by turning the preference off.
+  // Null until a render makes it, and after Flush Caches, F6 or the preference drop it.
   std::shared_ptr<memo::MemoTable> memoTable;
 };

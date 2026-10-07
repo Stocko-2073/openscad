@@ -12,7 +12,7 @@ get_fedora_deps()
 {
  dnf -y install qt5-qtbase-devel bison flex eigen3-devel harfbuzz-devel \
   fontconfig-devel freetype-devel \
-  boost-devel mpfr-devel gmp-devel glew-devel catch2-devel CGAL-devel gcc gcc-c++ pkgconfig \
+  boost-devel mpfr-devel gmp-devel glew-devel CGAL-devel gcc gcc-c++ pkgconfig \
   git libXmu-devel curl ImageMagick glib2-devel make \
   xorg-x11-server-Xvfb gettext qscintilla-qt5-devel \
   mesa-dri-drivers libzip-devel ccache qt5-qtmultimedia-devel qt5-qtsvg-devel \
@@ -31,14 +31,14 @@ get_qomo_deps()
 get_altlinux_deps()
 {
  for i in boost-devel gcc4.5 gcc4.5-c++ boost-program_options-devel \
-  boost-thread-devel boost-system-devel boost-regex-devel catch2-devel eigen3 \
+  boost-thread-devel boost-system-devel boost-regex-devel eigen3 \
   libmpfr libgmp libgmp_cxx-devel qt5-devel libcgal-devel git-core tbb-devel \
   libglew-devel flex bison curl imagemagick gettext glib2-devel; do apt-get install $i; done
 }
 
 get_freebsd_deps()
 {
- pkg_add -r bison boost-libs catch2 cmake git bash eigen3 flex gmake gmp mpfr \
+ pkg_add -r bison boost-libs cmake git bash eigen3 flex gmake gmp mpfr \
   xorg libGLU libXmu libXi xorg-vfbserver glew \
   qt5-core qt5-gui qt5-buildtools qt5-opengl qt5-qmake \
   cgal curl imagemagick glib2-devel gettext libdouble-conversion-3.0.0 \
@@ -47,7 +47,7 @@ get_freebsd_deps()
 
 get_netbsd_deps()
 {
- pkgin install bison boost catch2 cmake git bash eigen3 flex gmake gmp mpfr \
+ pkgin install bison boost cmake git bash eigen3 flex gmake gmp mpfr \
   qt5 glew cgal python27 curl \
   ImageMagick glib2 gettext threadingbuildingblocks
 }
@@ -66,8 +66,6 @@ get_opensuse_deps()
  zypper install libeigen3-devel || zypper install libeigen3
 
  zypper install ImageMagick || zypper install imagemagick
-
- zypper install catch2-devel || zypper install Catch2-devel
 }
 
 get_mageia_deps()
@@ -93,8 +91,6 @@ get_debian_deps()
   libtbb-dev libxi-dev libxml2-dev libxmu-dev \
   libzip-dev nettle-dev ninja-build nodejs pkg-config python3-dev \
   python3-setuptools python3-venv ragel xvfb
- apt-get -y install catch2 || echo "catch2 pkg deprecated on Debian, so if you're seeing this, it's probably been removed from the repo"
- apt-get -y install libcatch2-dev || echo "libcatch2-dev package not found on ubuntu or older Debian, so ignoring."
  if [ "$USE_QT6" = "1" ]; then
   get_qt6_deps_debian
  else
@@ -121,7 +117,7 @@ get_qt6_deps_debian()
 get_arch_deps()
 {
   pacman -Syu --noconfirm --needed \
-	base-devel boost cairo catch2 cgal cmake double-conversion eigen fontconfig \
+	base-devel boost cairo cgal cmake double-conversion eigen fontconfig \
   freetype2 gcc-libs ghostscript glew glib2 glibc glu gmp harfbuzz \
   hicolor-icon-theme hidapi imagemagick lib3mf libglvnd libspnav libx11 \
   libxml2 libzip mimalloc mpfr nettle procps-ng python python-pip \
@@ -132,7 +128,7 @@ get_arch_deps()
 get_solus_deps()
 {
   eopkg -y it -c system.devel
-  eopkg -y install catch2 qt5-base-devel qt5-multimedia-devel qt5-svg-devel qscintilla-devel \
+  eopkg -y install qt5-base-devel qt5-multimedia-devel qt5-svg-devel qscintilla-devel \
 	CGAL-devel gmp-devel mpfr-devel glib2-devel libboost-devel \
 	glew-devel eigen3 \
 	fontconfig-devel freetype2-devel harfbuzz-devel libzip-devel \

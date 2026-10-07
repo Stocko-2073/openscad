@@ -92,8 +92,8 @@ public:
                          unsigned int slices, unsigned int segments) const;
 
   friend std::ostream& operator<<(std::ostream& stream, const CurveDiscretizer& f);
-  // For a node's geometry digest: all four, exactly. operator<< leaves $fe out unless the
-  // discretization-by-error feature is enabled, but the segment counts use whatever it holds.
+  // All four, bit-exact: operator<< omits $fe unless its feature is enabled, but the segment
+  // counts use whatever it holds.
   void hash(Hasher128& h) const
   {
     h.f64(fn);

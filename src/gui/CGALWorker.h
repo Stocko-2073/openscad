@@ -16,15 +16,13 @@ namespace interference {
 struct Report;
 }
 
-// What a render hands the 3D view.
 struct RenderResult {
   std::shared_ptr<const Geometry> geometry;  // null if there is none or the render failed
   std::optional<Hash128> digest;             // the root's (core/NodeDigest.h), unless it failed
   std::vector<overlay::Mesh> overlays;
-  // What the picker names whole, for it to hold while the result is shown; null if the render
-  // failed before it.
+  // Held while the result is shown; null if the render failed before making it.
   std::shared_ptr<const pick::WholeGeometry> wholeGeometry;
-  // Evaluating the geometry and the overlays, and holding what the picker names whole.
+  // Includes making the overlays and wholeGeometry.
   std::chrono::steady_clock::duration geometryTime{};
   std::shared_ptr<const interference::Report> interference;  // when the check ran
   std::chrono::steady_clock::duration interferenceTime{};
@@ -39,8 +37,7 @@ public:
   ~CGALWorker() override;
 
 public slots:
-  // Renders on the worker thread; with `checkInterference`, also checks the top-level parts for
-  // overlaps and draws them. `wholeGeometry` is what the last render's result held for the picker.
+  // `wholeGeometry` is what the last render's result held, for this render to reuse.
   void start(const Tree& tree, bool checkInterference,
              std::shared_ptr<const pick::WholeGeometry> wholeGeometry);
 

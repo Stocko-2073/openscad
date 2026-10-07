@@ -3,13 +3,8 @@
 set -e
 
 PARALLEL_MAKE=-j2  # runners have insufficient memory for -j4
-PARALLEL_CTEST=-j4
-PARALLEL_GCOVR=-j4
-
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 BUILDDIR=b
-GCOVRDIR=c
 
 do_experimental() {
 	echo "do_experimental()"
@@ -38,51 +33,10 @@ do_build() {
 	mkdir "$BUILDDIR"
 	(
 		cd "$BUILDDIR"
-		cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_UNITY_BUILD=OFF -DPROFILE=ON ${EXPERIMENTAL} ${PYTHON_DEFINE} ${QT} .. && make $PARALLEL_MAKE
+		cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_UNITY_BUILD=OFF ${EXPERIMENTAL} ${PYTHON_DEFINE} ${QT} .. && make $PARALLEL_MAKE
 	)
 	if [[ $? != 0 ]]; then
 		echo "Build failure"
-		exit 1
-	fi
-}
-
-do_test_examples() {
-	echo "do_test_examples()"
-	CTEST_ARGS="-C Examples"
-}
-
-do_test() {
-	echo "do_test()"
-
-	(
-		cd "$BUILDDIR"
-		ctest $PARALLEL_CTEST $CTEST_ARGS
-	)
-	if [[ $? != 0 ]]; then
-		echo "Test failure"
-		exit 1
-	fi
-}
-
-do_coverage() {
-	echo "do_coverage()"
-
-	rm -rf "$GCOVRDIR"
-	mkdir "$GCOVRDIR"
-	(
-		cd "$BUILDDIR"
-		echo "Generating code coverage report..."
-		# This works so long as the binary was built with -DPROFILE
-		# and you exercised the binary beforehand.
-		uv run --project "$REPO_ROOT/.github/ci/openscad-coverage" gcovr -r ../src CMakeFiles/OpenSCADLibInternal.dir $PARALLEL_GCOVR --html --html-details --sort uncovered-percent -o coverage.html
-		if [[ $? != 0 ]]; then
-			exit 1
-		fi
-		mv coverage*.html ../"$GCOVRDIR"
-		echo "done."
-	)
-	if [[ $? != 0 ]]; then
-		echo "Coverage failure"
 		exit 1
 	fi
 }

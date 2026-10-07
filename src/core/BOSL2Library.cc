@@ -120,8 +120,6 @@ std::string describe()
     return "BOSL2 " + versionText(readVersion(dir)) + " built in" +
            (updated ? " (updated from GitHub)" : "") + usage;
   }
-  // Only OPENSCADPATH ranks above the built-in copy, or this is a user copy
-  // standing in for a missing built-in one.
   return "BOSL2 " + versionText(readVersion(dir)) + " from " + dir.generic_string() +
          (active.empty() ? " (no built-in copy found)"
                          : ", overriding the built-in " + versionText(activeVersion())) +

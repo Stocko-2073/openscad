@@ -77,8 +77,7 @@ void CGALRenderer::addGeometry(const std::shared_ptr<const Geometry>& geom)
   } else if (const auto ps = std::dynamic_pointer_cast<const PolySet>(geom)) {
     assert(ps->getDimension() == 3);
     // We need to tessellate here, in case the generated PolySet contains
-    // concave polygons See
-    // tests/data/scad/3D/features/polyhedron-concave-test.scad
+    // concave polygons
     this->polysets_.push_back(PolySetUtils::tessellate_faces(*ps));
   } else if (const auto poly = std::dynamic_pointer_cast<const Polygon2d>(geom)) {
     this->polygons_.emplace_back(poly, std::shared_ptr<const PolySet>(poly->tessellate()));

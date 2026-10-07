@@ -43,8 +43,7 @@ public:
     const ShaderUtils::ShaderInfo
       *shaderinfo);  // This could stay protected, were it not for VertexStateManager
 
-  // Meshes drawn translucent over the geometry: the # and % subtrees, and interfering parts' overlaps
-  // drawn through it. They are not picked.
+  // The # and % subtrees and interference overlaps, drawn translucent and never picked.
   void setOverlays(std::vector<overlay::Mesh> overlays);
 
 protected:

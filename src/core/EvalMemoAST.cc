@@ -1,12 +1,3 @@
-/*
- * Exact structural hashing of syntax, for incremental evaluation. See
- * core/EvalMemo.h.
- *
- * Every Expression subclass hashes a distinct tag, its own fields, and its
- * subexpressions, so two trees hash alike only if they are the same tree.
- * Locations are left out: moving code must not change a key.
- */
-
 #include <cstdint>
 #include <memory>
 
@@ -127,8 +118,7 @@ void ASTHasher::literal(const Value& value)
 {
   ValueHashCache none;
   if (!none.hash(*this, value)) {
-    // Literals are numbers, strings, booleans and undef; nothing else parses
-    // to one. Fall back on the printed form rather than give up.
+    // Literals are numbers, strings, booleans and undef; nothing else parses to one.
     u64(kUnhashableLiteral);
     str(value.toString());
   }

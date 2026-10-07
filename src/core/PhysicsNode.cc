@@ -41,8 +41,6 @@ static std::shared_ptr<AbstractNode> builtin_physics(const ModuleInstantiation *
 
 std::string PhysicsNode::toString() const
 {
-  // Serializes ALL simulation parameters: this string is the geometry cache
-  // key, so anything that affects the result must be part of it.
   return STR(this->name(), "(density = ", density, ", friction = ", friction,
              ", restitution = ", restitution, ", gravity = ", gravity,
              ", max_time = ", max_time, ", nudge = ", (nudge ? "true" : "false"),

@@ -5,9 +5,7 @@
 #include "core/ModuleInstantiation.h"
 #include "core/node.h"
 
-// physics() renders its children, unions them into a single rigid body and
-// drops it onto the infinite floor z=0 until it comes to rest, then applies
-// the resulting rigid transform to the geometry.
+// Drops the union of its children onto the floor z=0 and moves it to its resting pose.
 class PhysicsNode : public AbstractNode
 {
 public:

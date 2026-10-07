@@ -5,7 +5,7 @@
 
 void RenderVariables::applyToContext(ContextHandle<BuiltinContext>& context) const
 {
-  // Nothing previews: every view is a render, so designs build their final geometry.
+  // Every view is a render, so designs build their final geometry.
   context->set_variable("$preview", false);
   context->set_variable("$t", time);
 

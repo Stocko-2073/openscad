@@ -203,7 +203,6 @@ public:
 
   bool fileChangedOnDisk();
 
-  // Forgets what the renders of this window's documents evaluated (core/EvalMemo.h).
   void dropMemoTables();
 
   // Parse the document contained in the editor, update the editors's parameters and returns a SourceFile
@@ -260,11 +259,8 @@ public slots:
   void handleFileDrop(const QUrl& url);
 
 public:
-  // A renderer for a pre-computed animation frame (geometry and overlays), as a render's result
-  // gets; null when the frame has nothing to draw.
+  // Null when the frame has nothing to draw.
   std::shared_ptr<Renderer> createFrameRenderer(const OpenScad::Animate::FrameResult& frame);
-  // Show an animation frame with its renderer directly in the GL view, bypassing the parse →
-  // instantiate → render hop. Called by the Animate prefetch cache during playback.
   void showAnimationFrame(const std::shared_ptr<Renderer>& renderer);
 
 private slots:
@@ -448,8 +444,7 @@ private:
   int currentlySelectedObject{-1};
   void addPickerMenuSteps(QMenu& menu, const std::deque<std::shared_ptr<const AbstractNode>>& path);
 
-  // Right-click attribution (core/PickAttribution.h), built on first use and dropped with the tree
-  // or rootGeom it came from.
+  // Picker attribution, built on first use; dropped with the tree or rootGeom it came from.
   std::optional<std::vector<pick::Leaf>> pickRootLeaves;
   std::optional<std::vector<pick::PlacedMesh>> pickRootSurface;
   // The geometry of the hull() and other nodes the picker names whole, held for the result on
@@ -458,13 +453,11 @@ private:
   // The view shows an Animate frame, whose node indices don't match rootNode.
   bool animationFrameShown{false};
   void resetPickMemo();
-  // A renderer for F6 geometry with the overlays drawn over it; null when there is nothing to draw.
+  // Null when there is nothing to draw.
   std::shared_ptr<Renderer> createGeometryRenderer(const std::shared_ptr<const Geometry>& geom,
                                                    const std::vector<overlay::Mesh>& overlays);
-  // The renderer for a render's result: the one on screen if that shows the same, which keeps
-  // the meshes and buffers it made, else a new one.
+  // The renderer on screen if it shows the same result, keeping its buffers; else a new one.
   std::shared_ptr<Renderer> resultRenderer(const RenderResult& result);
-  // What the renderer that the last render made shows, by digest (core/NodeDigest.h).
   struct ShownResult {
     std::weak_ptr<Renderer> renderer;
     Hash128 digest;
@@ -475,12 +468,10 @@ private:
   std::vector<int> pickPrimitives(const QGLView::PickResult& picked);
   void addPickerAlsoHere(QMenu& menu, const std::vector<int>& primitives);
 
-  // What the last evaluation took out of its memo table, freed once its result is on screen,
-  // and the table, trimmed then; see trimMemo().
+  // Freed and trimmed by trimMemo() once the last evaluation's result is on screen.
   std::vector<std::shared_ptr<AbstractNode>> memoReplaced;
   std::weak_ptr<memo::MemoTable> memoToTrim;
   void trimMemo();
-  // Forgets what the next render would reuse, so that it makes everything again (F6).
   void dropRenderCaches();
 
   char const *afterCompileSlot;
@@ -491,13 +482,12 @@ private:
   ProgressWidget *progresswidget{nullptr};
   CGALWorker *cgalworker;
   QMutex consolemutex;
-  EditorInterface *renderedEditor{nullptr};  // the editor most recently rendered
+  EditorInterface *renderedEditor{nullptr};
   time_t includesMTime{0};          // latest include mod time
   time_t depsMTime{0};              // latest dependency mod time
 
-  // include<>/use<> files the parser skipped because they are still in iCloud
-  // (see DatalessFiles): downloads them off the main thread. Returns whether
-  // any were skipped, so the design is incomplete.
+  // Fetches, off the main thread, the includes the parser skipped as still in iCloud. Returns
+  // whether there were any, so the design is incomplete.
   bool downloadDeferredFiles(bool recompileAfter);
   void deferredFilesDownloaded(const std::vector<std::string>& failed);
   void recompileDownloadedFiles();
@@ -518,8 +508,7 @@ private:
   std::vector<std::unique_ptr<QTemporaryFile>> allTempFiles;
 
 public:
-  // Public so the Animate dock can reset measurements when it shows a cached
-  // frame, as a render does.
+  // Public for the Animate dock, which shows cached frames.
   void resetMeasurementsState(bool enable, const QString& tooltipMessage);
 private:
   QActionGroup *measurementGroup;
@@ -530,15 +519,6 @@ private:
 signals:
   void highlightError(int);
   void unhighlightLastError();
-
-#ifdef ENABLE_GUI_TESTS
-public:
-  std::shared_ptr<AbstractNode> instantiateRootFromSource(SourceFile *file);
-signals:
-  // This is a new signal introduced while drafting the testing framework, while in experimental mode
-  // we protected it using the #ifdef/endif so it should not be considered as part of the MainWindow API.
-  void compilationDone(SourceFile *);
-#endif  //
 };
 
 class GuiLocker

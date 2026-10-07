@@ -31,8 +31,6 @@ protected:
     : Context(parent), scope(std::move(scope))
   {
     function_bits |= this->scope->functionBits();
-    // This frame, not the parent's, is now the nearest scope on the chain.
-    // See Context::scopeOwner().
     scope_owner = this;
     scope_serial = session()->nextScopeSerial();
   }
@@ -49,11 +47,7 @@ public:
   const Children *user_module_children() const override { return &children; }
   std::vector<const std::shared_ptr<const Context> *> list_referenced_contexts() const override;
 
-  /*
-   * The incremental-evaluation key of this instantiation's children block, set
-   * when the instantiation was a memo boundary. A boundary nested inside whose
-   * own children call children() folds it into its key. See core/EvalMemo.h.
-   */
+  // Memo key of this instantiation's children block; set only at memo boundaries.
   void setChildrenKey(const uint64_t key[3])
   {
     children_key[0] = key[0];
@@ -61,7 +55,7 @@ public:
     children_key[2] = key[2];
     has_children_key = true;
   }
-  // The key as two hash words and a word of flags; false if there is none.
+  // Two hash words and a word of flags; null if unset.
   [[nodiscard]] const uint64_t *childrenKey() const { return has_children_key ? children_key : nullptr; }
 
 protected:
@@ -90,9 +84,7 @@ protected:
     : ScopeContext(parent, source_file->scope), source_file(source_file)
   {
     if (!source_file->usedlibs.empty()) {
-      // The used files are resolved at lookup time and may not be compiled
-      // yet, so their names cannot be folded into the filter. Accept every
-      // name instead of risking a false negative.
+      // Used files are resolved at lookup time, so their names can't be folded into the filter.
       function_bits = ~uint64_t(0);
     }
   }

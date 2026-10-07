@@ -6,19 +6,8 @@
 
 #include "core/Identifier.h"
 
-/*
- * Open-addressed map from interned name to T, for the tables the interpreter
- * probes on every call.
- *
- * Identifiers carry a dense index assigned when the name was interned, which
- * doubles as a perfect hash while the table has room, so a lookup is one
- * cache line and a pointer compare. That matters most for the misses: a
- * builtin call walks past the file scope on its way to the builtin table, and
- * instantiating a BOSL2-heavy model does that 14M times.
- *
- * A default-constructed Identifier -- the empty name, which nothing can be
- * called -- marks an unused slot.
- */
+// Open-addressed map hashed by Identifier::index(). The empty Identifier marks a free slot,
+// so the empty name cannot be a key.
 template <typename T>
 class IdentifierMap
 {
@@ -63,8 +52,6 @@ public:
     }
   }
 
-  // Keeps the existing entry if the name is already present, matching
-  // std::unordered_map::emplace.
   void emplace(const Identifier& name, T value)
   {
     if (find(name)) return;

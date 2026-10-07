@@ -30,7 +30,6 @@ public:
   [[nodiscard]] virtual bool isLiteral() const;
   [[nodiscard]] virtual Value evaluate(const std::shared_ptr<const Context>& context) const = 0;
   Value checkUndef(Value&& val, const std::shared_ptr<const Context>& context) const;
-  // Exact structural hash, for incremental evaluation. See core/EvalMemo.h.
   virtual void hashInto(memo::ASTHasher& h) const = 0;
 };
 
@@ -182,13 +181,8 @@ public:
   void hashInto(memo::ASTHasher& h) const override;
   [[nodiscard]] const Identifier& get_name() const { return name; }
 
-  /*
-   * Whether this reads a $ variable only to assign the same variable, as in
-   * BOSL2's `$transform = $transform * m`: the value it sees does not reach
-   * the output unless something reads the variable for real. Set once right
-   * after parsing, by memo::annotate() (mutable only because that walk is
-   * the const hashing visitor), and only read afterwards. See core/EvalMemo.h.
-   */
+  // Marks a read of $x inside `$x = <expr>`. Set by memo::annotate() before anything evaluates
+  // the tree; mutable because that walk is the const hashing visitor.
   mutable bool accumulator = false;
 
 private:
@@ -213,7 +207,7 @@ class FunctionCall : public Expression
 public:
   FunctionCall(Expression *expr, AssignmentList arglist, const Location& loc);
   ~FunctionCall() override;
-  // Owns a call-site number, which the destructor hands back. See callSite.
+  // Owns callSite, which the destructor releases.
   FunctionCall(const FunctionCall&) = delete;
   FunctionCall& operator=(const FunctionCall&) = delete;
   [[nodiscard]] boost::optional<CallableFunction> evaluate_function_expression(
@@ -227,23 +221,12 @@ public:
 
 public:
   bool isLookup;
-  /*
-   * True when no argument is written `name = value`, which lets the call bind
-   * straight into the callee's context instead of going through Arguments and
-   * Parameters. Instantiating a BOSL2-heavy model makes ~20.9M calls, of which
-   * 98.8% qualify. Fixed by the parser, so the test costs nothing at runtime.
-   */
   bool allPositionalArgs;
-  /*
-   * This site's number in the process-wide numbering of call sites, which is
-   * what the per-session function-lookup cache is keyed on. Released back for
-   * reuse when the node dies. See EvaluationSession::functionLookupCache().
-   */
+  // Process-wide index into EvaluationSession::functionLookupCache(); recycled when the node dies.
   size_t callSite;
   Identifier name;
   std::shared_ptr<Expression> expr;
   AssignmentList arguments;
-  // Times this call site ran, for --profile. See core/ScriptProfile.h.
   mutable uint64_t profileCount{0};
 };
 
@@ -346,7 +329,7 @@ public:
 private:
   AssignmentList arguments;
   std::shared_ptr<Expression> expr;
-  // Body executions of this comprehension, for --profile.
+  // Body executions, for --profile.
   mutable uint64_t profileCount{0};
 };
 

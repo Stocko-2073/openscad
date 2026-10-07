@@ -48,13 +48,6 @@ public:
   constexpr static auto BOUNDING_BOX = "bounding-box";
   constexpr static auto AREA = "area";
 
-  // Names of the pipeline phases itemized underneath the total render time.
-  // Kept in one place so the GUI and the command line agree, and so a phase
-  // that is timed from more than one call site accumulates into one entry.
-  //
-  // Each phase is named for what it produces, since the stages are easy to
-  // confuse: the script is *evaluated* into a tree of AbstractNodes, and only
-  // the stage after that evaluates the nodes' geometry.
   constexpr static auto PHASE_PARSING = "Parsing";               // source -> AST
   constexpr static auto PHASE_EVALUATION = "Script evaluation";  // AST -> node tree
   constexpr static auto PHASE_INTERFERENCE = "Interference check";
@@ -77,9 +70,6 @@ public:
    */
   std::chrono::milliseconds ms();
 
-  /**
-   * A named pipeline phase and the time accumulated in it.
-   */
   struct PhaseTime {
     std::string name;
     std::chrono::milliseconds ms;
@@ -87,39 +77,25 @@ public:
   };
 
   /**
-   * Start timing the named pipeline phase. Beginning a phase that is already
-   * running is a no-op, and a phase begun again after it ended accumulates into
-   * the same entry, keeping the position of its first use. That way a phase
-   * spread over several callbacks still reads as a single line.
+   * Beginning a phase that is already running is a no-op, and a phase begun again after it ended
+   * accumulates into the same entry, keeping the position of its first use.
    */
   void beginPhase(const std::string& name);
 
   /**
-   * Stop timing the named phase. Ending a phase that isn't running is a no-op,
-   * so cancellation and error paths can call this without checking.
+   * Ending a phase that isn't running is a no-op.
    */
   void endPhase(const std::string& name);
 
-  /**
-   * Add time measured elsewhere, such as on a worker thread, to the named phase.
-   */
   void addPhaseTime(const std::string& name, std::chrono::steady_clock::duration elapsed);
 
-  /**
-   * A remark printed after the named phase's time, such as how much of the
-   * evaluation was reused. Replaces any earlier one.
-   */
   void setPhaseNote(const std::string& name, std::string note);
 
   /**
-   * The phases recorded since @ref start, in the order they were first begun.
-   * A phase still running is reported with the time accumulated so far.
+   * Since @ref start, in the order first begun. A phase still running reports its time so far.
    */
   [[nodiscard]] std::vector<PhaseTime> phaseTimes() const;
 
-  /**
-   * Times a pipeline phase for the duration of the enclosing scope.
-   */
   class ScopedPhase
   {
 public:

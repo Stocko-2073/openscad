@@ -13,13 +13,8 @@
 class QNetworkReply;
 
 /**
- * Keeps the built-in BOSL2 at the latest GitHub release. Started once per GUI
- * launch: it asks GitHub for the latest release and, when that is newer than
- * the copy in use, downloads it, unpacks it off the main thread and swaps it
- * into BOSL2Library::updateRoot(). The next render uses it.
- *
- * Not reaching GitHub is silent (the copy on disk keeps working); a download
- * that cannot be installed is reported as a warning in the console.
+ * Installs BOSL2's latest GitHub release into BOSL2Library::updateRoot() when it is newer than
+ * the copy in use.
  */
 class BOSL2Updater : public QObject
 {

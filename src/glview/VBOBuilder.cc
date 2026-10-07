@@ -30,7 +30,6 @@ Vector3d triangleNormal(const Vector3d& p0, const Vector3d& p1, const Vector3d& 
   return {nx / nl, ny / nl, nz / nl};
 }
 
-// Which of a vertex's edges the edge shader draws: the barycentric attribute, without its fourth byte.
 std::array<GLubyte, 3> barycentricFlags(size_t active_point_index, size_t primitive_index,
                                         size_t shape_size, bool outlines)
 {
@@ -63,8 +62,6 @@ std::array<GLubyte, 3> barycentricFlags(size_t active_point_index, size_t primit
   return barycentric_flags;
 }
 
-// The vertices create_surface() makes of a PolySet: three per triangle, six per quad, and a fan
-// of n triangles around the centroid of any other n-gon.
 size_t surfaceVertexCount(const PolySet& ps)
 {
   size_t count = 0;
@@ -76,8 +73,7 @@ size_t surfaceVertexCount(const PolySet& ps)
 
 }  // namespace
 
-// A vertex's bytes eight at a time, with splitmix64's finalizer so that the low bits, which pick
-// the slot, depend on all of them.
+// splitmix64's finalizer, so that the low bits, which pick the slot, depend on every byte.
 uint64_t ElementsMap::hash(const GLbyte *vertex, size_t stride)
 {
   uint64_t h = 0x9e3779b97f4a7c15ull ^ stride;
@@ -220,8 +216,7 @@ void VBOBuilder::createVertex(const std::array<Vector3d, 3>& points,
     emitVertex(vertex_.data(), vertex_.size(),
                useElements() ? ElementsMap::hash(vertex_.data(), vertex_.size()) : 0);
   } else if (useElements()) {
-    // Without a buffer allocated up front the attributes keep each new vertex, to be interleaved
-    // by createInterleavedVBOs().
+    // The attributes keep each new vertex for createInterleavedVBOs() to interleave.
     vertex_.resize(data()->stride());
     data()->getLastVertex(vertex_);
     const auto [index, added] =
@@ -289,7 +284,6 @@ void VBOBuilder::emitTriangle(const Color4f& color, const Vector3d& p0, const Ve
 {
   const Vector3d n = triangleNormal(p0, p1, p2);
   const std::array<const Vector3d *, 3> points = {&p0, &p1, &p2};
-  // The values createVertex() would stage: doubles narrowed to the attributes' floats.
   constexpr size_t floats_size = 10 * sizeof(GLfloat);
   const size_t stride = floats_size + (enable_barycentric ? 4 * sizeof(GLubyte) : 0);
   const bool elements = useElements();
@@ -417,8 +411,6 @@ void VBOBuilder::addAttributePointers(size_t start_offset)
   GLenum type = vertex_data->positionData()->glType();
   GLsizei stride = vertex_data->stride();
   size_t offset = start_offset + vertex_data->interleavedOffset(vertex_data->positionIndex());
-  // Note: Code may rely on this order of glBegin/glEnd functions for unlit/uncolored vertex
-  // rendering.
   vertex_state->glBegin().emplace_back([]() {
     GL_TRACE0("glEnableClientState(GL_VERTEX_ARRAY)");
     GL_CHECKD(glEnableClientState(GL_VERTEX_ARRAY));

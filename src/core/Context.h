@@ -64,13 +64,6 @@ public:
   T *operator->() { return context.get(); }
   std::shared_ptr<const T> operator*() const { return context; }
 
-  /*
-   * True when this handle is the context's only owner, so nothing has
-   * captured it and it can be cleared and reused rather than replaced. This
-   * is the test ContextMemoryManager::addContext already applies to decide
-   * whether a context can simply be dropped instead of handed to the
-   * collector.
-   */
   [[nodiscard]] bool sole_owner() const { return context.use_count() == 1; }
 
 private:
@@ -94,13 +87,8 @@ public:
   template <typename C, typename... T>
   static ContextHandle<C> create(T&&...t)
   {
-    /*
-     * Context constructors are protected so that only this function can build
-     * one, which rules out make_shared. A derived class may still invoke a
-     * protected base constructor, so go through one: that puts the context and
-     * its control block in a single allocation instead of two, and a large
-     * model builds tens of millions of contexts.
-     */
+    // A derived class can reach the protected constructors, which lets make_shared put the
+    // context and its control block in one allocation.
     struct Constructible : C {
       explicit Constructible(T&&...args) : C(std::forward<T>(args)...) {}
     };
@@ -144,20 +132,8 @@ public:
     }
   }
 
-  /*
-   * Nearest enclosing scope context -- the frame that carries a LocalScope, so
-   * the only kind that can define a function -- and a serial unique to it
-   * among every scope context the process has built. Both are inherited from
-   * the parent, so reading them costs nothing; ScopeContext overrides them
-   * with itself.
-   *
-   * Equal serials mean the same object, which means the whole chain below it
-   * is the same objects too, because a context's parent is fixed once it is
-   * built. That is what lets a call site cache what it resolved to: see
-   * FunctionCall::evaluate_function_expression. Comparing the pointers instead
-   * would not do -- contexts are created and destroyed tens of millions of
-   * times, so addresses are reused.
-   */
+  // The nearest enclosing ScopeContext, the only kind that defines functions, and its serial,
+  // which unlike an address is never reused within a session.
   [[nodiscard]] const Context *scopeOwner() const { return this->scope_owner; }
   [[nodiscard]] uint64_t scopeSerial() const { return this->scope_serial; }
 

@@ -356,8 +356,7 @@ struct ViewOptions {
 
 std::string get_current_iso8601_date_time_utc();
 
-// Draws `root_geom` as the 3D view does after a render, with `overlays` (see core/ModifierOverlays.h)
-// over it.
+// Draws `root_geom` as the 3D view does, with `overlays` over it.
 bool export_png(const std::shared_ptr<const class Geometry>& root_geom,
                 const std::vector<overlay::Mesh>& overlays, const ViewOptions& options, Camera& camera,
                 std::ostream& output);

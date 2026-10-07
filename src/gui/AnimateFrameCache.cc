@@ -74,33 +74,23 @@ std::vector<std::unique_ptr<memo::MemoTable>> MemoTablePool::trim()
   return std::move(idle_);
 }
 
-size_t MemoTablePool::idle() const
-{
-  const std::lock_guard<std::mutex> lock(mutex_);
-  return idle_.size();
-}
-
 FrameCache::FrameCache(QObject *parent) : QObject(parent), pool_(std::make_unique<QThreadPool>())
 {
   pool_->setMaxThreadCount(compute_worker_count());
   // A frame recurses as deeply as an evaluation on the GUI thread, which StackCheck lets use up to
-  // stackLimit(). Other threads get far less by default (512 KB on macOS), which a deep script
-  // overflowed, crashing the application.
+  // stackLimit(); other threads get far less by default (512 KB on macOS).
   pool_->setStackSize(static_cast<uint>(
     std::min<unsigned long>(PlatformUtils::stackLimit() + STACK_BUFFER_SIZE, UINT_MAX)));
-  // Don't kill idle threads aggressively — animation playback uses them repeatedly.
   pool_->setExpiryTimeout(60 * 1000);
   cancel_flag_ = std::make_shared<std::atomic<bool>>(false);
 }
 
 FrameCache::~FrameCache()
 {
-  // Cancel any in-flight tasks before tearing down. Workers check the flag at
-  // each pipeline boundary.
   if (cancel_flag_) cancel_flag_->store(true, std::memory_order_release);
   if (pool_) {
-    pool_->clear();          // drop queued tasks
-    pool_->waitForDone();    // wait for in-flight tasks to observe the cancel flag
+    pool_->clear();
+    pool_->waitForDone();
   }
 }
 
@@ -115,8 +105,7 @@ void FrameCache::setSource(std::shared_ptr<SourceFile> sourceFile,
                            const Camera &camera,
                            const memo::MemoTable *seed)
 {
-  // Forked here, on the GUI thread, the document's table leaves the tasks a copy that nothing
-  // changes, which they fork in turn. A few milliseconds for a large design.
+  // Forked here, on the GUI thread, the document's table leaves the tasks a copy that nothing changes.
   std::shared_ptr<MemoTablePool> tables;
   {
     const QMutexLocker locker(&mutex_);
@@ -124,7 +113,6 @@ void FrameCache::setSource(std::shared_ptr<SourceFile> sourceFile,
   }
   if (tables && seed) tables->setSeed(seed->fork());
 
-  // Cancel any in-flight tasks before swapping state.
   std::shared_ptr<std::atomic<bool>> old_flag;
   {
     const QMutexLocker locker(&mutex_);
@@ -139,7 +127,6 @@ void FrameCache::setSource(std::shared_ptr<SourceFile> sourceFile,
     cancel_flag_ = std::make_shared<std::atomic<bool>>(false);
     frames_.clear();
   }
-  // Drop queued tasks; in-flight ones will exit early via the (old) cancel flag.
   if (pool_) pool_->clear();
 }
 
@@ -171,17 +158,11 @@ void FrameCache::dropMemoTables()
   if (old_tables) freeOnWorker(std::move(old_tables));
 }
 
-size_t FrameCache::idleMemoTables() const
-{
-  const QMutexLocker locker(&mutex_);
-  return memo_tables_ ? memo_tables_->idle() : 0;
-}
-
 template <class T>
 void FrameCache::freeOnWorker(T garbage)
 {
   if (!pool_) return;
-  // Held by a copyable function, as QThreadPool takes one, and freed once the worker has run it.
+  // Held by a copyable function, as QThreadPool takes one.
   auto held = std::make_shared<T>(std::move(garbage));
   pool_->start([held]() mutable { held.reset(); });
 }
@@ -206,8 +187,6 @@ std::shared_ptr<CachedFrame> FrameCache::tryGet(int step)
 std::shared_ptr<CachedFrame> FrameCache::latestReady()
 {
   const QMutexLocker locker(&mutex_);
-  // No ordering metadata, so just scan and return any Ready frame. With the
-  // current prefetch window this is a small set (lookahead*2 entries max).
   for (auto it = frames_.rbegin(); it != frames_.rend(); ++it) {
     if (it->second->state.load(std::memory_order_acquire) == FrameState::Ready
         && it->second->result) {
@@ -227,19 +206,13 @@ void FrameCache::prefetchWindow(int currentStep, int lookahead)
   const int n = num_steps_;
   const int start = ((currentStep % n) + n) % n;
 
-  // Build set of steps we want in the window.
   std::vector<int> wanted;
   wanted.reserve(lookahead);
   for (int i = 0; i < lookahead && i < n; ++i) {
     wanted.push_back((start + i) % n);
   }
 
-  // Keep Ready frames forever (until setSource/invalidateAll clears them).
-  // Animation is cyclic and frame N is the same on every loop iteration as
-  // long as the source is unchanged, so caching them across cycles means
-  // cycle 2+ plays at full FPS even on scenes whose compute time exceeds
-  // 1/fps. Drop only Failed/Cancelled leftovers outside the prefetch window
-  // — those are cheap and just clutter the map.
+  // Ready frames stay until setSource() or invalidateAll(): every loop of the animation shows them.
   std::set<int> wanted_set(wanted.begin(), wanted.end());
   for (auto it = frames_.begin(); it != frames_.end(); ) {
     if (wanted_set.count(it->first) == 0) {
@@ -252,7 +225,6 @@ void FrameCache::prefetchWindow(int currentStep, int lookahead)
     ++it;
   }
 
-  // Enqueue any wanted step that isn't already known.
   for (int step : wanted) {
     if (frames_.find(step) == frames_.end()) {
       enqueueStep_unlocked(step);
@@ -284,19 +256,16 @@ void FrameCache::enqueueStep_unlocked(int step)
 
 void FrameCache::onFrameComplete(int step, int generation)
 {
-  // Runs on GUI thread (QueuedConnection from FrameTask). Confirm generation,
-  // then notify listeners.
   std::vector<std::unique_ptr<memo::MemoTable>> idle_tables;
   bool ready = false;
   {
     const QMutexLocker locker(&mutex_);
-    if (generation != generation_) return; // stale
+    if (generation != generation_) return;
     auto it = frames_.find(step);
-    if (it == frames_.end()) return;       // step was dropped from window
+    if (it == frames_.end()) return;
     ready = it->second->state.load(std::memory_order_acquire) == FrameState::Ready;
     // With no frame pending, the tasks are done with their memo tables, each holding a tree of
-    // its own: freeing ten that had made u-bot's frames gave back 6-7 GB. The next frames fork
-    // the seed again.
+    // its own. The next frames fork the seed again.
     const bool pending = std::any_of(frames_.begin(), frames_.end(), [](const auto& entry) {
       return entry.second->state.load(std::memory_order_acquire) == FrameState::Pending;
     });

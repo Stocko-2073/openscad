@@ -80,8 +80,7 @@ struct Message {
   Location loc;
   std::string docPath;
   enum message_group group;
-  // A deprecation printed once already and not again, which g_message_capture
-  // still receives; see make_message_obj().
+  // A deprecation suppressed as already printed; only g_message_capture receives it.
   bool repeat = false;
 
   Message() : msg(""), loc(Location::NONE), docPath(""), group(message_group::NONE) {}
@@ -127,11 +126,8 @@ void print_messages_push();
 void print_messages_pop();
 void resetSuppressedMessages();
 
-// Thread-local toggle that fully suppresses PRINT/PRINT_NOCACHE for the
-// current thread. The print machinery and its output handler reach into Qt
-// widgets and global state that is not thread-safe; pre-fetch workers
-// (gui/AnimateFrameTask) set this so their speculative re-evaluation can't
-// spam the console or race on shared buffers. Use the RAII guard.
+// Silences PRINT and PRINT_NOCACHE on this thread: the output handlers touch Qt widgets and
+// other state that is not thread-safe. Animation prefetch workers set it via PrintSuppressGuard.
 extern thread_local bool g_suppress_print;
 
 class PrintSuppressGuard
@@ -146,14 +142,8 @@ private:
   bool prev_;
 };
 
-/*
- * While non-empty, every message PRINT emits is also appended to the innermost
- * vector, whether or not printing is suppressed on this thread, and so is each
- * repeated deprecation that is not printed (Message::repeat). Incremental
- * evaluation (core/EvalMemo.h) records a call's output this way so that it can
- * replay it when the call is reused instead of run, including the deprecations
- * that were printed before the call ran but may not be where it is reused.
- */
+// While non-empty, every PRINTed message, suppressed or not, and every repeated deprecation
+// is also appended to the innermost vector, for incremental evaluation to replay.
 extern thread_local std::vector<std::vector<Message> *> g_message_capture;
 
 /* PRINT statements come out in same window as ECHO.
@@ -282,9 +272,8 @@ public:
   [[nodiscard]] std::string format() const { return format(std::index_sequence_for<Ts...>{}); }
 };
 
-// The deprecations printed so far, each only the first time. Per thread: the animation's frame
-// workers (gui/AnimateFrameTask) evaluate scripts beside the GUI thread, print nothing, and must
-// neither race on the set nor keep a render on the GUI thread from printing what they saw first.
+// Per thread: animation prefetch workers must not race on the set, and since they print
+// nothing, must not keep the GUI thread from printing a deprecation they saw first.
 extern thread_local std::set<std::string> printedDeprecations;
 
 template <typename... Args>

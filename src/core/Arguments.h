@@ -33,14 +33,6 @@ struct Argument {
   Value *operator->() { return &value; }
 };
 
-/*
- * The evaluated arguments of one call.
- *
- * Calls are overwhelmingly short. Instantiating a BOSL2-heavy model builds
- * ~20.9M of these, of which 79% carry a single argument and 98% carry two or
- * fewer, so the inline capacity keeps all but 2% of them off the heap
- * entirely -- the same trade ValueMap makes for context frames.
- */
 class Arguments : public boost::container::small_vector<Argument, 2>
 {
 public:

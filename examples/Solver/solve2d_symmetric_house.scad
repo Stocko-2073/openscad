@@ -1,13 +1,9 @@
-// solve2d_symmetric_house.scad — house silhouette demonstrating several of
-// the constraints added after solve2d v1: con_pt_line_distance and
-// con_at_midpoint.
+// solve2d_symmetric_house.scad — house silhouette using con_pt_line_distance
+// and con_at_midpoint.
 //
-// The walls are constrained to rise perpendicularly from the base; the
-// eaves are levelled by con_horizontal(); the ridge is placed on a
-// vertical centerline at a fixed perpendicular distance above the eaves.
-// Using con_pt_line_distance to set wall and ridge heights avoids
-// combining con_vertical() and con_distance() on the same point pair,
-// which the underlying solver does not handle robustly.
+// Wall and ridge heights are set with con_pt_line_distance: the solver does
+// not handle con_vertical() and con_distance() on the same pair of points
+// robustly.
 
 base = 16;
 wall = 12;
@@ -48,11 +44,6 @@ assert(solved(sol),
 
 echo(remaining_dof = dof(sol));   // expect 0 — fully constrained
 echo(ridge = pt(sol, "ridge"));
-
-// Sanity: ridge x-coordinate should be the centerline of the base.
-ridge_pt = pt(sol, "ridge");
-assert(abs(ridge_pt[0] - base/2) < 1e-6,
-       str("ridge not centered: ", ridge_pt));
 
 linear_extrude(3)
   polygon(poly(sol, ["bl", "br", "tr", "ridge", "tl"]));

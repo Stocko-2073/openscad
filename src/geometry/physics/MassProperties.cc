@@ -8,8 +8,7 @@
 
 namespace {
 
-// Common subexpressions for the per-face integrals; see Eberly,
-// "Polyhedral Mass Properties (Revisited)", Geometric Tools.
+// Eberly, "Polyhedral Mass Properties (Revisited)", Geometric Tools.
 inline void subexpressions(double w0, double w1, double w2,
                            double& f1, double& f2, double& f3,
                            double& g0, double& g1, double& g2)
@@ -29,13 +28,11 @@ inline void subexpressions(double w0, double w1, double w2,
 
 bool computeMassProperties(const PolySet& ps, MassProps& out, std::string& err)
 {
-  // Volume integrals of 1, x, y, z, x^2, y^2, z^2, xy, yz, zx over the solid,
-  // accumulated as surface integrals via the divergence theorem.
+  // Integrals of 1, x, y, z, x^2, y^2, z^2, xy, yz, zx over the solid, via the divergence theorem.
   double intg[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
   for (const auto& face : ps.indices) {
     if (face.size() < 3) continue;
-    // Faces are expected to be triangles; fan defensively if not.
     const Vector3d& p0 = ps.vertices[face[0]];
     for (size_t i = 1; i + 1 < face.size(); ++i) {
       const Vector3d& p1 = ps.vertices[face[i]];
@@ -72,8 +69,7 @@ bool computeMassProperties(const PolySet& ps, MassProps& out, std::string& err)
   for (int i = 4; i < 7; ++i) intg[i] /= 60.0;
   for (int i = 7; i < 10; ++i) intg[i] /= 120.0;
 
-  // An inward-wound mesh yields a negative signed volume; flipping the sign
-  // of every integral is equivalent to flipping all face normals.
+  // An inward-wound mesh has negative volume; negating every integral flips all its face normals.
   if (intg[0] < 0.0) {
     for (double& v : intg) v = -v;
   }
@@ -88,7 +84,6 @@ bool computeMassProperties(const PolySet& ps, MassProps& out, std::string& err)
 
   const Vector3d com(intg[1] / volume, intg[2] / volume, intg[3] / volume);
 
-  // Inertia tensor per unit density about the center of mass, world axes.
   // Off-diagonals carry the standard minus sign of products of inertia.
   const double ixx = intg[5] + intg[6] - volume * (com.y() * com.y() + com.z() * com.z());
   const double iyy = intg[4] + intg[6] - volume * (com.z() * com.z() + com.x() * com.x());

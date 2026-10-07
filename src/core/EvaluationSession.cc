@@ -92,8 +92,7 @@ boost::optional<CallableFunction> EvaluationSession::lookup_special_function(con
     }
     boost::optional<CallableFunction> result = stack[i]->lookup_local_function(name, loc);
     if (result) {
-      // A $ function is a variable holding a function value; reading it is a
-      // $ read like any other.
+      // A $ function is a variable holding a function value.
       if (memo_session) {
         const auto value = stack[i]->lookup_local_variable(name);
         memo_session->noteDollarRead(name, i, value ? &*value : nullptr);

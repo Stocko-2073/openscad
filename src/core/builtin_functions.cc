@@ -141,7 +141,6 @@ Value builtin_sign(Arguments arguments, const Location& loc)
 
 Value builtin_rands(Arguments arguments, const Location& loc)
 {
-  // Depends on more than its arguments, so a call that ran it cannot be reused.
   memo::EvalMemoSession::noteImpure(arguments.session());
   if (arguments.size() < 3 || arguments.size() > 4) {
     print_argCnt_warning("rands", arguments.size(), "3 or 4", loc, arguments.documentRoot());
@@ -877,7 +876,6 @@ Value builtin_parent_module(Arguments arguments, const Location& loc)
         "Negative parent module index (%1$d) not allowed", n);
     return Value::undefined.clone();
   }
-  // Reads the module-name stack, which a reused call must see the same where it reads it.
   if (n >= s) {
     memo::EvalMemoSession::noteModuleStackRead(arguments.session(),
                                                memo::EvalMemoSession::kWholeModuleStack);
@@ -953,7 +951,6 @@ Value builtin_cross(Arguments arguments, const Location& loc)
 
 Value builtin_textmetrics(Arguments arguments, const Location& loc)
 {
-  // Depends on more than its arguments, so a call that ran it cannot be reused.
   memo::EvalMemoSession::noteImpure(arguments.session());
   auto *session = arguments.session();
   static const std::vector<Identifier> required{"text", "size", "font"};
@@ -1008,7 +1005,6 @@ Value builtin_textmetrics(Arguments arguments, const Location& loc)
 
 Value builtin_fontmetrics(Arguments arguments, const Location& loc)
 {
-  // Depends on more than its arguments, so a call that ran it cannot be reused.
   memo::EvalMemoSession::noteImpure(arguments.session());
   auto *session = arguments.session();
   static const std::vector<Identifier> required{"size", "font", "em"};
@@ -1111,7 +1107,6 @@ Value builtin_is_object(Arguments arguments, const Location& loc)
 
 Value builtin_import(Arguments arguments, const Location& loc)
 {
-  // Depends on more than its arguments, so a call that ran it cannot be reused.
   memo::EvalMemoSession::noteImpure(arguments.session());
   auto session = arguments.session();
   static const std::vector<Identifier> optional{"file"};

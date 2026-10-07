@@ -96,8 +96,7 @@ std::time_t SourceFileCache::process(const std::string& mainFile, const std::str
     }
 #endif
 
-    // Still in iCloud: the GUI downloads it and recompiles rather than block
-    // here. Forget this pass so the next one parses it.
+    // Still in iCloud. Forget this pass so the recompile after its download parses it.
     if (DatalessFiles::shouldDefer(filename)) {
       if (found) cacheEntry.cache_id.clear();
       else this->entries.erase(filename);

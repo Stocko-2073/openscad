@@ -1,3 +1,0 @@
-ECHO: version_parts = 3, major = 2
-ECHO: lerp = 2.5
-ECHO: cube_bounds = [[-5, -10, 0], [5, 10, 30]]

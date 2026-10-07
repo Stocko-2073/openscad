@@ -57,15 +57,6 @@ eigen_sysver()
   eigen_sysver_result="$eswrld.$esmaj.$esmin"
 }
 
-catch2_sysver()
-{
-  catch2path=$1/include/catch2/catch_version_macros.hpp
-  if [ ! -e $catch2path ]; then return; fi
-  catch2maj=`grep "define  *CATCH_VERSION_MAJOR  *[0-9]*" $catch2path | awk '{print $3}'`
-  catch2min=`grep "define  *CATCH_VERSION_MINOR  *[0-9]*" $catch2path | awk '{print $3}'`
-  catch2_sysver_result="$catch2maj.$catch2min"
-}
-
 cgal_sysver()
 {
   cgalpath=$1/include/CGAL/version.h
@@ -664,7 +655,7 @@ checkargs()
 
 main()
 {
-  deps="qt qscintilla2 cmake catch2 cgal gmp mpfr boost glew eigen glib2 fontconfig freetype2 harfbuzz libzip bison flex make double-conversion"
+  deps="qt qscintilla2 cmake cgal gmp mpfr boost glew eigen glib2 fontconfig freetype2 harfbuzz libzip bison flex make double-conversion"
   #deps="$deps curl git" # not technically necessary for build
   #deps="$deps python imagemagick" # only needed for tests
   #deps="cgal"

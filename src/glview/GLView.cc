@@ -229,7 +229,6 @@ void GLView::paintGL()
   glColorMask(mask[0], mask[1], mask[2], mask[3]);
 }
 
-
 #ifdef DEBUG
 // Requires OpenGL 4.3+
 /*

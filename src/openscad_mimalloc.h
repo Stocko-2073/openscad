@@ -3,17 +3,12 @@
 #ifdef USE_MIMALLOC
 
 #if defined(MI_OVERRIDE) || (defined(_WIN32) && defined(MI_LINK_STATIC))
-  // MI_OVERRIDE builds already define operator new/delete inside mimalloc, so
-  // including the override header here would be a duplicate definition.
-  // On Windows, mimalloc doesn't support static override of malloc at all, and
-  // the new/delete override crashes when it is statically linked.
+  // MI_OVERRIDE builds already define operator new/delete; on Windows the override header
+  // crashes when mimalloc is statically linked.
 #include <mimalloc.h>
 #else
-  // Replace the global operator new/delete so C++ allocation goes through
-  // mimalloc even where MI_OVERRIDE is off. Without this, mimalloc would be
-  // linked but only ever serve GMP, and every std::string/vector/shared_ptr in
-  // the evaluator would still go to the system allocator.
-  // This header must be included in exactly one translation unit.
+  // Routes C++ new/delete through mimalloc, which would otherwise serve only GMP.
+  // Include this header in exactly one translation unit.
 #include <mimalloc-new-delete.h>
 #endif
 

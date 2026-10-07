@@ -9,10 +9,6 @@
 #include "glview/fbo.h"
 #include "glview/system-gl.h"
 #include "utils/printutils.h"
-/**
- * The view is drawn with a flat, unlit shader into an offscreen framebuffer, and the depth under
- * the cursor is read back. The picker turns that into a point on the rendered surface.
- */
 
 MouseSelector::MouseSelector(GLView *view)
 {
@@ -76,10 +72,6 @@ void MouseSelector::setupFramebuffer(int width, int height)
   }
 }
 
-/**
- * Setup the shaders, Projection and Model matrix and call the given renderer, then read back the
- * depth at (x, y).
- */
 std::optional<float> MouseSelector::depthAt(const Renderer *renderer, int x, int y)
 {
   if (!this->framebuffer) return std::nullopt;

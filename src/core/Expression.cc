@@ -493,16 +493,8 @@ static void NOINLINE print_trace(EvaluationException& e, const FunctionCall *val
         val->get_name());
 }
 
-/*
- * Numbers the call sites, so that a session can key its function-lookup cache
- * on an array index instead of a hash of the node address.
- *
- * Numbers are handed back when a node dies, which keeps the numbering
- * proportional to the scripts currently loaded rather than to how many times
- * they have been parsed: the GUI reparses on every edit, and a session sizes
- * its cache to the highest number it sees. Locked because parsing one file can
- * overlap evaluating another.
- */
+// Call-site numbers are recycled, since the GUI reparses on every edit and sessions size their
+// lookup caches to the highest. Locked because parsing one file can overlap evaluating another.
 namespace {
 
 std::mutex& callSiteMutex()
@@ -569,31 +561,11 @@ FunctionCall::~FunctionCall()
 }
 
 /*
- * Resolve the call's target, remembering the answer on the call site.
- *
- * A lookup walks the context chain, testing each frame's function filter and
- * probing the frames that pass. Instantiating a BOSL2-heavy model does that
- * 21M times, and two thirds of those end in the builtin table one frame past a
- * file scope that had to be probed and missed on the way -- the same walk, to
- * the same answer, every time the site runs.
- *
- * What a site resolves to is fixed by exactly two things: the ordered list of
- * LocalScopes on the chain, which is immutable once parsed, and any variable on
- * the chain holding a function value. So the cached answer is guarded by
- *
- *  - the serial of the nearest enclosing scope context. An equal serial means
- *    the same object, hence the same chain of objects below it; the frames
- *    above it carry no LocalScope and so define no functions;
- *  - Identifier::hasFunctionValue(), which goes true the first time anything
- *    binds this name to a function value. That covers the frames above the
- *    scope owner, and it is deliberately global and monotonic: a script that
- *    keeps its functions in variables simply keeps walking.
- *
- * Only the two answers that can be rebuilt without keeping a context alive are
- * cached -- a builtin, whose pointer is a global, and a function defined by the
- * scope owner itself, whose defining context is the scope owner the guard has
- * just identified. A function from a scope further down the chain, one reached
- * through `use`, or a function value all fall through to the walk.
+ * A cached resolution holds while the nearest scope context is the same one (equal
+ * scopeSerial(); the chain below it is then the same, and the frames above it define no
+ * functions) and no variable has ever held a function by this name (hasFunctionValue()).
+ * Only answers that need no context kept alive are cached: a builtin, or a function the
+ * scope owner itself defines.
  */
 boost::optional<CallableFunction> FunctionCall::evaluate_function_expression(
   const std::shared_ptr<const Context>& context) const
@@ -625,9 +597,8 @@ boost::optional<CallableFunction> FunctionCall::evaluate_function_expression(
 
   boost::optional<CallableFunction> result = context->lookup_function(name, location());
   if (result) {
-    // Re-fetched rather than reusing the reference above: resolving a name
-    // through `use` builds a FileContext, whose assignments can run script and
-    // grow the cache out from under it.
+    // Re-fetched: resolving through `use` builds a FileContext, whose assignments can run
+    // script that grows the cache and invalidates `cached`.
     FunctionLookupCache& entry = session->functionLookupCache(callSite);
     if (const auto *builtin = std::get_if<const BuiltinFunction *>(&*result)) {
       entry = FunctionLookupCache{this, serial, *builtin, nullptr};
@@ -640,25 +611,9 @@ boost::optional<CallableFunction> FunctionCall::evaluate_function_expression(
   return result;
 }
 
-/*
- * Bind a call's arguments straight into the context its body will run in.
- *
- * The general path evaluates the arguments into an Arguments vector, matches
- * that against the parameter list into a Parameters frame, and finally moves
- * the frame into the body context: three containers, and every value moved
- * three times. When no argument is named, argument i is simply parameter i,
- * and none of that machinery earns its keep.
- *
- * Returns false having touched nothing when the general path is still needed:
- *
- *  - more arguments than parameters, which has to warn;
- *  - a parameter that is a config variable. The body context is already on the
- *    special-variable stack, so binding a $-name into it here would let a
- *    later default expression see it; the general path fills a frame that is
- *    not pushed until every default has been evaluated, so it does not;
- *  - a parameter named `this`, which builtin_object fills from the defining
- *    context in preference to anything supplied.
- */
+// Returns false, having bound nothing, when the general path is needed: surplus arguments warn;
+// body_context is already on the special-variable stack, where a later default would see a $
+// parameter; and builtin_object fills `this` from the defining context.
 static bool bind_positional_arguments(const FunctionCall *call, const AssignmentList& parameters,
                                       const std::shared_ptr<const Context>& context,
                                       const std::shared_ptr<const Context>& defining_context,
@@ -696,12 +651,8 @@ struct SimplifiedExpression {
 };
 using SimplificationResult = std::variant<SimplifiedExpression, Value>;
 
-/*
- * $inherit_config_variables is false while the caller is still evaluating in
- * its own context rather than one this loop installed. The context built here
- * then starts out with no config variables of its own, exactly as it did when
- * they were copied from an empty placeholder context.
- */
+// inherit_config_variables means `context` is one FunctionCall::evaluate installed. The context
+// built here replaces it on the special-variable stack, so takes over its $ variables.
 static SimplificationResult simplify_function_body(const Expression *expression,
                                                    const std::shared_ptr<const Context>& context,
                                                    bool inherit_config_variables)
@@ -728,12 +679,7 @@ static SimplificationResult simplify_function_body(const Expression *expression,
       return SimplifiedExpression{let->evaluateStep(let_context), std::move(let_context)};
     } else if (type == typeid(FunctionCall)) {
       const auto *call = static_cast<const FunctionCall *>(expression);
-      /*
-       * Every call passes through here exactly once, tail calls included --
-       * FunctionCall::evaluate reaches its own body by this branch -- which
-       * makes it the one place a per-site count is neither missed nor
-       * doubled.
-       */
+      // Every call passes through here exactly once, tail calls included.
       profileEvent(ScriptProfile::Kind::Call, call->get_name(), call->location(),
                    call->profileCount);
 
@@ -801,24 +747,9 @@ Value FunctionCall::evaluate(const std::shared_ptr<const Context>& context) cons
   unsigned int recursion_depth = 0;
   const FunctionCall *current_call = this;
 
-  /*
-   * Evaluate in the caller's context until a call body or a let produces one
-   * of its own; the handle then holds whatever the tail-call loop installed
-   * last. Creating an empty context up front instead cost one per call, and a
-   * call that reduces to a builtin never needs one: of the 38.9M contexts
-   * instantiating a large model builds, 20.9M were these.
-   */
   boost::optional<ContextHandle<Context>> expression_context;
-  /*
-   * MUST be declared after expression_context, so that it is destroyed before
-   * it. It aliases the same context, and ~ContextHandle hands that context to
-   * ContextMemoryManager::addContext, which registers it with the garbage
-   * collector unless the handle is its sole owner. Declared the other way
-   * round the handle goes first, addContext sees use_count 2, and 7.2M of the
-   * 9.9M contexts a large model builds take the collector's path instead of
-   * being dropped on the spot: 578MB peak instead of 160MB, and ~10% slower.
-   * Both measured, by getting it wrong.
-   */
+  // Declared after expression_context so it is destroyed first: it aliases that context, and
+  // ~ContextHandle hands a context it does not solely own to the garbage collector.
   std::shared_ptr<const Context> current_context = context;
 
   const Expression *expression = this;
@@ -959,7 +890,6 @@ Let::Let(AssignmentList args, Expression *expr, const Location& loc)
 void Let::doSequentialAssignment(const AssignmentList& assignments, const Location& location,
                                  ContextHandle<Context>& targetContext)
 {
-  // Assignment lists are short, so a scanned array beats a tree here.
   boost::container::small_vector<Identifier, 8> seen;
   for (const auto& assignment : assignments) {
     Value value = assignment->getExpr()->evaluate(*targetContext);
@@ -1100,22 +1030,9 @@ static inline ContextHandle<Context> forContext(const std::shared_ptr<const Cont
 }
 
 /*
- * The context a `for` binds its variable in, kept across iterations.
- *
- * Each iteration needs its own binding, and instantiating a BOSL2-heavy model
- * runs ~8.9M of them. Almost none outlive the iteration that created them, so
- * rather than allocate a context, push it on the special-variable stack,
- * account for it and destroy it every time, the previous one is cleared and
- * rebound.
- *
- * An iteration whose context *was* captured -- by a function literal, by an
- * object, or by a child context that survived -- leaves the use count above
- * one, and the next iteration gets a fresh context. Nothing can reach the
- * reused context except through a shared_ptr, since a child holds its parent
- * by one, so the use count is a complete test.
- *
- * The first binding allocates lazily, which keeps a loop over an empty range
- * or list from building a context it never uses.
+ * The context a `for` binds its variable in, cleared and reused across iterations unless
+ * captured. Anything that can reach it holds a shared_ptr (a child holds its parent by one),
+ * so the use count is a complete test.
  */
 class LoopContext
 {

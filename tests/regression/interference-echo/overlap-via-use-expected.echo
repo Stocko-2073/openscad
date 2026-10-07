@@ -1,2 +1,0 @@
-WARNING: Interference: part 1 (line 4) overlaps part 2 (line 5), overlap volume = 40 in file overlap-via-use.scad, line 4
-ECHO: Interference check: 2 part(s), 1 overlapping pair(s).
