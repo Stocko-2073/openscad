@@ -477,10 +477,13 @@ private:
   std::vector<std::shared_ptr<AbstractNode>> memoReplaced;
   std::weak_ptr<memo::MemoTable> memoToTrim;
   void trimMemo();
+  // Forgets what the next render would reuse, so that it makes everything again (F6).
+  void dropRenderCaches();
 
   char const *afterCompileSlot;
   bool procevents{false};
-  bool renderRequested{false};  // while the GUI was locked; see renderWhenUnlocked()
+  bool renderRequested{false};    // while the GUI was locked; see renderWhenUnlocked()
+  bool renderFromScratch{false};  // asked for by F6, done by the next render
   QTemporaryFile *tempFile{nullptr};
   ProgressWidget *progresswidget{nullptr};
   CGALWorker *cgalworker;

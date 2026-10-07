@@ -1,11 +1,14 @@
 #include "TestEvalMemo.h"
 
+#include <QAction>
 #include <QDateTime>
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QKeySequence>
+#include <QList>
 #include <QString>
 #include <QStringList>
 #include <QTemporaryDir>
@@ -27,6 +30,7 @@
 #include "gui/Animate.h"
 #include "gui/AnimateFrameCache.h"
 #include "gui/Preferences.h"
+#include "utils/Hash128.h"
 #ifdef ENABLE_CGAL
 #include "geometry/cgal/CGALCache.h"
 #endif
@@ -78,7 +82,7 @@ bool rendered(MainWindow *window, Start start)
   return done;
 }
 
-// Renders as F6 does, or with `reload` as auto-reload does after a save.
+// Renders as F5 does, or with `reload` as auto-reload does after a save.
 bool render(MainWindow *window, bool reload = false)
 {
   return rendered(window, [&]() {
@@ -331,6 +335,59 @@ void TestEvalMemo::keepsTheRendererOfAnUnchangedResult()
     QString::fromStdString(RenderSettings::inst()->colorscheme));
   QVERIFY(render(window));
   QVERIFY(window->geomRenderer && window->geomRenderer != second);
+
+  window->tabManager->closeCurrentTab();
+}
+
+void TestEvalMemo::f6RendersFromScratch()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath("scratch.scad");
+  save(path, kParts + "pair();\n#part(3);\n");
+  window->tabManager->createTab(path);
+  EditorInterface *editor = window->activeEditor;
+  QVERIFY(render(window));
+  QVERIFY(render(window));
+  QCOMPARE(evaluationNote(window), QString("reused 4 of 4 module calls"));
+
+  // F6 evaluates every call again, into a new table, makes all the geometry again, and gives the
+  // unchanged result new buffers.
+  QCOMPARE(window->designActionRender->shortcuts(), QList<QKeySequence>{QKeySequence(Qt::Key_F6)});
+  const auto table = editor->memoTable;
+  const auto renderer = window->geomRenderer;
+  const Hash128 stale{0x5ca1ab1e, 0xf6};
+  QVERIFY(GeometryCache::instance()->insert(stale, nullptr));
+  QVERIFY(rendered(window, [&]() { window->designActionRender->trigger(); }));
+  QCOMPARE(evaluationNote(window), QString("reused 0 of 4 module calls"));
+  QVERIFY(editor->memoTable && editor->memoTable != table);
+  QVERIFY(!GeometryCache::instance()->contains(stale));
+  QVERIFY(window->geomRenderer && window->geomRenderer != renderer);
+  QVERIFY(matchesFreshEvaluation(window));
+  QCOMPARE(overlay::collect(window->tree, *window->rootNode).size(), size_t{1});
+
+  // F5 reuses what it made.
+  QAction *f5 = nullptr;
+  for (auto *action : window->actions()) {
+    if (action->shortcut() == QKeySequence(Qt::Key_F5)) f5 = action;
+  }
+  QVERIFY(f5);
+  const auto f6Renderer = window->geomRenderer;
+  QVERIFY(rendered(window, [&]() { f5->trigger(); }));
+  QCOMPARE(evaluationNote(window), QString("reused 4 of 4 module calls"));
+  QVERIFY(window->geomRenderer == f6Renderer);
+
+  // F6 pressed during a render renders from scratch once that one is done.
+  QVERIFY(idle());
+  int done = 0;
+  const auto connection =
+    QObject::connect(window, &MainWindow::compilationDone, [&done](SourceFile *) { ++done; });
+  window->actionRender();
+  QVERIFY(GuiLocker::isLocked());
+  window->designActionRender->trigger();
+  QTRY_COMPARE_WITH_TIMEOUT(done, 2, 30000);
+  QObject::disconnect(connection);
+  QCOMPARE(evaluationNote(window), QString("reused 0 of 4 module calls"));
 
   window->tabManager->closeCurrentTab();
 }

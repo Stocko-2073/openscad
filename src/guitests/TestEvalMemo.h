@@ -14,6 +14,7 @@ private slots:
   void animationTimeIsADependency();
   void framesStartFromTheDocumentsTable();
   void keepsTheRendererOfAnUnchangedResult();
+  void f6RendersFromScratch();
   void benchmarkEditSequence();
   void benchmarkAnimationFirstPass();
 };

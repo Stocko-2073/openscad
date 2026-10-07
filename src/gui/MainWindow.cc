@@ -1907,6 +1907,9 @@ void MainWindow::on_designAction3DPrint_triggered()
 
 void MainWindow::on_designActionRender_triggered()
 {
+  // F6 renders from scratch. F5, auto-reload and the renders that follow an edit reuse what
+  // earlier renders made.
+  this->renderFromScratch = true;
   actionRender();
 }
 
@@ -1914,7 +1917,7 @@ void MainWindow::actionRender()
 {
   if (GuiLocker::isLocked()) {
     // A compile, render or export is running: render once it is done, so the view ends up showing
-    // the latest text. Requests made meanwhile make one render.
+    // the latest text. Requests made meanwhile make one render, from scratch if one asked for it.
     if (!this->renderRequested) {
       this->renderRequested = true;
       QTimer::singleShot(autoReloadPollingPeriodMS, this, &MainWindow::renderWhenUnlocked);
@@ -1923,9 +1926,26 @@ void MainWindow::actionRender()
   }
   this->renderRequested = false;
   GuiLocker::lock();
+  if (this->renderFromScratch) {
+    this->renderFromScratch = false;
+    dropRenderCaches();
+  }
 
   prepareCompile("cgalRender", true);
   compile(false);
+}
+
+void MainWindow::dropRenderCaches()
+{
+  // With the GUI locked, no render is using them. The geometry caches are the other windows' too;
+  // a file the document uses is parsed again only if it changed, as for any render.
+  activeEditor->memoTable.reset();
+  animateWidget->dropMemoTables();
+  GeometryCache::instance()->clear();
+  CGALCache::instance()->clear();
+  dxf_dim_cache.clear();
+  dxf_cross_cache.clear();
+  this->shownResult.reset();  // the result gets new buffers even if it is unchanged
 }
 
 void MainWindow::renderWhenUnlocked()
@@ -2820,7 +2840,7 @@ void MainWindow::on_viewActionShowInterference_toggled(bool checked)
   QSettingsCached settings;
   settings.setValue("view/showInterference", checked);
   // The check runs with the render.
-  on_designActionRender_triggered();
+  actionRender();
 }
 
 bool MainWindow::isEmpty()
@@ -3876,10 +3896,12 @@ void MainWindow::setupMenusAndActions()
   updateRecentFileActions();
 
   show_examples();
-  // F5 used to preview. It renders, as F6 does.
-  auto renderShortcuts = this->designActionRender->shortcuts();
-  renderShortcuts.push_back(QKeySequence(Qt::Key_F5));
-  this->designActionRender->setShortcuts(renderShortcuts);
+  // F5 used to preview. It renders, reusing what earlier renders made, where F6 renders from
+  // scratch.
+  auto *renderAction = new QAction(this);
+  renderAction->setShortcut(QKeySequence(Qt::Key_F5));
+  connect(renderAction, &QAction::triggered, this, &MainWindow::actionRender);
+  this->addAction(renderAction);
 #ifndef __APPLE__
   auto shortcuts = this->fileActionReload->shortcuts();
   shortcuts.push_back(QKeySequence(Qt::Key_F3));
