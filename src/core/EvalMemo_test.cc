@@ -314,6 +314,78 @@ TEST_CASE("An accumulated $ variable read for real further down is a dependency"
   CHECK(run.tree == evaluate(*three, nullptr).tree);
 }
 
+TEST_CASE("parent_module() inside a call makes no other module a dependency", "[memo]")
+{
+  // As BOSL2's req_children() does: it reads the name of the module that called it, inside
+  // part(), so part() does not depend on who called it, nor on how deep.
+  const auto file = parseScript(R"(
+module needs(n) echo(str(parent_module(1), " needs ", n));
+module part() { needs(1); cube(1); }
+module a() part();
+module wrap() children();
+a();
+wrap() wrap() part();
+)");
+  memo::MemoTable table;
+  const Run first = evaluate(*file, &table);
+  CHECK(first.stats.hits == 1);  // the second part(), deeper and from elsewhere
+  const Run fresh = evaluate(*file, nullptr);
+  REQUIRE(fresh.messages.size() == 2);
+  CHECK(first.messages == fresh.messages);
+  CHECK(first.tree == fresh.tree);
+}
+
+TEST_CASE("parent_module() reaching past a call makes those modules a dependency", "[memo]")
+{
+  const auto file = parseScript(R"(
+module who() echo(parent_module(1));
+module a() who();
+module b() who();
+module wrap() children();
+a();
+b();
+wrap() who();
+wrap() wrap() who();
+)");
+  memo::MemoTable table;
+  const Run first = evaluate(*file, &table);
+  const Run fresh = evaluate(*file, nullptr);
+  REQUIRE(fresh.messages.size() == 4);
+  CHECK(first.messages == fresh.messages);
+  // who() read the name below its own, so it runs again under each caller; the inner wrap() of
+  // the last line is reused from the line before, its who() naming the same module there.
+  CHECK(first.stats.hits == 1);
+
+  const Run second = evaluate(*file, &table);
+  CHECK(second.messages == fresh.messages);
+  CHECK(second.tree == fresh.tree);
+  CHECK(second.stats.userCallsReused == second.stats.userCalls);
+}
+
+TEST_CASE("parent_module() past the bottom of the stack depends on its size", "[memo]")
+{
+  // deep() warns where the stack has fewer than three modules, and names the one two below it
+  // where it has more.
+  const auto file = parseScript(R"(
+module deep() echo(parent_module(2));
+module wrap() children();
+deep();
+wrap() deep();
+wrap() wrap() deep();
+wrap() wrap() wrap() deep();
+)");
+  memo::MemoTable table;
+  const Run first = evaluate(*file, &table);
+  const Run fresh = evaluate(*file, nullptr);
+  CHECK(first.messages == fresh.messages);
+  CHECK(first.tree == fresh.tree);
+  // Each deep() runs, until the middle wrap() of the last line, which is reused from the outer
+  // one of the line before: its deep() names the same module, "wrap", two below its own.
+  CHECK(first.stats.hits == 1);
+  const Run second = evaluate(*file, &table);
+  CHECK(second.messages == fresh.messages);
+}
+
 TEST_CASE("A reused call prints its messages again", "[memo]")
 {
   const auto file = parseScript("module talk() { echo(\"hi\"); cube(); }\ntalk();\ntalk();");

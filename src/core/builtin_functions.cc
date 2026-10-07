@@ -861,8 +861,6 @@ Value builtin_version_num(Arguments arguments, const Location& loc)
 
 Value builtin_parent_module(Arguments arguments, const Location& loc)
 {
-  // Reads the module-name stack, which a reused call must see the same.
-  memo::EvalMemoSession::noteModuleStackRead(arguments.session());
   double d;
   if (arguments.size() == 0) {
     d = 1;
@@ -879,11 +877,15 @@ Value builtin_parent_module(Arguments arguments, const Location& loc)
         "Negative parent module index (%1$d) not allowed", n);
     return Value::undefined.clone();
   }
+  // Reads the module-name stack, which a reused call must see the same where it reads it.
   if (n >= s) {
+    memo::EvalMemoSession::noteModuleStackRead(arguments.session(),
+                                               memo::EvalMemoSession::kWholeModuleStack);
     LOG(message_group::Warning, loc, arguments.documentRoot(),
         "Parent module index (%1$d) greater than the number of modules on the stack", n);
     return Value::undefined.clone();
   }
+  memo::EvalMemoSession::noteModuleStackRead(arguments.session(), static_cast<size_t>(s - 1 - n));
   return {UserModule::stack_element(s - 1 - n)};
 }
 

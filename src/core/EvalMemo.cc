@@ -294,7 +294,8 @@ public:
     base = frames;
     impure = false;
     unhashable = false;
-    readsModuleStack = false;
+    lowestModule = kNoModule;
+    wholeModuleStack = false;
     reads.clear();
     pending.clear();
     realNames.clear();
@@ -359,7 +360,8 @@ public:
     if (!parent) return;
     parent->impure |= impure;
     parent->unhashable |= unhashable;
-    parent->readsModuleStack |= readsModuleStack;
+    parent->lowestModule = std::min(parent->lowestModule, lowestModule);
+    parent->wholeModuleStack |= wholeModuleStack;
     for (const auto& r : reads) {
       if (r.index == kNoFrame || r.index == kPromoted || r.index < parent->base) merge(parent->reads, r);
     }
@@ -382,9 +384,14 @@ public:
   std::vector<EvalMemoSession::NestedResult> nested;
 
   size_t base = 0;  // $ reads from frames below this one are the call's dependencies
+  size_t ownModule = 0;  // where the call's name is on the module-name stack
   bool impure = false;
   bool unhashable = false;
-  bool readsModuleStack = false;
+  // The lowest index of the module-name stack that parent_module() read inside the call, and
+  // whether a read depended on the stack's size. Below ownModule, they are dependencies.
+  static constexpr size_t kNoModule = SIZE_MAX;
+  size_t lowestModule = kNoModule;
+  bool wholeModuleStack = false;
   std::vector<Read> reads;
   std::vector<Read> pending;
   std::vector<Identifier> realNames;
@@ -454,11 +461,14 @@ void EvalMemoSession::noteImpure(EvaluationSession *session)
   }
 }
 
-void EvalMemoSession::noteModuleStackRead(EvaluationSession *session)
+void EvalMemoSession::noteModuleStackRead(EvaluationSession *session, size_t index)
 {
   if (!session) return;
   EvalMemoSession *memo = session->memo();
-  if (memo && !memo->recorders.empty()) memo->recorders.back()->readsModuleStack = true;
+  if (!memo || memo->recorders.empty()) return;
+  Recorder& r = *memo->recorders.back();
+  if (index == kWholeModuleStack) r.wholeModuleStack = true;
+  else r.lowestModule = std::min(r.lowestModule, index);
 }
 
 void EvalMemoSession::noteDollarRead(const Identifier& name, size_t index, const Value *value)
@@ -836,14 +846,27 @@ bool EvalMemoSession::computeKey(const UserModule& module, const FileContext& de
   return true;
 }
 
-Hash128 EvalMemoSession::moduleStackHash()
+Hash128 EvalMemoSession::moduleStackHash(size_t from, size_t to)
 {
   Hasher h;
-  const int size = UserModule::stack_size();
   h.u64(kModuleStack);
-  h.u64(size);
-  for (int i = 0; i < size; ++i) h.str(UserModule::stack_element(i));
+  h.u64(to - from);
+  for (size_t i = from; i < to; ++i) h.str(UserModule::stack_element(static_cast<int>(i)));
   return h.finish();
+}
+
+bool EvalMemoSession::moduleStackRange(const Entry& entry, size_t own, size_t& from, size_t& to)
+{
+  if (entry.wholeModuleStack) {
+    // Its size too, which the range's length is.
+    from = 0;
+    to = own + 1;
+    return true;
+  }
+  if (entry.outerModules > own) return false;
+  from = own - entry.outerModules;
+  to = own;
+  return true;
 }
 
 bool EvalMemoSession::matches(EvaluationSession& session, const Entry& entry)
@@ -860,7 +883,12 @@ bool EvalMemoSession::matches(EvaluationSession& session, const Entry& entry)
     }
     if (!ok) break;
   }
-  if (ok && entry.readsModuleStack) ok = moduleStackHash() == entry.moduleStack;
+  if (ok && (entry.outerModules > 0 || entry.wholeModuleStack)) {
+    // enter() runs with the call's name pushed.
+    size_t from = 0, to = 0;
+    const size_t own = UserModule::stack_size() - 1;
+    ok = moduleStackRange(entry, own, from, to) && moduleStackHash(from, to) == entry.moduleStack;
+  }
   --suspendRecording;
   return ok;
 }
@@ -874,7 +902,12 @@ void EvalMemoSession::replayReads(EvaluationSession& session, const Entry& entry
   accumulatorRead = false;
   Recorder& r = *recorders.back();
   for (const auto& name : entry.realNames) r.addRealName(name);
-  r.readsModuleStack |= entry.readsModuleStack;
+  // As parent_module() would have read them, relative to where this call's name is now.
+  if (entry.wholeModuleStack) r.wholeModuleStack = true;
+  else if (entry.outerModules > 0) {
+    const size_t own = UserModule::stack_size() - 1;
+    r.lowestModule = std::min(r.lowestModule, own - entry.outerModules);
+  }
 }
 
 void EvalMemoSession::replay(const std::vector<Message>& messages)
@@ -957,6 +990,7 @@ NOINLINE Call EvalMemoSession::enter(const UserModule& module,
   std::copy(childrenKey, childrenKey + 3, recorder.childrenKey);
   recorder.inst = inst;
   recorder.context = context.get();
+  recorder.ownModule = UserModule::stack_size() - 1;
   recorder.callsBefore = stats_.userCalls++;
   return Call::Recording;
 }
@@ -1046,8 +1080,15 @@ NOINLINE void EvalMemoSession::store(const std::shared_ptr<AbstractNode>& node, 
     if (p.index != kPromoted) entry->accumulated.push_back(p.name);
   }
   entry->realNames = std::move(recorder.realNames);
-  entry->readsModuleStack = recorder.readsModuleStack;
-  if (entry->readsModuleStack) entry->moduleStack = moduleStackHash();
+  entry->wholeModuleStack = recorder.wholeModuleStack;
+  if (recorder.lowestModule < recorder.ownModule) {
+    entry->outerModules = static_cast<uint32_t>(recorder.ownModule - recorder.lowestModule);
+  }
+  if (entry->outerModules > 0 || entry->wholeModuleStack) {
+    size_t from = 0, to = 0;
+    moduleStackRange(*entry, recorder.ownModule, from, to);
+    entry->moduleStack = moduleStackHash(from, to);
+  }
   entry->root = node;
   entry->calls = stats_.userCalls - recorder.callsBefore;
   entry->lastUsed = generation;

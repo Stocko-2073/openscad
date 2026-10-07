@@ -24,7 +24,8 @@
  * those reads would see the same values. A read that only feeds the same
  * variable back -- BOSL2's `$transform = $transform * m` in every transform --
  * counts only if something under the call reads that variable for real.
- * Calls to parent_module() likewise record the module-name stack.
+ * Calls to parent_module() likewise record the names they read from the
+ * module-name stack below the call's own.
  *
  * Anything that cannot be hashed (objects) makes the call ineligible, and it
  * runs as usual. While a stored call runs it records the messages it prints,
@@ -239,7 +240,11 @@ struct Entry {
   std::vector<DollarRead> reads;        // must match for reuse
   std::vector<Identifier> accumulated;  // read only to feed themselves; see Recorder
   std::vector<Identifier> realNames;    // $ names read for real anywhere inside
-  bool readsModuleStack = false;
+  // What parent_module() read inside the call of the module-name stack beneath the call's own
+  // name: the `outerModules` names right below it, or with `wholeModuleStack` the whole stack,
+  // its size included (an index past the bottom). `moduleStack` hashes them.
+  uint32_t outerModules = 0;
+  bool wholeModuleStack = false;
   Hash128 moduleStack;
   size_t nodes = 0;       // in the subtree, the root included
   size_t calls = 0;       // boundaries its evaluation reaches, its own call included
@@ -346,8 +351,10 @@ public:
 
   // Called by builtins whose result depends on more than their arguments.
   static void noteImpure(EvaluationSession *session);
-  // Called by parent_module(), which reads the module-name stack.
-  static void noteModuleStackRead(EvaluationSession *session);
+  // Called by parent_module(), which read the module-name stack at `index`, or depends on its
+  // size when that is kWholeModuleStack.
+  static void noteModuleStackRead(EvaluationSession *session, size_t index);
+  static constexpr size_t kWholeModuleStack = SIZE_MAX;
   // Called by EvaluationSession for every $ lookup: `index` is the stack
   // position of the frame that answered, or SIZE_MAX if none did.
   void noteDollarRead(const Identifier& name, size_t index, const Value *value);
@@ -423,7 +430,11 @@ private:
   bool matches(EvaluationSession& session, const Entry& entry);
   // Re-reads `entry`'s $ dependencies so the enclosing call records them.
   void replayReads(EvaluationSession& session, const Entry& entry);
-  static Hash128 moduleStackHash();
+  // The names of the module-name stack from `from` up to, not including, `to`.
+  static Hash128 moduleStackHash(size_t from, size_t to);
+  // The range of the module-name stack `entry` depends on, for a call whose name is at
+  // `own`; false if the stack is too short to have it.
+  static bool moduleStackRange(const Entry& entry, size_t own, size_t& from, size_t& to);
   const DefInfo& defInfo(const void *def, bool isModule);
   const Closure& closure(const void *def, bool isModule, const SourceFile& file);
   Hash128 fileHash(const SourceFile& file);
