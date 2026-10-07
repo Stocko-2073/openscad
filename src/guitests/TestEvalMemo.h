@@ -12,6 +12,8 @@ private slots:
   void reusesAcrossRenders();
   void flushAndPreferenceDropTheTable();
   void animationTimeIsADependency();
+  void framesStartFromTheDocumentsTable();
   void keepsTheRendererOfAnUnchangedResult();
   void benchmarkEditSequence();
+  void benchmarkAnimationFirstPass();
 };

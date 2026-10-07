@@ -6,10 +6,13 @@
 #include <atomic>
 #include <exception>
 #include <memory>
+#include <optional>
 #include <utility>
+#include <vector>
 
 #include "core/BuiltinContext.h"
 #include "core/Context.h"
+#include "core/EvalMemo.h"
 #include "core/EvaluationSession.h"
 #include "core/ModifierOverlays.h"
 #include "core/RenderVariables.h"
@@ -25,6 +28,7 @@
 #include "gui/AnimateFrameCache.h"
 #include "utils/exceptions.h"
 #include "utils/printutils.h"
+#include "utils/scope_guard.hpp"
 
 #ifdef ENABLE_PYTHON
 #include "python/python_public.h"
@@ -47,14 +51,16 @@ FrameTask::FrameTask(QPointer<FrameCache> owner,
                      std::shared_ptr<SourceFile> sourceFile,
                      std::string documentPath,
                      Camera camera,
-                     std::shared_ptr<std::atomic<bool>> cancelFlag)
+                     std::shared_ptr<std::atomic<bool>> cancelFlag,
+                     std::shared_ptr<MemoTablePool> memoTables)
   : owner_(std::move(owner)),
     generation_(generation),
     frame_(std::move(frame)),
     source_file_(std::move(sourceFile)),
     document_path_(std::move(documentPath)),
     camera_(std::move(camera)),
-    cancel_flag_(std::move(cancelFlag))
+    cancel_flag_(std::move(cancelFlag)),
+    memo_tables_(std::move(memoTables))
 {
   setAutoDelete(true);
 }
@@ -84,10 +90,11 @@ void FrameTask::run()
 
   auto result = std::make_shared<FrameResult>();
   bool ok = false;
+  // This frame's memo table (core/EvalMemo.h), from the pool the cache shares with its tasks: a
+  // table serves one evaluation at a time, and the GUI thread's renders use the document's.
+  std::unique_ptr<memo::MemoTable> memo_table;
 
   try {
-    // Never with a memo (core/EvalMemo.h): a table serves one evaluation at a time, and the GUI
-    // thread's renders use the document's. Workers share only the parse, read-only.
     EvaluationSession session{document_path_};
     ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(&session)};
 
@@ -100,8 +107,35 @@ void FrameTask::run()
     if (is_cancelled(cancel_flag_)) throw ProgressCancelException();
 
     AbstractNode::resetIndexCounter();  // numbers this frame's nodes from 1, as the GUI does its trees
+    printedDeprecations.clear();        // and records its deprecations as a render does
     std::shared_ptr<const FileContext> file_context;
-    auto absolute_root = source_file_->instantiate(*builtin_context, &file_context);
+    std::shared_ptr<AbstractNode> absolute_root;
+    std::vector<std::shared_ptr<AbstractNode>> replaced;
+    if (memo_tables_) memo_table = memo_tables_->take();
+    {
+      // Detached and destroyed before the session, whose values it holds, also when the
+      // evaluation throws; the table stays consistent then.
+      std::optional<memo::EvalMemoSession> memo;
+      if (memo_table) {
+        memo.emplace(*memo_table, *source_file_);
+        session.setMemo(&*memo);
+      }
+      const auto detach = sg::make_scope_guard([&session]() noexcept { session.setMemo(nullptr); });
+      absolute_root = source_file_->instantiate(*builtin_context, &file_context);
+      if (memo) {
+        result->userCalls = memo->stats().userCalls;
+        result->userCallsReused = memo->stats().userCallsReused;
+        replaced = memo->takeReplaced();
+      }
+    }
+    if (memo_table) {
+      // What this frame did not use was evaluated at other times, and only the calls that do not
+      // depend on $t carry over to the next frame. Given back now, the table can serve the next
+      // frame while this one's geometry is made.
+      memo_table->evict(0);
+      memo_tables_->give(std::move(memo_table));
+    }
+    replaced.clear();
 
     if (!absolute_root) {
       throw EvaluationException("instantiation produced no root node");
@@ -146,6 +180,9 @@ void FrameTask::run()
     LOG(message_group::Warning, "Animation pre-fetch frame %1$d failed (unknown exception).",
         frame_->step);
   }
+
+  // A table whose evaluation threw is consistent, and keeps what it held.
+  if (memo_table) memo_tables_->give(std::move(memo_table));
 
 #ifdef ENABLE_PYTHON
   python_unlock();

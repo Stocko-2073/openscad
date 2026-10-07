@@ -12,6 +12,8 @@
 #include <utility>
 #include <vector>
 
+#include "core/EvalMemo.h"
+#include "core/Settings.h"
 #include "core/SourceFile.h"
 #include "glview/Camera.h"
 #include "gui/AnimateFrameTask.h"
@@ -32,6 +34,51 @@ int compute_worker_count()
 }
 
 } // namespace
+
+MemoTablePool::MemoTablePool() = default;
+
+MemoTablePool::~MemoTablePool() = default;
+
+std::unique_ptr<memo::MemoTable> MemoTablePool::take()
+{
+  std::shared_ptr<const memo::MemoTable> seed;
+  {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    if (!idle_.empty()) {
+      auto table = std::move(idle_.back());
+      idle_.pop_back();
+      return table;
+    }
+    seed = seed_;
+  }
+  // Nothing changes the seed, so tasks fork it at once, each on its own thread.
+  return seed ? seed->fork() : std::make_unique<memo::MemoTable>();
+}
+
+void MemoTablePool::give(std::unique_ptr<memo::MemoTable> table)
+{
+  if (!table) return;
+  const std::lock_guard<std::mutex> lock(mutex_);
+  idle_.push_back(std::move(table));
+}
+
+void MemoTablePool::setSeed(std::shared_ptr<const memo::MemoTable> seed)
+{
+  const std::lock_guard<std::mutex> lock(mutex_);
+  seed_ = std::move(seed);
+}
+
+std::vector<std::unique_ptr<memo::MemoTable>> MemoTablePool::trim()
+{
+  const std::lock_guard<std::mutex> lock(mutex_);
+  return std::move(idle_);
+}
+
+size_t MemoTablePool::idle() const
+{
+  const std::lock_guard<std::mutex> lock(mutex_);
+  return idle_.size();
+}
 
 FrameCache::FrameCache(QObject *parent) : QObject(parent), pool_(std::make_unique<QThreadPool>())
 {
@@ -65,8 +112,18 @@ int FrameCache::workerCount() const
 void FrameCache::setSource(std::shared_ptr<SourceFile> sourceFile,
                            std::string documentPath,
                            int numSteps,
-                           const Camera &camera)
+                           const Camera &camera,
+                           const memo::MemoTable *seed)
 {
+  // Forked here, on the GUI thread, the document's table leaves the tasks a copy that nothing
+  // changes, which they fork in turn. A few milliseconds for a large design.
+  std::shared_ptr<MemoTablePool> tables;
+  {
+    const QMutexLocker locker(&mutex_);
+    tables = memoTables_unlocked();
+  }
+  if (tables && seed) tables->setSeed(seed->fork());
+
   // Cancel any in-flight tasks before swapping state.
   std::shared_ptr<std::atomic<bool>> old_flag;
   {
@@ -89,6 +146,7 @@ void FrameCache::setSource(std::shared_ptr<SourceFile> sourceFile,
 void FrameCache::invalidateAll()
 {
   std::shared_ptr<std::atomic<bool>> old_flag;
+  std::shared_ptr<MemoTablePool> old_tables;
   {
     const QMutexLocker locker(&mutex_);
     old_flag = cancel_flag_;
@@ -97,8 +155,42 @@ void FrameCache::invalidateAll()
     ++generation_;
     cancel_flag_ = std::make_shared<std::atomic<bool>>(false);
     frames_.clear();
+    old_tables = std::move(memo_tables_);
   }
   if (pool_) pool_->clear();
+  if (old_tables) freeOnWorker(std::move(old_tables));
+}
+
+void FrameCache::dropMemoTables()
+{
+  std::shared_ptr<MemoTablePool> old_tables;
+  {
+    const QMutexLocker locker(&mutex_);
+    old_tables = std::move(memo_tables_);
+  }
+  if (old_tables) freeOnWorker(std::move(old_tables));
+}
+
+size_t FrameCache::idleMemoTables() const
+{
+  const QMutexLocker locker(&mutex_);
+  return memo_tables_ ? memo_tables_->idle() : 0;
+}
+
+template <class T>
+void FrameCache::freeOnWorker(T garbage)
+{
+  if (!pool_) return;
+  // Held by a copyable function, as QThreadPool takes one, and freed once the worker has run it.
+  auto held = std::make_shared<T>(std::move(garbage));
+  pool_->start([held]() mutable { held.reset(); });
+}
+
+std::shared_ptr<MemoTablePool> FrameCache::memoTables_unlocked()
+{
+  if (!Settings::Settings::reuseModuleResults.value()) memo_tables_.reset();
+  else if (!memo_tables_) memo_tables_ = std::make_shared<MemoTablePool>();
+  return memo_tables_;
 }
 
 std::shared_ptr<CachedFrame> FrameCache::tryGet(int step)
@@ -185,7 +277,8 @@ void FrameCache::enqueueStep_unlocked(int step)
                              source_file_,
                              document_path_,
                              cam,
-                             cancel_flag_);
+                             cancel_flag_,
+                             memoTables_unlocked());
   pool_->start(task);
 }
 
@@ -193,15 +286,24 @@ void FrameCache::onFrameComplete(int step, int generation)
 {
   // Runs on GUI thread (QueuedConnection from FrameTask). Confirm generation,
   // then notify listeners.
+  std::vector<std::unique_ptr<memo::MemoTable>> idle_tables;
+  bool ready = false;
   {
     const QMutexLocker locker(&mutex_);
     if (generation != generation_) return; // stale
     auto it = frames_.find(step);
     if (it == frames_.end()) return;       // step was dropped from window
-    const auto state = it->second->state.load(std::memory_order_acquire);
-    if (state != FrameState::Ready) return; // failed or cancelled
+    ready = it->second->state.load(std::memory_order_acquire) == FrameState::Ready;
+    // With no frame pending, the tasks are done with their memo tables, each holding a tree of
+    // its own: freeing ten that had made u-bot's frames gave back 6-7 GB. The next frames fork
+    // the seed again.
+    const bool pending = std::any_of(frames_.begin(), frames_.end(), [](const auto& entry) {
+      return entry.second->state.load(std::memory_order_acquire) == FrameState::Pending;
+    });
+    if (!pending && memo_tables_) idle_tables = memo_tables_->trim();
   }
-  emit frameReady(step);
+  if (!idle_tables.empty()) freeOnWorker(std::move(idle_tables));
+  if (ready) emit frameReady(step);
 }
 
 } // namespace OpenScad::Animate

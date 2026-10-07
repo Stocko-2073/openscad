@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -23,6 +24,8 @@
 #include "core/node.h"
 #include "geometry/GeometryCache.h"
 #include "glview/RenderSettings.h"
+#include "gui/Animate.h"
+#include "gui/AnimateFrameCache.h"
 #include "gui/Preferences.h"
 #ifdef ENABLE_CGAL
 #include "geometry/cgal/CGALCache.h"
@@ -247,8 +250,8 @@ void TestEvalMemo::animationTimeIsADependency()
   QCOMPARE(evaluationNote(window), QString("reused 2 of 2 module calls"));
   QVERIFY(matchesFreshEvaluation(window));
 
-  // Playing it evaluates frames ahead on worker threads, which have no memo, while a render on
-  // this thread uses the document's.
+  // Playing it evaluates frames ahead on worker threads, with memo tables of their own, while a
+  // render on this thread uses the document's.
   animate->e_fsteps->setText("8");
   animate->e_fps->setText("30");
   QTest::qWait(1000);
@@ -260,6 +263,47 @@ void TestEvalMemo::animationTimeIsADependency()
   QVERIFY(matchesFreshEvaluation(window));
   QVERIFY(setTime(window, ""));
 
+  window->tabManager->closeCurrentTab();
+}
+
+void TestEvalMemo::framesStartFromTheDocumentsTable()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath("frames.scad");
+  save(path,
+       "module spin() rotate($t * 360) cube(1);\n"
+       "module still() translate([3, 0, 0]) sphere(1);\n"
+       "spin();\nstill();\n");
+  window->tabManager->createTab(path);
+  Animate *animate = window->animateWidget;
+  OpenScad::Animate::FrameCache *cache = animate->frameCache();
+  QVERIFY(setTime(window, "0"));
+
+  // Played once rendered, the frames start from copies of the document's table, or from a table
+  // that a copy of it served for another frame: still() is reused in each.
+  constexpr int kSteps = 6;
+  animate->e_fsteps->setText(QString::number(kSteps));
+  animate->e_fps->setText("30");
+  const auto allReady = [cache]() {
+    for (int step = 0; step < kSteps; ++step) {
+      const auto frame = cache->tryGet(step);
+      if (!frame || frame->state.load() != OpenScad::Animate::FrameState::Ready) return false;
+    }
+    return true;
+  };
+  QTRY_VERIFY_WITH_TIMEOUT(allReady(), 30000);
+  for (int step = 0; step < kSteps; ++step) {
+    const auto frame = cache->tryGet(step);
+    QCOMPARE(frame->result->userCalls, size_t{2});
+    QVERIFY(frame->result->userCallsReused >= 1);
+  }
+  // With no frame left to make, the tables they were made with are freed; the seed stays.
+  QTRY_COMPARE(cache->idleMemoTables(), size_t{0});
+
+  animate->e_fps->setText("");
+  animate->e_fsteps->setText("");
+  QVERIFY(setTime(window, ""));
   window->tabManager->closeCurrentTab();
 }
 
@@ -335,4 +379,69 @@ void TestEvalMemo::benchmarkEditSequence()
   }
   setReuse(true);
   QFile::remove(path);
+}
+
+/*
+ * Not a test: times the first pass over an animation's frames through the window, from setting
+ * its speed after an F6 render at t = 0 until every frame is ready, with the reuse of module
+ * results on and then off. OPENSCAD_ANIMATE_BENCH names the design and
+ * OPENSCAD_ANIMATE_BENCH_FRAMES the number of frames (20 by default).
+ */
+void TestEvalMemo::benchmarkAnimationFirstPass()
+{
+  const QString design = qEnvironmentVariable("OPENSCAD_ANIMATE_BENCH");
+  if (design.isEmpty()) QSKIP("Set OPENSCAD_ANIMATE_BENCH to a design.");
+  const int steps = qEnvironmentVariableIsSet("OPENSCAD_ANIMATE_BENCH_FRAMES")
+                      ? qEnvironmentVariableIntValue("OPENSCAD_ANIMATE_BENCH_FRAMES")
+                      : 20;
+  Animate *animate = window->animateWidget;
+  OpenScad::Animate::FrameCache *cache = animate->frameCache();
+  GeometryCache::instance()->setMaxSizeMB(5000);
+#ifdef ENABLE_CGAL
+  CGALCache::instance()->setMaxSizeMB(5000);
+#endif
+  for (const bool reuse : {true, false}) {
+    setReuse(reuse);
+    GeometryCache::instance()->clear();
+#ifdef ENABLE_CGAL
+    CGALCache::instance()->clear();
+#endif
+    window->tabManager->createTab(design);
+    QVERIFY(setTime(window, "0"));
+    const qint64 render = window->renderStatistic.ms().count();
+
+    QElapsedTimer timer;
+    timer.start();
+    animate->e_fsteps->setText(QString::number(steps));
+    animate->e_fps->setText("10");
+    const auto ready = [cache, steps]() {
+      int count = 0;
+      for (int step = 0; step < steps; ++step) {
+        const auto frame = cache->tryGet(step);
+        if (frame && frame->state.load() != OpenScad::Animate::FrameState::Pending) ++count;
+      }
+      return count;
+    };
+    QTRY_VERIFY_WITH_TIMEOUT(ready() == steps, 600000);
+    const qint64 pass = timer.elapsed();
+    size_t calls = 0, reused = 0;
+    for (int step = 0; step < steps; ++step) {
+      const auto frame = cache->tryGet(step);
+      if (!frame->result) continue;
+      calls += frame->result->userCalls;
+      reused += frame->result->userCallsReused;
+    }
+    qInfo().noquote() << QString("%1: F6 %2 ms, then %3 frames in %4 ms, reused %5 of %6 module calls")
+                           .arg(reuse ? "memo " : "fresh")
+                           .arg(render)
+                           .arg(steps)
+                           .arg(pass)
+                           .arg(reuse ? reused : 0)
+                           .arg(calls);
+    animate->e_fps->setText("");
+    animate->e_fsteps->setText("");
+    QVERIFY(idle());
+    window->tabManager->closeCurrentTab();
+  }
+  setReuse(true);
 }

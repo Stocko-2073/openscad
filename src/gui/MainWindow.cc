@@ -993,6 +993,7 @@ void MainWindow::dropMemoTables()
 {
   // An evaluation running meanwhile, as printing processes events, holds on to its table.
   for (auto *editor : tabManager->editorList) editor->memoTable.reset();
+  animateWidget->dropMemoTables();
 }
 
 void MainWindow::trimMemo()

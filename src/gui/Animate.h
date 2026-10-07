@@ -50,6 +50,12 @@ public:
   double getAnimTval();
   // Frees the renderers kept for frames already shown, as when their colors go out of date.
   void dropFrameRenderers();
+  // Drops the memo tables the frames are evaluated with, as MainWindow::dropMemoTables() drops
+  // the documents'.
+  void dropMemoTables();
+#ifdef ENABLE_GUI_TESTS
+  OpenScad::Animate::FrameCache *frameCache() { return frameCache_.get(); }
+#endif
 
 public slots:
   void animateUpdate();

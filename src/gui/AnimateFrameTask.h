@@ -13,11 +13,13 @@ class SourceFile;
 namespace OpenScad::Animate {
 
 class FrameCache;
+class MemoTablePool;
 struct CachedFrame;
 
 // Pre-computes one animation frame's geometry and overlays on a worker thread, as
 // F6 renders them. Touches no Qt GUI / GL state. Reads the shared SourceFile
-// (immutable post-parse) and the per-frame inputs from the FrameCache.
+// (immutable post-parse) and the per-frame inputs from the FrameCache. Evaluates
+// with a memo table from `memoTables`, unless that is null.
 class FrameTask : public QRunnable
 {
 public:
@@ -27,7 +29,8 @@ public:
             std::shared_ptr<SourceFile> sourceFile,
             std::string documentPath,
             Camera camera,
-            std::shared_ptr<std::atomic<bool>> cancelFlag);
+            std::shared_ptr<std::atomic<bool>> cancelFlag,
+            std::shared_ptr<MemoTablePool> memoTables = nullptr);
 
   void run() override;
 
@@ -39,6 +42,7 @@ private:
   std::string document_path_;
   Camera camera_;
   std::shared_ptr<std::atomic<bool>> cancel_flag_;
+  std::shared_ptr<MemoTablePool> memo_tables_;
 };
 
 } // namespace OpenScad::Animate

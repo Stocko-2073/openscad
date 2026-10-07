@@ -16,6 +16,7 @@
 #include <memory>
 #include <string>
 
+#include "core/EvalMemo.h"
 #include "geometry/Geometry.h"
 #include "geometry/PolySet.h"
 #include "glview/Renderer.h"
@@ -295,6 +296,11 @@ void Animate::dropFrameRenderers()
   frameRendererBytes_ = 0;
 }
 
+void Animate::dropMemoTables()
+{
+  if (frameCache_) frameCache_->dropMemoTables();
+}
+
 // Button-driven step/jump. Mirrors the playback path in incrementTVal(), but for
 // the paused case: the timer is stopped, so we drive the cache lookup + warming
 // directly instead of waiting for the next tick.
@@ -393,8 +399,12 @@ void Animate::rebuildFrameCacheSource()
                                 mainWindow->activeEditor->filepath.toStdString())
                                 .parent_path()
                                 .string();
+  // The frames' memo tables start as copies of the document's, which the render that parsed the
+  // source filled, unless a render is using it now.
+  const memo::MemoTable *seed =
+    GuiLocker::isLocked() ? nullptr : mainWindow->activeEditor->memoTable.get();
   frameCache_->setSource(mainWindow->rootFile, docPath, this->animNumSteps,
-                         mainWindow->qglview->cam);
+                         mainWindow->qglview->cam, seed);
   cachedSource_ = mainWindow->rootFile;
   cachedSteps_ = this->animNumSteps;
   frameCache_->prefetchWindow(this->animStep, frameCache_->workerCount());
