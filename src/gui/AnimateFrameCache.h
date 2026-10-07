@@ -11,21 +11,17 @@
 #include "core/ModifierOverlays.h"
 
 class SourceFile;
-class AbstractNode;
 class Geometry;
-class Tree;
 class Camera;
 
 namespace OpenScad::Animate {
 
-// One frame rendered as F6 renders, ready for the GLView to draw.
+// One frame rendered as F6 renders, ready for the GLView to draw. Without the node tree, which can
+// take several times the memory of the geometry (a GeometryList holds the nodes it refers to).
 struct FrameResult
 {
   std::shared_ptr<const Geometry> geometry;  // null when the frame has no geometry
   std::vector<overlay::Mesh> overlays;
-  // Kept alive with the geometry, which may refer to its nodes.
-  std::shared_ptr<AbstractNode> root_node;
-  std::shared_ptr<Tree> tree;
 };
 
 enum class FrameState : int { Pending = 0, Ready = 1, Failed = 2, Cancelled = 3 };

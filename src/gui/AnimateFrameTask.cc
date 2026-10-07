@@ -129,12 +129,12 @@ void FrameTask::run()
 
     result->overlays = overlay::collect(*tree, *root_node);
 
-    result->root_node = root_node;
-    result->tree = tree;
     // Don't retain file_context — its ContextMemoryManager (owned by the
     // session) is destructed below and asserts that all managed contexts have
     // been released. The GUI's render path doesn't retain it either; geometry
     // owns its meshes outright (no raw pointers back into the FileContext).
+    // Nor the tree, which the frame no longer needs, and which is freed here
+    // rather than when the GUI thread drops the frame.
 
     ok = true;
   } catch (const ProgressCancelException&) {
