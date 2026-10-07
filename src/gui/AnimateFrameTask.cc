@@ -66,10 +66,9 @@ void FrameTask::run()
   //
   // Silence PRINT/LOG entirely on this thread. The output handler reaches into
   // Qt widgets (main-thread only) and the print machinery has shared global
-  // buffers (lastmessages/print_messages_stack/printedDeprecations). Workers
-  // are speculative anyway — if a frame fails, the user will see the real
-  // error when they scrub to that t value and the synchronous render runs on
-  // the GUI thread.
+  // buffers (lastmessages/print_messages_stack). Workers are speculative
+  // anyway — if a frame fails, the user will see the real error when they
+  // scrub to that t value and the synchronous render runs on the GUI thread.
   PrintSuppressGuard print_suppress;
   // Likewise progress, which goes to the GUI's F6 render when one is running.
   ProgressSuppressGuard progress_suppress;

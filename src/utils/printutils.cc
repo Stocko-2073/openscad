@@ -16,7 +16,7 @@
 
 namespace fs = std::filesystem;
 
-std::set<std::string> printedDeprecations;
+thread_local std::set<std::string> printedDeprecations;
 std::list<std::string> print_messages_stack;
 OutputHandlerFunc *outputhandler = nullptr;
 void *outputhandler_data = nullptr;

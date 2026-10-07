@@ -282,7 +282,10 @@ public:
   [[nodiscard]] std::string format() const { return format(std::index_sequence_for<Ts...>{}); }
 };
 
-extern std::set<std::string> printedDeprecations;
+// The deprecations printed so far, each only the first time. Per thread: the animation's frame
+// workers (gui/AnimateFrameTask) evaluate scripts beside the GUI thread, print nothing, and must
+// neither race on the set nor keep a render on the GUI thread from printing what they saw first.
+extern thread_local std::set<std::string> printedDeprecations;
 
 template <typename... Args>
 std::optional<Message> make_message_obj(const message_group& msgGroup, Location loc, std::string docPath,

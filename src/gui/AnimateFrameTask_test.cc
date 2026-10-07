@@ -6,9 +6,15 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <thread>
+#include <vector>
 
+#include "core/BuiltinContext.h"
 #include "core/Builtins.h"
+#include "core/Context.h"
+#include "core/EvaluationSession.h"
 #include "core/ModifierOverlays.h"
+#include "core/ScopeContext.h"
 #include "core/SourceFile.h"
 #include "core/progress.h"
 #include "geometry/Geometry.h"
@@ -106,4 +112,29 @@ TEST_CASE("A frame takes no part in the progress of the render beside it", "[ani
   REQUIRE(frame->state.load() == FrameState::Ready);
   REQUIRE(frame->result);
   CHECK(frame->result->geometry);
+}
+
+TEST_CASE("A frame's deprecations leave the GUI thread its own to print", "[animate]")
+{
+  // rotate_extrude() with an odd $fn and no angle warns that it is deprecated, printed once. A
+  // frame rendered on a worker after a render began prints nothing, and must not count as having
+  // printed it for that render.
+  const auto file = parseText("rotate_extrude($fn = 3) translate([2, 0]) square(1);");
+  resetSuppressedMessages();
+  std::thread worker([&]() { renderFrame(file, 0); });
+  worker.join();
+
+  std::vector<Message> messages;
+  g_message_capture.push_back(&messages);
+  {
+    const PrintSuppressGuard quiet;
+    EvaluationSession session{fs::temp_directory_path().generic_string()};
+    ContextHandle<BuiltinContext> builtin{Context::create<BuiltinContext>(&session)};
+    std::shared_ptr<const FileContext> file_context;
+    REQUIRE(file->instantiate(*builtin, &file_context));
+  }
+  g_message_capture.pop_back();
+  REQUIRE(messages.size() == 1);
+  CHECK(messages[0].group == message_group::Deprecated);
+  CHECK(!messages[0].repeat);
 }
