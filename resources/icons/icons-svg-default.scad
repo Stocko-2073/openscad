@@ -81,6 +81,7 @@ icons = [
     ["loading"],
     ["circle-checkmark"],
     ["circle-error"],
+    ["rename"],
 ];
 
 icon(selected_icon) {
@@ -149,6 +150,7 @@ icon(selected_icon) {
 	loading();
 	circle_checkmark();
     circle_error();
+    rename();
 }
 
 if (list_icons) {
@@ -948,5 +950,14 @@ module circle_error() {
                 }
             }
         }
+    }
+}
+
+module rename() {
+    w = 2 * thick;
+    translate([width / 2, height / 2]) rotate(45) {
+        translate([-18, -w / 2]) square([48, w]);
+        translate([34, -w / 2]) square([12, w]);
+        polygon([[-22, -w / 2], [-22, w / 2], [-44, 0]]);
     }
 }

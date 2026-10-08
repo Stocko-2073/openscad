@@ -70,20 +70,75 @@
               </property>
              </widget>
             </item>
+            <item>
+             <layout class="QHBoxLayout" name="horizontalLayoutColorSchemeButtons">
+              <item>
+               <widget class="QToolButton" name="toolButtonColorSchemeDuplicate">
+                <property name="toolTip">
+                 <string>Duplicate color scheme</string>
+                </property>
+                <property name="text">
+                 <string/>
+                </property>
+                <property name="icon">
+                 <iconset theme="chokusen-edit-copy">
+                  <normaloff>.</normaloff>.</iconset>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QToolButton" name="toolButtonColorSchemeRename">
+                <property name="enabled">
+                 <bool>false</bool>
+                </property>
+                <property name="toolTip">
+                 <string>Rename color scheme</string>
+                </property>
+                <property name="text">
+                 <string/>
+                </property>
+                <property name="icon">
+                 <iconset theme="chokusen-rename">
+                  <normaloff>.</normaloff>.</iconset>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QToolButton" name="toolButtonColorSchemeDelete">
+                <property name="enabled">
+                 <bool>false</bool>
+                </property>
+                <property name="toolTip">
+                 <string>Delete color scheme</string>
+                </property>
+                <property name="text">
+                 <string/>
+                </property>
+                <property name="icon">
+                 <iconset theme="chokusen-remove">
+                  <normaloff>.</normaloff>.</iconset>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="horizontalSpacerColorSchemeButtons">
+                <property name="orientation">
+                 <enum>Qt::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>40</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
            </layout>
           </item>
           <item>
-           <spacer name="horizontalSpacer">
-            <property name="orientation">
-             <enum>Qt::Horizontal</enum>
-            </property>
-            <property name="sizeHint" stdset="0">
-             <size>
-              <width>40</width>
-              <height>20</height>
-             </size>
-            </property>
-           </spacer>
+           <widget class="ColorSchemeEditor" name="colorSchemeEditor"/>
           </item>
          </layout>
         </item>
@@ -3084,6 +3139,11 @@
   </action>
  </widget>
  <customwidgets>
+  <customwidget>
+   <class>ColorSchemeEditor</class>
+   <extends>QWidget</extends>
+   <header>gui/ColorSchemeEditor.h</header>
+  </customwidget>
   <customwidget>
    <class>AxisConfigWidget</class>
    <extends>QWidget</extends>

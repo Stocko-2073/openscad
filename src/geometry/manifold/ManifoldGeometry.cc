@@ -24,7 +24,6 @@
 #include "geometry/linalg.h"
 #include "geometry/manifold/manifoldutils.h"
 #include "glview/ColorMap.h"
-#include "glview/RenderSettings.h"
 #include "utils/printutils.h"
 #ifdef ENABLE_CGAL
 #include "geometry/cgal/cgalutils.h"
@@ -129,6 +128,11 @@ std::string ManifoldGeometry::dump() const
 
 std::shared_ptr<PolySet> ManifoldGeometry::toPolySet() const
 {
+  return toPolySet(ColorMap::inst()->activeColorScheme());
+}
+
+std::shared_ptr<PolySet> ManifoldGeometry::toPolySet(const ColorScheme& colorScheme) const
+{
   manifold::MeshGL64 mesh = getManifold().GetMeshGL64();
   auto ps = std::make_shared<PolySet>(3);
   ps->setTriangular(true);
@@ -145,7 +149,6 @@ std::shared_ptr<PolySet> ManifoldGeometry::toPolySet() const
   ps->colors.reserve(originalIDToColor_.size());
   ps->color_indices.reserve(ps->indices.size());
 
-  auto colorScheme = ColorMap::inst()->findColorScheme(RenderSettings::inst()->colorscheme);
   int32_t faceFrontColorIndex = -1;
   int32_t faceBackColorIndex = -1;
 
@@ -155,14 +158,14 @@ std::shared_ptr<PolySet> ManifoldGeometry::toPolySet() const
   auto getFaceFrontColorIndex = [&]() -> int {
     if (faceFrontColorIndex < 0) {
       faceFrontColorIndex = ps->colors.size();
-      ps->colors.push_back(ColorMap::getColor(*colorScheme, RenderColor::CGAL_FACE_FRONT_COLOR));
+      ps->colors.push_back(ColorMap::getColor(colorScheme, RenderColor::CGAL_FACE_FRONT_COLOR));
     }
     return faceFrontColorIndex;
   };
   auto getFaceBackColorIndex = [&]() -> int {
     if (faceBackColorIndex < 0) {
       faceBackColorIndex = ps->colors.size();
-      ps->colors.push_back(ColorMap::getColor(*colorScheme, RenderColor::CGAL_FACE_BACK_COLOR));
+      ps->colors.push_back(ColorMap::getColor(colorScheme, RenderColor::CGAL_FACE_BACK_COLOR));
     }
     return faceBackColorIndex;
   };

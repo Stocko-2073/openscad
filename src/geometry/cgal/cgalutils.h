@@ -15,6 +15,7 @@
 #include "geometry/PolySet.h"
 #include "geometry/Polygon2d.h"
 #include "geometry/linalg.h"
+#include "glview/ColorMap.h"
 
 namespace CGALUtils {
 
@@ -71,6 +72,8 @@ template <class SurfaceMesh>
 std::unique_ptr<PolySet> createPolySetFromSurfaceMesh(const SurfaceMesh& mesh);
 
 std::unique_ptr<PolySet> createPolySetFromNefPolyhedron3(const CGAL_Nef_polyhedron3& N);
+std::unique_ptr<PolySet> createPolySetFromNefPolyhedron3(const CGAL_Nef_polyhedron3& N,
+                                                         const ColorScheme& colorScheme);
 
 std::shared_ptr<const CGALNefGeometry> getNefPolyhedronFromGeometry(
   const std::shared_ptr<const Geometry>& geom);

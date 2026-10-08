@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -34,6 +35,7 @@ public:
                                               int mouse_x, int mouse_y, double tolerance) override;
 
 private:
+  void convert();
   void addGeometry(const std::shared_ptr<const class Geometry>& geom);
   void createPolySetStates(const ShaderUtils::ShaderInfo *shaderinfo);
   void createPolygonStates();
@@ -43,10 +45,14 @@ private:
   void drawPolySets(bool showedges, const ShaderUtils::ShaderInfo *shaderinfo) const;
   void drawPolygons() const;
 
+  std::shared_ptr<const class Geometry> geom_;
   std::vector<std::shared_ptr<const class PolySet>> polysets_;
   std::vector<std::pair<std::shared_ptr<const Polygon2d>, std::shared_ptr<const PolySet>>> polygons_;
 
   std::vector<VertexStateContainer> polyset_vertex_state_containers_;
   std::vector<VertexStateContainer> polygon_vertex_state_containers_;
   int edge_crease_{-1};  // what polyset_vertex_state_containers_ were built with
+  // The scheme colors polysets_ were converted with, and those the vertex states were built with.
+  std::array<Color4f, 2> converted_colors_;
+  std::array<Color4f, 3> state_colors_;
 };

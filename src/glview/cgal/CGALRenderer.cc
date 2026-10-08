@@ -60,6 +60,7 @@
 #endif
 
 CGALRenderer::CGALRenderer(const std::shared_ptr<const class Geometry>& geom)
+  : built_colors_(*colorscheme_)
 {
   this->addGeometry(geom);
   PRINTD("CGALRenderer::CGALRenderer() -> createPolyhedrons()");
@@ -125,11 +126,6 @@ void CGALRenderer::setColorScheme(const ColorScheme& cs)
   Renderer::setColorScheme(cs);
   colormap_[ColorMode::CGAL_FACE_2D_COLOR] = ColorMap::getColor(cs, RenderColor::CGAL_FACE_2D_COLOR);
   colormap_[ColorMode::CGAL_EDGE_2D_COLOR] = ColorMap::getColor(cs, RenderColor::CGAL_EDGE_2D_COLOR);
-#ifdef ENABLE_CGAL
-  this->polyhedrons_.clear();  // Mark as dirty
-#endif
-  vertex_state_containers_.clear();  // Mark as dirty
-  dropTranslucent();
   PRINTD("setColorScheme done");
 }
 
@@ -243,6 +239,15 @@ void CGALRenderer::createPolygonEdgeStates()
 void CGALRenderer::prepare(const ShaderUtils::ShaderInfo *shaderinfo)
 {
   PRINTD("prepare()");
+  // A new color scheme takes effect here, where the view's GL context is current to free buffers in.
+  if (*colorscheme_ != built_colors_) {
+#ifdef ENABLE_CGAL
+    this->polyhedrons_.clear();
+#endif
+    vertex_state_containers_.clear();
+    dropTranslucent();
+    built_colors_ = *colorscheme_;
+  }
   if (!vertex_state_containers_.size()) {
     if (!this->polysets_.empty() && !this->polygons_.empty()) {
       LOG(message_group::Error, "CGALRenderer::prepare() called with both polysets and polygons");

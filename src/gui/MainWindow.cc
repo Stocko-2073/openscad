@@ -115,6 +115,7 @@
 #include "geometry/Geometry.h"
 #include "geometry/GeometryCache.h"
 #include "geometry/GeometryEvaluator.h"
+#include "glview/ColorMap.h"
 #include "glview/PolySetRenderer.h"
 #include "glview/RenderSettings.h"
 #include "glview/VBORenderer.h"
@@ -3389,12 +3390,8 @@ void MainWindow::on_editActionPreferences_triggered()
 
 void MainWindow::setColorScheme(const QString& scheme)
 {
-  RenderSettings::inst()->colorscheme = scheme.toStdString();
-  this->qglview->setColorScheme(scheme.toStdString());
+  this->qglview->setColorScheme(ColorMap::inst()->setActiveColorScheme(scheme.toStdString()));
   this->qglview->update();
-  // Renderer buffers hold the old scheme's colors: don't reuse them.
-  this->shownResult.reset();
-  this->animateWidget->dropFrameRenderers();
 }
 
 void MainWindow::setFont(const QString& family, uint size)

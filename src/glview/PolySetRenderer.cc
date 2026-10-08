@@ -61,11 +61,36 @@
 #include "geometry/manifold/ManifoldGeometry.h"
 #endif
 
+namespace {
+
+std::array<Color4f, 2> conversionColors(const ColorScheme& cs)
+{
+  return {ColorMap::getColor(cs, RenderColor::CGAL_FACE_FRONT_COLOR),
+          ColorMap::getColor(cs, RenderColor::CGAL_FACE_BACK_COLOR)};
+}
+
+std::array<Color4f, 3> stateColors(const ColorScheme& cs)
+{
+  return {ColorMap::getColor(cs, RenderColor::OPENCSG_FACE_FRONT_COLOR),
+          ColorMap::getColor(cs, RenderColor::CGAL_FACE_2D_COLOR),
+          ColorMap::getColor(cs, RenderColor::CGAL_EDGE_2D_COLOR)};
+}
+
+}  // namespace
+
 // This renderer is used in Manifold mode (F6 with Manifold as geometry engine). Without geometry it
 // draws only its overlays.
-PolySetRenderer::PolySetRenderer(const std::shared_ptr<const class Geometry>& geom)
+PolySetRenderer::PolySetRenderer(const std::shared_ptr<const class Geometry>& geom) : geom_(geom)
 {
-  if (geom) this->addGeometry(geom);
+  convert();
+}
+
+void PolySetRenderer::convert()
+{
+  this->polysets_.clear();
+  this->polygons_.clear();
+  if (this->geom_) this->addGeometry(this->geom_);
+  converted_colors_ = conversionColors(*colorscheme_);
 }
 
 void PolySetRenderer::addGeometry(const std::shared_ptr<const Geometry>& geom)
@@ -83,7 +108,7 @@ void PolySetRenderer::addGeometry(const std::shared_ptr<const Geometry>& geom)
     this->polygons_.emplace_back(poly, std::shared_ptr<const PolySet>(poly->tessellate()));
 #ifdef ENABLE_MANIFOLD
   } else if (const auto mani = std::dynamic_pointer_cast<const ManifoldGeometry>(geom)) {
-    this->polysets_.push_back(mani->toPolySet());
+    this->polysets_.push_back(mani->toPolySet(*colorscheme_));
 #endif
 #ifdef ENABLE_CGAL
   } else if (const auto N = std::dynamic_pointer_cast<const CGALNefGeometry>(geom)) {
@@ -91,7 +116,7 @@ void PolySetRenderer::addGeometry(const std::shared_ptr<const Geometry>& geom)
     // One way is through import("file.nef3")
     assert(N->getDimension() == 3);
     if (!N->isEmpty()) {
-      if (auto ps = CGALUtils::createPolySetFromNefPolyhedron3(*N->p3)) {
+      if (auto ps = CGALUtils::createPolySetFromNefPolyhedron3(*N->p3, *colorscheme_)) {
         ps->setConvexity(N->getConvexity());
         this->polysets_.push_back(std::shared_ptr<PolySet>(std::move(ps)));
       }
@@ -225,7 +250,16 @@ void PolySetRenderer::prepare(const ShaderUtils::ShaderInfo *shaderinfo)
     polyset_vertex_state_containers_.clear();
     dropTranslucent();
   }
+  // A new color scheme takes effect here, where the view's GL context is current to free buffers in.
+  const bool reconvert = conversionColors(*colorscheme_) != converted_colors_;
+  if (reconvert) convert();
+  if (reconvert || stateColors(*colorscheme_) != state_colors_) {
+    polyset_vertex_state_containers_.clear();
+    polygon_vertex_state_containers_.clear();
+    dropTranslucent();
+  }
   if (polyset_vertex_state_containers_.empty() && polygon_vertex_state_containers_.empty()) {
+    state_colors_ = stateColors(*colorscheme_);
     if (!this->polysets_.empty() && !this->polygons_.empty()) {
       LOG(message_group::Error, "PolySetRenderer::prepare() called with both polysets and polygons");
     } else if (!this->polysets_.empty()) {

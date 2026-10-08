@@ -111,15 +111,12 @@ std::string PlatformUtils::documentsPath()
   }
 }
 
+// May not exist yet: what's kept there creates it.
 std::string PlatformUtils::userConfigPath()
 {
-  const fs::path config_path{getXdgConfigDir() / OPENSCAD_FOLDER_NAME};
-
-  if (fs::is_directory(config_path)) {
-    return fs::absolute(config_path).generic_string();
-  }
-
-  return "";
+  const fs::path config_dir = getXdgConfigDir();
+  if (config_dir.empty()) return "";
+  return fs::absolute(config_dir / OPENSCAD_FOLDER_NAME).generic_string();
 }
 
 unsigned long PlatformUtils::stackLimit()

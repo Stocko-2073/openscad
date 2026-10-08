@@ -48,6 +48,7 @@
 #include <QString>
 #include <QStringList>
 #include <QTextDocument>
+#include <QTimer>
 #include <QWidget>
 #include <boost/algorithm/string.hpp>
 #include <cassert>
@@ -100,22 +101,14 @@ Preferences::Preferences(QWidget *parent) : QMainWindow(parent)
 {
   setupUi(this);
 
-  std::list<std::string> names = ColorMap::inst()->colorSchemeNames(true);
-  QStringList renderColorSchemes;
-  for (const auto& name : names) renderColorSchemes << name.c_str();
-
   {
     const BlockSignals<QComboBox *> blocker(syntaxHighlight);
     syntaxHighlight->clear();
     syntaxHighlight->addItems(EditorColorMap::inst()->colorSchemeNames());
   }
 
-  {
-    const BlockSignals<QListWidget *> blocker(colorSchemeChooser);
-    colorSchemeChooser->clear();
-    colorSchemeChooser->addItems(renderColorSchemes);
-  }
   init();
+  populateColorSchemes(getValue("3dview/colorscheme").toString());
   AxisConfig->init();
   setupFeaturesPage();
   setup3DPrintPage();
@@ -469,12 +462,164 @@ void Preferences::setup3DPrintPage()
   }
 }
 
+// Items keep the scheme's name in Qt::UserRole, as their text changes while renamed. Only user
+// schemes are editable.
+void Preferences::populateColorSchemes(const QString& select)
+{
+  {
+    const BlockSignals<QListWidget *> blocker(colorSchemeChooser);
+    colorSchemeChooser->clear();
+    for (const auto& name : ColorMap::inst()->colorSchemeNames(true)) {
+      auto *item = new QListWidgetItem(QString::fromStdString(name), colorSchemeChooser);
+      item->setData(Qt::UserRole, item->text());
+      if (ColorMap::inst()->isUserColorScheme(name)) item->setFlags(item->flags() | Qt::ItemIsEditable);
+    }
+  }
+  selectColorScheme(select);
+}
+
+// Selects without applying: the default when `name` is missing.
+void Preferences::selectColorScheme(const QString& name)
+{
+  auto found = colorSchemeChooser->findItems(name, Qt::MatchExactly);
+  if (found.isEmpty()) {
+    found = colorSchemeChooser->findItems(ColorMap::inst()->defaultColorSchemeName(), Qt::MatchExactly);
+  }
+  if (!found.isEmpty()) BlockSignals<QListWidget *>(colorSchemeChooser)->setCurrentItem(found.first());
+  updateColorSchemeControls();
+}
+
+void Preferences::updateColorSchemeControls()
+{
+  const auto *item = colorSchemeChooser->currentItem();
+  const QString name = item ? item->data(Qt::UserRole).toString() : QString();
+  const bool user = item && ColorMap::inst()->isUserColorScheme(name.toStdString());
+  toolButtonColorSchemeDuplicate->setEnabled(item != nullptr);
+  toolButtonColorSchemeRename->setEnabled(user);
+  toolButtonColorSchemeDelete->setEnabled(user);
+  colorSchemeEditor->setScheme(name);
+}
+
+void Preferences::applyColorScheme(const QString& name)
+{
+  QSettingsCached settings;
+  settings.setValue("3dview/colorscheme", name);
+  emit colorSchemeChanged(name);
+}
+
 void Preferences::on_colorSchemeChooser_itemSelectionChanged()
 {
-  QString scheme = this->colorSchemeChooser->currentItem()->text();
-  QSettingsCached settings;
-  settings.setValue("3dview/colorscheme", scheme);
-  emit colorSchemeChanged(scheme);
+  updateColorSchemeControls();
+  if (const auto *item = colorSchemeChooser->currentItem()) {
+    applyColorScheme(item->data(Qt::UserRole).toString());
+  }
+}
+
+void Preferences::on_colorSchemeChooser_itemChanged(QListWidgetItem *item)
+{
+  const QString oldName = item->data(Qt::UserRole).toString();
+  const QString newName = item->text().trimmed();
+  if (oldName.isEmpty() || item->text() == oldName) return;
+
+  std::string error;
+  if (newName.isEmpty()) {
+    error = _("A color scheme needs a name.");
+  } else if (newName != oldName) {
+    const ColorScheme *colors = ColorMap::inst()->findColorScheme(oldName.toStdString());
+    error = colors ? ColorMap::inst()->saveUserColorScheme(oldName.toStdString(),
+                                                           newName.toStdString(), *colors)
+                   : std::string(_("The color scheme is gone."));
+  }
+  if (!error.empty()) {
+    // The item's editor is still closing.
+    QTimer::singleShot(0, this, [this, oldName, message = QString::fromStdString(error)]() {
+      for (int i = 0; i < colorSchemeChooser->count(); ++i) {
+        auto *renamed = colorSchemeChooser->item(i);
+        if (renamed->data(Qt::UserRole).toString() != oldName) continue;
+        const BlockSignals<QListWidget *> blocker(colorSchemeChooser);
+        renamed->setText(oldName);
+      }
+      QMessageBox::warning(this, _("Rename color scheme"), message, QMessageBox::Ok);
+    });
+    return;
+  }
+
+  {
+    const BlockSignals<QListWidget *> blocker(colorSchemeChooser);
+    item->setText(newName);
+    item->setData(Qt::UserRole, newName);
+  }
+  if (newName == oldName) return;
+  colorSchemeEditor->setScheme(newName);
+  applyColorScheme(newName);
+}
+
+// Each first takes the focus back to the list, which ends a rename still being typed.
+void Preferences::on_toolButtonColorSchemeDuplicate_clicked()
+{
+  colorSchemeChooser->setFocus();
+  const auto *item = colorSchemeChooser->currentItem();
+  if (!item) return;
+  const std::string source = item->data(Qt::UserRole).toString().toStdString();
+  const ColorScheme *colors = ColorMap::inst()->findColorScheme(source);
+  if (!colors) return;
+
+  ColorScheme copy = *colors;
+  // The editor shows and sets each of these pairs as one color.
+  copy[RenderColor::OPENCSG_FACE_FRONT_COLOR] =
+    ColorMap::getColor(copy, RenderColor::CGAL_FACE_FRONT_COLOR);
+  copy[RenderColor::OPENCSG_FACE_BACK_COLOR] =
+    ColorMap::getColor(copy, RenderColor::CGAL_FACE_BACK_COLOR);
+
+  std::string name = source + " copy";
+  for (int n = 2; ColorMap::inst()->colorSchemeNameTaken(name); ++n) {
+    name = source + " copy " + std::to_string(n);
+  }
+  if (const auto error = ColorMap::inst()->addUserColorScheme(name, copy); !error.empty()) {
+    QMessageBox::critical(this, _("Duplicate color scheme"), QString::fromStdString(error),
+                          QMessageBox::Ok);
+    return;
+  }
+  populateColorSchemes(QString::fromStdString(name));
+  applyColorScheme(QString::fromStdString(name));
+  colorSchemeChooser->editItem(colorSchemeChooser->currentItem());
+}
+
+void Preferences::on_toolButtonColorSchemeRename_clicked()
+{
+  colorSchemeChooser->setFocus();
+  if (auto *item = colorSchemeChooser->currentItem()) colorSchemeChooser->editItem(item);
+}
+
+void Preferences::on_toolButtonColorSchemeDelete_clicked()
+{
+  colorSchemeChooser->setFocus();
+  const auto *item = colorSchemeChooser->currentItem();
+  if (!item) return;
+  const QString name = item->data(Qt::UserRole).toString();
+  if (QMessageBox::warning(this, _("Delete color scheme"),
+                           QString(_("Delete the color scheme \"%1\"?")).arg(name),
+                           QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
+    return;
+  }
+
+  const int row = colorSchemeChooser->row(item);
+  if (const auto error = ColorMap::inst()->removeUserColorScheme(name.toStdString()); !error.empty()) {
+    QMessageBox::critical(this, _("Delete color scheme"), QString::fromStdString(error),
+                          QMessageBox::Ok);
+    return;
+  }
+  const auto *next = colorSchemeChooser->item(row + 1) ? colorSchemeChooser->item(row + 1)
+                                                       : colorSchemeChooser->item(row - 1);
+  populateColorSchemes(next ? next->data(Qt::UserRole).toString() : QString());
+  if (const auto *current = colorSchemeChooser->currentItem()) {
+    applyColorScheme(current->data(Qt::UserRole).toString());
+  }
+}
+
+void Preferences::on_colorSchemeEditor_schemeEdited(const QString& name)
+{
+  emit colorSchemeChanged(name);
 }
 
 void Preferences::on_fontChooser_currentFontChanged(const QFont& font)
@@ -1336,10 +1481,7 @@ QVariant Preferences::getValue(const QString& key) const
 
 void Preferences::updateGUI()
 {
-  const auto found =
-    this->colorSchemeChooser->findItems(getValue("3dview/colorscheme").toString(), Qt::MatchExactly);
-  if (!found.isEmpty())
-    BlockSignals<QListWidget *>(this->colorSchemeChooser)->setCurrentItem(found.first());
+  selectColorScheme(getValue("3dview/colorscheme").toString());
 
   updateGUIFontFamily(fontChooser, "editor/fontfamily");
   updateGUIFontSize(fontSize, "editor/fontsize");

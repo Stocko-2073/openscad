@@ -21,7 +21,6 @@ public:
 
   RenderBackend3D backend3D;
   double far_gl_clip_limit;
-  std::string colorscheme;
 
 private:
   RenderSettings();

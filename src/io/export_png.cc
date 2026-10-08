@@ -8,6 +8,7 @@
 #include "geometry/Geometry.h"
 #include "geometry/linalg.h"
 #include "glview/Camera.h"
+#include "glview/ColorMap.h"
 #include "glview/OffscreenView.h"
 #include "glview/RenderSettings.h"
 #include "glview/Renderer.h"
@@ -63,7 +64,7 @@ bool export_png(const std::shared_ptr<const Geometry>& root_geom,
 
   glview->setCamera(camera);
   glview->setRenderer(geomRenderer);
-  glview->setColorScheme(RenderSettings::inst()->colorscheme);
+  glview->setColorScheme(ColorMap::inst()->activeColorScheme());
   glview->setShowCrosshairs(options["crosshairs"]);
   glview->setShowAxes(options["axes"]);
   glview->setShowScaleProportional(options["scales"]);

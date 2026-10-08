@@ -39,5 +39,4 @@ RenderSettings::RenderSettings()
 {
   backend3D = DEFAULT_RENDERING_BACKEND_3D;
   far_gl_clip_limit = 100000.0;
-  colorscheme = "Cornfield";
 }

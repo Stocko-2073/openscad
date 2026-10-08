@@ -54,7 +54,6 @@
 #include "geometry/linalg.h"
 #include "glview/Camera.h"
 #include "glview/ColorMap.h"
-#include "glview/RenderSettings.h"
 #include "utils/printutils.h"
 
 #define QUOTE(x__) #x__
@@ -176,15 +175,15 @@ ExportInfo createExportInfo(const FileFormat& format, const FileFormatInfo& info
                             const std::string& filepath, const Camera *camera,
                             const CmdLineExportOptions& cmdLineOptions)
 {
-  const auto colorScheme = ColorMap::inst()->findColorScheme(RenderSettings::inst()->colorscheme);
+  const ColorScheme& colorScheme = ColorMap::inst()->activeColorScheme();
   auto exportInfo = ExportInfo{
     .format = format,
     .info = info,
     .title = std::filesystem::path(filepath).filename().string(),
     .sourceFilePath = filepath,
     .camera = camera,
-    .defaultColor = ColorMap::getColor(*colorScheme, RenderColor::CGAL_FACE_FRONT_COLOR),
-    .colorScheme = colorScheme,
+    .defaultColor = ColorMap::getColor(colorScheme, RenderColor::CGAL_FACE_FRONT_COLOR),
+    .colorScheme = &colorScheme,
   };
 
   if (format == FileFormat::_3MF) {

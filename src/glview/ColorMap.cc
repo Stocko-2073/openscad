@@ -4,19 +4,135 @@
 #include "platform/PlatformUtils.h"
 
 #include <algorithm>
+#include <array>
+#include <cctype>
+#include <cstdio>
+#include <fstream>
 #include <iomanip>
 #include <stdexcept>
 #include <list>
 #include <utility>
 #include <exception>
 #include <memory>
+#include <boost/algorithm/string/predicate.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <filesystem>
 #include <cmath>
 
+#include "json/json.hpp"
+
 namespace fs = std::filesystem;
 
 static const char *DEFAULT_COLOR_SCHEME_NAME = "Cornfield";
+
+namespace {
+
+struct ColorKey {
+  RenderColor color;
+  const char *key;
+};
+
+// In the order the bundled files list them.
+const std::array<ColorKey, 12> COLOR_KEYS{{
+  {RenderColor::BACKGROUND_COLOR, "background"},
+  {RenderColor::BACKGROUND_STOP_COLOR, "background-stop"},
+  {RenderColor::AXES_COLOR, "axes-color"},
+  {RenderColor::OPENCSG_FACE_FRONT_COLOR, "opencsg-face-front"},
+  {RenderColor::OPENCSG_FACE_BACK_COLOR, "opencsg-face-back"},
+  {RenderColor::CGAL_FACE_FRONT_COLOR, "cgal-face-front"},
+  {RenderColor::CGAL_FACE_BACK_COLOR, "cgal-face-back"},
+  {RenderColor::CGAL_FACE_2D_COLOR, "cgal-face-2d"},
+  {RenderColor::CGAL_EDGE_FRONT_COLOR, "cgal-edge-front"},
+  {RenderColor::CGAL_EDGE_BACK_COLOR, "cgal-edge-back"},
+  {RenderColor::CGAL_EDGE_2D_COLOR, "cgal-edge-2d"},
+  {RenderColor::CROSSHAIR_COLOR, "crosshair"},
+}};
+
+Color4f readColor(const boost::property_tree::ptree& colors, const char *key)
+{
+  auto color = colors.get<std::string>(key);
+  if ((color.length() == 7) && (color.at(0) == '#')) {
+    char *endptr;
+    unsigned int val = strtol(color.substr(1).c_str(), &endptr, 16);
+    int r = (val >> 16) & 0xff;
+    int g = (val >> 8) & 0xff;
+    int b = val & 0xff;
+    return {r, g, b};
+  }
+  throw std::invalid_argument(std::string("invalid color value for key '") + key + "': '" + color +
+                              "'");
+}
+
+std::string hexColor(const Color4f& color)
+{
+  const auto channel = [](float v) {
+    return std::clamp(static_cast<int>(std::lround(v * 255.0f)), 0, 255);
+  };
+  std::array<char, 8> hex{};
+  std::snprintf(hex.data(), hex.size(), "#%02x%02x%02x", channel(color.r()), channel(color.g()),
+                channel(color.b()));
+  return hex.data();
+}
+
+std::string writeColorScheme(const fs::path& path, const std::string& name, int index,
+                             const ColorScheme& colors)
+{
+  nlohmann::ordered_json json;
+  json["name"] = name;
+  json["index"] = index;
+  json["show-in-gui"] = true;
+  auto& jsonColors = json["colors"];
+  for (const auto& [color, key] : COLOR_KEYS) {
+    jsonColors[key] = hexColor(ColorMap::getColor(colors, color));
+  }
+
+  fs::path tmp = path;
+  tmp += ".tmp";
+  {
+    std::ofstream file(tmp);
+    file << json.dump(4, ' ', false, nlohmann::ordered_json::error_handler_t::replace) << "\n";
+    if (!file) return "Can't write '" + tmp.generic_string() + "'";
+  }
+  std::error_code ec;
+  fs::rename(tmp, path, ec);
+  if (ec) {
+    std::error_code ignored;
+    fs::remove(tmp, ignored);
+    return "Can't write '" + path.generic_string() + "': " + ec.message();
+  }
+  return {};
+}
+
+// A file name from the scheme's name, kept to ASCII so it means the same on every platform.
+fs::path userSchemePath(const fs::path& dir, const std::string& name)
+{
+  std::string stem;
+  for (const unsigned char c : name) {
+    if (std::isalnum(c) && c < 0x80) {
+      stem += static_cast<char>(std::tolower(c));
+    } else if (!stem.empty() && stem.back() != '-') {
+      stem += '-';
+    }
+  }
+  while (!stem.empty() && stem.back() == '-') stem.pop_back();
+  if (stem.empty()) stem = "color-scheme";
+
+  fs::path path = dir / (stem + ".json");
+  for (int n = 2; fs::exists(path); ++n) {
+    path = dir / (stem + "-" + std::to_string(n) + ".json");
+  }
+  return path;
+}
+
+template <typename Set>
+bool nameTaken(const Set& set, const std::string& name, const std::string& except)
+{
+  return std::any_of(set.begin(), set.end(), [&](const auto& item) {
+    return item.second->name() != except && boost::algorithm::iequals(item.second->name(), name);
+  });
+}
+
+}  // namespace
 
 RenderColorScheme::RenderColorScheme() : _path("")
 {
@@ -48,29 +164,23 @@ RenderColorScheme::RenderColorScheme() : _path("")
   _color_scheme.insert(ColorScheme::value_type(RenderColor::CROSSHAIR_COLOR, Color4f(0x80, 0x00, 0x00)));
 }
 
-RenderColorScheme::RenderColorScheme(const fs::path& path) : _path(path)
+RenderColorScheme::RenderColorScheme(const fs::path& path, bool user) : _path(path), _user(user)
 {
   try {
+    boost::property_tree::ptree pt;
     boost::property_tree::read_json(path.generic_string().c_str(), pt);
     _name = pt.get<std::string>("name");
     _index = pt.get<int>("index");
     _show_in_gui = pt.get<bool>("show-in-gui");
 
-    addColor(RenderColor::BACKGROUND_COLOR, "background");
-    addColor(RenderColor::AXES_COLOR, "axes-color");
-    addColor(RenderColor::OPENCSG_FACE_FRONT_COLOR, "opencsg-face-front");
-    addColor(RenderColor::OPENCSG_FACE_BACK_COLOR, "opencsg-face-back");
-    addColor(RenderColor::CGAL_FACE_FRONT_COLOR, "cgal-face-front");
-    addColor(RenderColor::CGAL_FACE_2D_COLOR, "cgal-face-2d");
-    addColor(RenderColor::CGAL_FACE_BACK_COLOR, "cgal-face-back");
-    addColor(RenderColor::CGAL_EDGE_FRONT_COLOR, "cgal-edge-front");
-    addColor(RenderColor::CGAL_EDGE_BACK_COLOR, "cgal-edge-back");
-    addColor(RenderColor::CGAL_EDGE_2D_COLOR, "cgal-edge-2d");
-    addColor(RenderColor::CROSSHAIR_COLOR, "crosshair");
+    const boost::property_tree::ptree& colors = pt.get_child("colors");
+    for (const auto& [color, key] : COLOR_KEYS) {
+      if (color != RenderColor::BACKGROUND_STOP_COLOR) _color_scheme[color] = readColor(colors, key);
+    }
     try {
-      addColor(RenderColor::BACKGROUND_STOP_COLOR, "background-stop");
-    } catch (const std::exception& e) {
-      addColor(RenderColor::BACKGROUND_STOP_COLOR, "background");
+      _color_scheme[RenderColor::BACKGROUND_STOP_COLOR] = readColor(colors, "background-stop");
+    } catch (const std::exception&) {
+      _color_scheme[RenderColor::BACKGROUND_STOP_COLOR] = _color_scheme[RenderColor::BACKGROUND_COLOR];
     }
   } catch (const std::exception& e) {
     LOG("Error reading color scheme file: '%1$s': %2$s", path.generic_string().c_str(), e.what());
@@ -79,6 +189,16 @@ RenderColorScheme::RenderColorScheme(const fs::path& path) : _path(path)
     _index = 0;
     _show_in_gui = false;
   }
+}
+
+RenderColorScheme::RenderColorScheme(fs::path path, std::string name, int index, ColorScheme colors)
+  : _path(std::move(path)),
+    _name(std::move(name)),
+    _index(index),
+    _show_in_gui(true),
+    _user(true),
+    _color_scheme(std::move(colors))
+{
 }
 
 bool RenderColorScheme::valid() const
@@ -101,6 +221,11 @@ bool RenderColorScheme::showInGui() const
   return _show_in_gui;
 }
 
+bool RenderColorScheme::isUser() const
+{
+  return _user;
+}
+
 std::string RenderColorScheme::path() const
 {
   return _path.string();
@@ -111,31 +236,9 @@ std::string RenderColorScheme::error() const
   return _error;
 }
 
-ColorScheme& RenderColorScheme::colorScheme()
+const ColorScheme& RenderColorScheme::colorScheme() const
 {
   return _color_scheme;
-}
-
-const boost::property_tree::ptree& RenderColorScheme::propertyTree() const
-{
-  return pt;
-}
-
-void RenderColorScheme::addColor(RenderColor colorKey, const std::string& key)
-{
-  const boost::property_tree::ptree& colors = pt.get_child("colors");
-  auto color = colors.get<std::string>(key);
-  if ((color.length() == 7) && (color.at(0) == '#')) {
-    char *endptr;
-    unsigned int val = strtol(color.substr(1).c_str(), &endptr, 16);
-    int r = (val >> 16) & 0xff;
-    int g = (val >> 8) & 0xff;
-    int b = val & 0xff;
-    _color_scheme.insert(ColorScheme::value_type(colorKey, Color4f(r, g, b)));
-  } else {
-    throw std::invalid_argument(std::string("invalid color value for key '") + key + "': '" + color +
-                                "'");
-  }
 }
 
 ColorMap *ColorMap::inst(bool erase)
@@ -148,9 +251,11 @@ ColorMap *ColorMap::inst(bool erase)
   return instance;
 }
 
-ColorMap::ColorMap()
+ColorMap::ColorMap() : default_(std::make_shared<const RenderColorScheme>()), active_(default_)
 {
-  colorSchemeSet = enumerateColorSchemes();
+  colorSchemeSet.emplace(default_->index(), default_);
+  enumerateColorSchemesInPath(PlatformUtils::resourceBasePath(), false);
+  enumerateColorSchemesInPath(PlatformUtils::userConfigPath(), true);
   dump();
 }
 
@@ -161,18 +266,129 @@ const char *ColorMap::defaultColorSchemeName() const
 
 const ColorScheme& ColorMap::defaultColorScheme() const
 {
-  return *findColorScheme(DEFAULT_COLOR_SCHEME_NAME);
+  return default_->colorScheme();
+}
+
+std::shared_ptr<const RenderColorScheme> ColorMap::find(const std::string& name) const
+{
+  for (const auto& item : colorSchemeSet) {
+    if (name == item.second->name()) return item.second;
+  }
+  return nullptr;
 }
 
 const ColorScheme *ColorMap::findColorScheme(const std::string& name) const
 {
-  for (const auto& item : colorSchemeSet) {
-    RenderColorScheme *scheme = item.second.get();
-    if (name == scheme->name()) {
-      return &scheme->colorScheme();
+  const std::lock_guard lock(mutex_);
+  const auto scheme = find(name);
+  return scheme ? &scheme->colorScheme() : nullptr;
+}
+
+const ColorScheme& ColorMap::setActiveColorScheme(const std::string& name)
+{
+  const std::lock_guard lock(mutex_);
+  const auto scheme = find(name);
+  active_ = scheme ? scheme : default_;
+  return active_->colorScheme();
+}
+
+const ColorScheme& ColorMap::activeColorScheme() const
+{
+  const std::lock_guard lock(mutex_);
+  return active_->colorScheme();
+}
+
+bool ColorMap::isUserColorScheme(const std::string& name) const
+{
+  const std::lock_guard lock(mutex_);
+  const auto scheme = find(name);
+  return scheme && scheme->isUser();
+}
+
+bool ColorMap::colorSchemeNameTaken(const std::string& name, const std::string& except) const
+{
+  const std::lock_guard lock(mutex_);
+  return nameTaken(colorSchemeSet, name, except);
+}
+
+std::string ColorMap::addUserColorScheme(const std::string& name, const ColorScheme& colors)
+{
+  const std::string config = PlatformUtils::userConfigPath();
+  if (config.empty()) return "There is no user config folder to keep color schemes in.";
+  const fs::path dir = fs::path(config) / "color-schemes" / "render";
+  std::error_code ec;
+  fs::create_directories(dir, ec);
+  if (ec) return "Can't create '" + dir.generic_string() + "': " + ec.message();
+
+  int index;
+  {
+    const std::lock_guard lock(mutex_);
+    if (nameTaken(colorSchemeSet, name, {})) return "The name '" + name + "' is already taken.";
+    index = colorSchemeSet.rbegin()->first + 1;
+  }
+  const fs::path path = userSchemePath(dir, name);
+  if (auto error = writeColorScheme(path, name, index, colors); !error.empty()) return error;
+
+  auto scheme = std::make_shared<const RenderColorScheme>(path, name, index, colors);
+  const std::lock_guard lock(mutex_);
+  colorSchemeSet.emplace(index, std::move(scheme));
+  return {};
+}
+
+std::string ColorMap::saveUserColorScheme(const std::string& name, const std::string& newName,
+                                          const ColorScheme& colors)
+{
+  std::shared_ptr<const RenderColorScheme> scheme;
+  {
+    const std::lock_guard lock(mutex_);
+    scheme = find(name);
+    if (!scheme || !scheme->isUser()) return "'" + name + "' is not a user color scheme.";
+    if (nameTaken(colorSchemeSet, newName, name)) {
+      return "The name '" + newName + "' is already taken.";
     }
   }
-  return nullptr;
+  if (auto error = writeColorScheme(scheme->_path, newName, scheme->index(), colors); !error.empty()) {
+    return error;
+  }
+
+  auto saved =
+    std::make_shared<const RenderColorScheme>(scheme->_path, newName, scheme->index(), colors);
+  const std::lock_guard lock(mutex_);
+  retire(scheme, saved);
+  return {};
+}
+
+std::string ColorMap::removeUserColorScheme(const std::string& name)
+{
+  std::shared_ptr<const RenderColorScheme> scheme;
+  {
+    const std::lock_guard lock(mutex_);
+    scheme = find(name);
+    if (!scheme || !scheme->isUser()) return "'" + name + "' is not a user color scheme.";
+  }
+  std::error_code ec;
+  fs::remove(scheme->_path, ec);
+  if (ec) return "Can't delete '" + scheme->_path.generic_string() + "': " + ec.message();
+
+  const std::lock_guard lock(mutex_);
+  retire(scheme, nullptr);
+  return {};
+}
+
+void ColorMap::retire(const std::shared_ptr<const RenderColorScheme>& scheme,
+                      const std::shared_ptr<const RenderColorScheme>& replacement)
+{
+  for (auto it = colorSchemeSet.begin(); it != colorSchemeSet.end(); ++it) {
+    if (it->second != scheme) continue;
+    if (replacement) {
+      it->second = replacement;
+    } else {
+      colorSchemeSet.erase(it);
+    }
+    break;
+  }
+  if (active_ == scheme) active_ = replacement ? replacement : default_;
+  retired_.push_back(scheme);
 }
 
 void ColorMap::dump() const
@@ -201,6 +417,7 @@ void ColorMap::dump() const
 
 std::list<std::string> ColorMap::colorSchemeNames(bool guiOnly) const
 {
+  const std::lock_guard lock(mutex_);
   std::list<std::string> colorSchemeNames;
   for (const auto& item : colorSchemeSet) {
     const RenderColorScheme *scheme = item.second.get();
@@ -220,8 +437,9 @@ Color4f ColorMap::getColor(const ColorScheme& cs, const RenderColor rc)
   return {0, 0, 0, 127};
 }
 
-void ColorMap::enumerateColorSchemesInPath(colorscheme_set_t& result_set, const fs::path& basePath)
+void ColorMap::enumerateColorSchemesInPath(const fs::path& basePath, bool user)
 {
+  if (basePath.empty()) return;
   const fs::path color_schemes = basePath / "color-schemes" / "render";
 
   PRINTDB("Enumerating color schemes from '%s'", color_schemes.generic_string().c_str());
@@ -239,29 +457,17 @@ void ColorMap::enumerateColorSchemesInPath(colorscheme_set_t& result_set, const 
         continue;
       }
 
-      auto *colorScheme = new RenderColorScheme(path);
-      if (colorScheme->valid() && (findColorScheme(colorScheme->name()) == nullptr)) {
-        result_set.insert(colorscheme_set_t::value_type(
-          colorScheme->index(), std::shared_ptr<RenderColorScheme>(colorScheme)));
+      auto colorScheme = std::make_shared<const RenderColorScheme>(path, user);
+      if (!colorScheme->valid()) {
+        PRINTDB("Invalid file '%s': %s", colorScheme->path() % colorScheme->error());
+      } else if (nameTaken(colorSchemeSet, colorScheme->name(), {})) {
+        LOG(message_group::Warning, "Color scheme '%1$s' in '%2$s' is skipped: the name is taken.",
+            colorScheme->name(), colorScheme->path());
+      } else {
+        colorSchemeSet.emplace(colorScheme->index(), colorScheme);
         PRINTDB("Found file '%s' with color scheme '%s' and index %d",
                 colorScheme->path() % colorScheme->name() % colorScheme->index());
-      } else {
-        PRINTDB("Invalid file '%s': %s", colorScheme->path() % colorScheme->error());
-        delete colorScheme;
       }
     }
   }
-}
-
-ColorMap::colorscheme_set_t ColorMap::enumerateColorSchemes()
-{
-  colorscheme_set_t result_set;
-
-  auto *defaultColorScheme = new RenderColorScheme();
-  result_set.insert(colorscheme_set_t::value_type(
-    defaultColorScheme->index(), std::shared_ptr<RenderColorScheme>(defaultColorScheme)));
-  enumerateColorSchemesInPath(result_set, PlatformUtils::resourceBasePath());
-  enumerateColorSchemesInPath(result_set, PlatformUtils::userConfigPath());
-
-  return result_set;
 }

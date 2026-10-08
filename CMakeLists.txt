@@ -1328,6 +1328,7 @@ set(GUI_SOURCES
   src/gui/AnimateFrameTask.cc
   src/gui/FontList.cc
   src/gui/ColorList.cc
+  src/gui/ColorSchemeEditor.cc
   src/gui/ColorLabel.cc
   src/gui/ColorLayout.cc
   src/gui/EditorColorMap.cc
@@ -1397,6 +1398,7 @@ set(GUI_HEADERS
     src/gui/OctoPrintApiKeyDialog.h
     src/gui/FontList.h
     src/gui/ColorList.h
+    src/gui/ColorSchemeEditor.h
     src/gui/ColorLabel.h
     src/gui/ColorLayout.h
     src/gui/FontListTableView.h

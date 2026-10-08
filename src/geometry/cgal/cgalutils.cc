@@ -26,7 +26,6 @@
 #include "geometry/cgal/cgal.h"
 #include "geometry/linalg.h"
 #include "glview/ColorMap.h"
-#include "glview/RenderSettings.h"
 #include "utils/degree_trig.h"
 #include "utils/printutils.h"
 #ifdef ENABLE_MANIFOLD
@@ -287,6 +286,12 @@ std::shared_ptr<const CGALNefGeometry> getNefPolyhedronFromGeometry(
  */
 std::unique_ptr<PolySet> createPolySetFromNefPolyhedron3(const CGAL_Nef_polyhedron3& N)
 {
+  return createPolySetFromNefPolyhedron3(N, ColorMap::inst()->activeColorScheme());
+}
+
+std::unique_ptr<PolySet> createPolySetFromNefPolyhedron3(const CGAL_Nef_polyhedron3& N,
+                                                         const ColorScheme& colorScheme)
+{
   // 1. Build Indexed PolyMesh
   // 2. Validate mesh (manifoldness)
   // 3. Triangulate each face
@@ -408,9 +413,8 @@ std::unique_ptr<PolySet> createPolySetFromNefPolyhedron3(const CGAL_Nef_polyhedr
 
   auto polyset = PolySet::createEmpty();
   polyset->colors.reserve(2);
-  auto colorScheme = ColorMap::inst()->findColorScheme(RenderSettings::inst()->colorscheme);
-  polyset->colors.push_back(ColorMap::getColor(*colorScheme, RenderColor::CGAL_FACE_FRONT_COLOR));
-  polyset->colors.push_back(ColorMap::getColor(*colorScheme, RenderColor::CGAL_FACE_BACK_COLOR));
+  polyset->colors.push_back(ColorMap::getColor(colorScheme, RenderColor::CGAL_FACE_FRONT_COLOR));
+  polyset->colors.push_back(ColorMap::getColor(colorScheme, RenderColor::CGAL_FACE_BACK_COLOR));
 
   polyset->vertices.reserve(verts.size());
   for (const auto& v : verts) {

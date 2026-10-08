@@ -46,6 +46,11 @@ public slots:
   void featuresCheckBoxToggled(bool);
   void on_stackedWidget_currentChanged(int);
   void on_colorSchemeChooser_itemSelectionChanged();
+  void on_colorSchemeChooser_itemChanged(QListWidgetItem *item);
+  void on_toolButtonColorSchemeDuplicate_clicked();
+  void on_toolButtonColorSchemeRename_clicked();
+  void on_toolButtonColorSchemeDelete_clicked();
+  void on_colorSchemeEditor_schemeEdited(const QString& name);
   void on_fontChooser_currentFontChanged(const QFont&);
   void on_fontSize_currentIndexChanged(int);
   void on_syntaxHighlight_currentTextChanged(const QString&);
@@ -191,6 +196,10 @@ private:
   void removeDefaultSettings();
   void setupFeaturesPage();
   void setup3DPrintPage();
+  void populateColorSchemes(const QString& select);
+  void selectColorScheme(const QString& name);
+  void updateColorSchemeControls();
+  void applyColorScheme(const QString& name);
   void writeSettings();
   void hidePasswords();
   void addPrefPage(QActionGroup *group, QAction *action, QWidget *widget);

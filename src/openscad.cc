@@ -763,7 +763,7 @@ void set_render_color_scheme(const std::string& color_scheme, const bool exit_if
   }
 
   if (ColorMap::inst()->findColorScheme(color_scheme)) {
-    RenderSettings::inst()->colorscheme = color_scheme;
+    ColorMap::inst()->setActiveColorScheme(color_scheme);
     return;
   }
 

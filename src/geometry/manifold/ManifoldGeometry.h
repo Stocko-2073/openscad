@@ -13,6 +13,7 @@
 
 #include "geometry/Geometry.h"
 #include "geometry/linalg.h"
+#include "glview/ColorMap.h"
 
 namespace manifold {
 class Manifold;
@@ -45,7 +46,9 @@ public:
   [[nodiscard]] unsigned int getDimension() const override { return 3; }
   [[nodiscard]] std::unique_ptr<Geometry> copy() const override;
 
+  // Uncolored and subtracted faces take the active color scheme's colors, or those of the one given.
   [[nodiscard]] std::shared_ptr<PolySet> toPolySet() const;
+  [[nodiscard]] std::shared_ptr<PolySet> toPolySet(const ColorScheme& colorScheme) const;
 
   template <class Polyhedron>
   [[nodiscard]] std::shared_ptr<Polyhedron> toPolyhedron() const;
