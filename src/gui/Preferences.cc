@@ -571,9 +571,10 @@ void Preferences::on_toolButtonColorSchemeDuplicate_clicked()
   copy[RenderColor::OPENCSG_FACE_BACK_COLOR] =
     ColorMap::getColor(copy, RenderColor::CGAL_FACE_BACK_COLOR);
 
-  std::string name = source + " copy";
+  const QString sourceName = QString::fromStdString(source);
+  std::string name = QString(_("%1 copy")).arg(sourceName).toStdString();
   for (int n = 2; ColorMap::inst()->colorSchemeNameTaken(name); ++n) {
-    name = source + " copy " + std::to_string(n);
+    name = QString(_("%1 copy %2")).arg(sourceName).arg(n).toStdString();
   }
   if (const auto error = ColorMap::inst()->addUserColorScheme(name, copy); !error.empty()) {
     QMessageBox::critical(this, _("Duplicate color scheme"), QString::fromStdString(error),

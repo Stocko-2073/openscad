@@ -15,6 +15,7 @@
 #include <exception>
 #include <memory>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/format.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <filesystem>
 #include <cmath>
@@ -91,14 +92,14 @@ std::string writeColorScheme(const fs::path& path, const std::string& name, int 
   {
     std::ofstream file(tmp);
     file << json.dump(4, ' ', false, nlohmann::ordered_json::error_handler_t::replace) << "\n";
-    if (!file) return "Can't write '" + tmp.generic_string() + "'";
+    if (!file) return (boost::format(_("Can't write '%1$s'")) % tmp.generic_string()).str();
   }
   std::error_code ec;
   fs::rename(tmp, path, ec);
   if (ec) {
     std::error_code ignored;
     fs::remove(tmp, ignored);
-    return "Can't write '" + path.generic_string() + "': " + ec.message();
+    return (boost::format(_("Can't write '%1$s': %2$s")) % path.generic_string() % ec.message()).str();
   }
   return {};
 }
@@ -314,16 +315,20 @@ bool ColorMap::colorSchemeNameTaken(const std::string& name, const std::string& 
 std::string ColorMap::addUserColorScheme(const std::string& name, const ColorScheme& colors)
 {
   const std::string config = PlatformUtils::userConfigPath();
-  if (config.empty()) return "There is no user config folder to keep color schemes in.";
+  if (config.empty()) return _("There is no user config folder to keep color schemes in.");
   const fs::path dir = fs::path(config) / "color-schemes" / "render";
   std::error_code ec;
   fs::create_directories(dir, ec);
-  if (ec) return "Can't create '" + dir.generic_string() + "': " + ec.message();
+  if (ec) {
+    return (boost::format(_("Can't create '%1$s': %2$s")) % dir.generic_string() % ec.message()).str();
+  }
 
   int index;
   {
     const std::lock_guard lock(mutex_);
-    if (nameTaken(colorSchemeSet, name, {})) return "The name '" + name + "' is already taken.";
+    if (nameTaken(colorSchemeSet, name, {})) {
+      return (boost::format(_("The name '%1$s' is already taken.")) % name).str();
+    }
     index = colorSchemeSet.rbegin()->first + 1;
   }
   const fs::path path = userSchemePath(dir, name);
@@ -342,9 +347,11 @@ std::string ColorMap::saveUserColorScheme(const std::string& name, const std::st
   {
     const std::lock_guard lock(mutex_);
     scheme = find(name);
-    if (!scheme || !scheme->isUser()) return "'" + name + "' is not a user color scheme.";
+    if (!scheme || !scheme->isUser()) {
+      return (boost::format(_("'%1$s' is not a user color scheme.")) % name).str();
+    }
     if (nameTaken(colorSchemeSet, newName, name)) {
-      return "The name '" + newName + "' is already taken.";
+      return (boost::format(_("The name '%1$s' is already taken.")) % newName).str();
     }
   }
   if (auto error = writeColorScheme(scheme->_path, newName, scheme->index(), colors); !error.empty()) {
@@ -364,11 +371,16 @@ std::string ColorMap::removeUserColorScheme(const std::string& name)
   {
     const std::lock_guard lock(mutex_);
     scheme = find(name);
-    if (!scheme || !scheme->isUser()) return "'" + name + "' is not a user color scheme.";
+    if (!scheme || !scheme->isUser()) {
+      return (boost::format(_("'%1$s' is not a user color scheme.")) % name).str();
+    }
   }
   std::error_code ec;
   fs::remove(scheme->_path, ec);
-  if (ec) return "Can't delete '" + scheme->_path.generic_string() + "': " + ec.message();
+  if (ec) {
+    const std::string file = scheme->_path.generic_string();
+    return (boost::format(_("Can't delete '%1$s': %2$s")) % file % ec.message()).str();
+  }
 
   const std::lock_guard lock(mutex_);
   retire(scheme, nullptr);

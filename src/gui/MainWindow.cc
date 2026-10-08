@@ -2034,9 +2034,9 @@ void MainWindow::actionRenderDone(const std::shared_ptr<const RenderResult>& res
 
     // Go to CGAL view mode
     viewModeRender();
-    resetMeasurementsState(true, "Click to start measuring");
+    resetMeasurementsState(true, _("Click to start measuring"));
   } else {
-    resetMeasurementsState(false, "No top level geometry; render something to enable measurements");
+    resetMeasurementsState(false, _("No top level geometry; render something to enable measurements"));
     LOG(message_group::UI_Warning, "No top level geometry to render");
     // A design of only % subtrees still shows them.
     this->geomRenderer = resultRenderer(*result);
@@ -2071,12 +2071,12 @@ void MainWindow::handleMeasurementClicked(QAction *clickedAction)
 {
   // If we're unchecking, just stop.
   if (activeMeasurement == clickedAction) {
-    resetMeasurementsState(true, "Click to start measuring");
+    resetMeasurementsState(true, _("Click to start measuring"));
     return;
   }
 
-  resetMeasurementsState(true, "Click to start measuring");
-  clickedAction->setToolTip("Click to cancel measurement");
+  resetMeasurementsState(true, _("Click to start measuring"));
+  clickedAction->setToolTip(_("Click to cancel measurement"));
   clickedAction->setChecked(true);
   activeMeasurement = clickedAction;
 
@@ -2114,7 +2114,7 @@ void MainWindow::leftClick(QPoint mouse)
     }
     resultmenu.addAction("Click any above to copy its data to the clipboard");
     resultmenu.exec(qglview->mapToGlobal(mouse));
-    resetMeasurementsState(true, "Click to start measuring");
+    resetMeasurementsState(true, _("Click to start measuring"));
   }
 }
 
@@ -2322,7 +2322,7 @@ void MainWindow::resetPickMemo()
 void MainWindow::measureFinished()
 {
   auto didSomething = meas.stopMeasure();
-  if (didSomething) resetMeasurementsState(true, "Click to start measuring");
+  if (didSomething) resetMeasurementsState(true, _("Click to start measuring"));
 }
 
 void MainWindow::clearAllSelectionIndicators()
@@ -3748,7 +3748,7 @@ void MainWindow::setup3DView()
   this->qglview->setMouseCentricZoom(Settings::Settings::mouseCentricZoom.value());
   this->setAllMouseViewActions();
   this->meas.setView(qglview);
-  resetMeasurementsState(false, "Render (F6) to enable measurements");
+  resetMeasurementsState(false, _("Render (F6) to enable measurements"));
 
   // Initial Color Scheme
   const QString cs = GlobalPreferences::inst()->getValue("3dview/colorscheme").toString();

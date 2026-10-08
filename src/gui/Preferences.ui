@@ -177,7 +177,7 @@
           <item>
            <widget class="QSpinBox" name="spinBoxEdgeCreaseAngle">
             <property name="toolTip">
-             <string>Show Edges hides edges where faces meet at less than this angle. 0° hides only edges inside flat faces.</string>
+             <string>Show Edges hides edges where faces meet at less than this angle. Set it to 0 to hide only the edges inside flat faces.</string>
             </property>
             <property name="alignment">
              <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -186,7 +186,7 @@
              <bool>false</bool>
             </property>
             <property name="suffix">
-             <string>°</string>
+             <string notr="true">°</string>
             </property>
            </widget>
           </item>

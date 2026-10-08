@@ -299,7 +299,7 @@ void Animate::showCurrentStepFromCache()
   }
 
   if (tryShowCachedFrame(this->animStep)) {
-    mainWindow->resetMeasurementsState(true, "Click to start measuring");
+    mainWindow->resetMeasurementsState(true, _("Click to start measuring"));
   } else {
     mainWindow->actionRender();
   }
