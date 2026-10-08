@@ -127,11 +127,12 @@ public:
 class VertexStateContainer
 {
 public:
-  VertexStateContainer()
+  // Without elements, VBOBuilder writes every vertex of every triangle, in order.
+  explicit VertexStateContainer(bool elements = Feature::ExperimentalVxORenderersIndexing.is_enabled())
   {
     GL_TRACE("glGenBuffers(1, %p)", &vertices_vbo_);
     GL_CHECKD(glGenBuffers(1, &vertices_vbo_));
-    if (Feature::ExperimentalVxORenderersIndexing.is_enabled()) {
+    if (elements) {
       GL_TRACE("glGenBuffers(1, %p)", &elements_vbo_);
       GL_CHECKD(glGenBuffers(1, &elements_vbo_));
     }

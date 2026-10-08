@@ -41,13 +41,21 @@ std::array<GLubyte, 3> barycentricFlags(size_t corner, uint8_t hidden_edges)
   return flags;
 }
 
+// A color that sets only some components, like color(alpha=0.5), takes the rest from the default.
 Color4f polygonColor(const PolySet& ps, size_t i, const Color4f& default_color, bool force_default_color)
 {
   if (force_default_color || i >= ps.color_indices.size()) return default_color;
   const int32_t index = ps.color_indices[i];
-  return index >= 0 && static_cast<size_t>(index) < ps.colors.size() && ps.colors[index].isValid()
-           ? ps.colors[index]
-           : default_color;
+  if (index < 0 || static_cast<size_t>(index) >= ps.colors.size()) return default_color;
+  Color4f color = ps.colors[index];
+  if (!color.hasRgb()) color.setRgb(default_color.r(), default_color.g(), default_color.b());
+  if (!color.hasAlpha()) color.setAlpha(default_color.a());
+  return color;
+}
+
+bool passes(FaceFilter filter, const Color4f& color)
+{
+  return filter == FaceFilter::All || (filter == FaceFilter::Translucent) == (color.a() < 1.0f);
 }
 
 // Per triangle, the barycentricFlags() bits of the edges it shares with a same-colored triangle that
@@ -116,16 +124,111 @@ std::vector<uint8_t> hiddenEdges(const PolySet& ps, double crease_degrees, const
   return hidden;
 }
 
-size_t surfaceVertexCount(const PolySet& ps)
+// Halves the triangle across its longest edge until no edge is longer than max_edge, calling
+// f(p0, p1, p2, hidden_edges) for each piece. A cut is a hidden edge; a piece of an edge shows as the
+// edge does. Neighbors halve a shared edge at the same point.
+template <typename F>
+void subdivide(const Vector3d& p0, const Vector3d& p1, const Vector3d& p2, uint8_t hidden_edges,
+               double max_edge2, const F& f)
 {
-  size_t count = 0;
-  for (const auto& poly : ps.indices) {
-    count += poly.size() == 3 ? 3 : poly.size() == 4 ? 6 : 3 * poly.size();
+  if (max_edge2 <= 0) {
+    f(p0, p1, p2, hidden_edges);
+    return;
   }
-  return count;
+  const std::array<const Vector3d *, 3> p = {&p0, &p1, &p2};
+  size_t k = 0;  // the corner opposite the longest edge
+  double longest2 = 0;
+  for (size_t i = 0; i < 3; ++i) {
+    const double length2 = (*p[(i + 1) % 3] - *p[(i + 2) % 3]).squaredNorm();
+    if (length2 > longest2) {
+      longest2 = length2;
+      k = i;
+    }
+  }
+  if (!(longest2 > max_edge2)) {
+    f(p0, p1, p2, hidden_edges);
+    return;
+  }
+  const size_t a = (k + 1) % 3, b = (k + 2) % 3;
+  const Vector3d mid = (*p[a] + *p[b]) / 2;
+  const auto bit = [hidden_edges](size_t i) { return static_cast<uint8_t>(hidden_edges >> i & 1); };
+  subdivide(*p[k], *p[a], mid, bit(k) | 0b010 | bit(b) << 2, max_edge2, f);
+  subdivide(*p[k], mid, *p[b], bit(k) | bit(a) << 1 | 0b100, max_edge2, f);
+}
+
+// Calls f(color, p0, p1, p2, hidden_edges) for each triangle create_surface() makes of the faces
+// that pass the filter, hidden giving each face's hidden edges.
+template <typename F>
+void forEachTriangle(const PolySet& ps, const Transform3d& m, const Color4f& default_color,
+                     bool force_default_color, FaceFilter filter, const std::vector<uint8_t>& hidden,
+                     double max_edge, const F& f)
+{
+  const double max_edge2 = max_edge * max_edge;
+  for (size_t i = 0, n = ps.indices.size(); i < n; i++) {
+    const auto& poly = ps.indices[i];
+    const Color4f color = polygonColor(ps, i, default_color, force_default_color);
+    if (!passes(filter, color)) continue;
+    const auto triangle = [&](const Vector3d& p0, const Vector3d& p1, const Vector3d& p2,
+                              uint8_t hidden_edges) {
+      subdivide(p0, p1, p2, hidden_edges, max_edge2,
+                [&](const Vector3d& q0, const Vector3d& q1, const Vector3d& q2, uint8_t q_hidden) {
+                  f(color, q0, q1, q2, q_hidden);
+                });
+    };
+    if (poly.size() == 3) {
+      const Vector3d p0 = m * ps.vertices[poly.at(0)];
+      const Vector3d p1 = m * ps.vertices[poly.at(1)];
+      const Vector3d p2 = m * ps.vertices[poly.at(2)];
+
+      triangle(p0, p1, p2, hidden.empty() ? 0 : hidden[i]);
+    } else if (poly.size() == 4) {
+      const Vector3d p0 = m * ps.vertices[poly.at(0)];
+      const Vector3d p1 = m * ps.vertices[poly.at(1)];
+      const Vector3d p2 = m * ps.vertices[poly.at(2)];
+      const Vector3d p3 = m * ps.vertices[poly.at(3)];
+
+      // Without the diagonal.
+      triangle(p0, p1, p3, 0b001);
+      triangle(p2, p3, p1, 0b001);
+    } else {
+      Vector3d center = Vector3d::Zero();
+      for (const auto& idx : poly) {
+        center += ps.vertices[idx];
+      }
+      center /= poly.size();
+      for (size_t i = 1; i <= poly.size(); i++) {
+        const Vector3d p0 = m * center;
+        const Vector3d p1 = m * ps.vertices[poly.at(i % poly.size())];
+        const Vector3d p2 = m * ps.vertices[poly.at(i - 1)];
+
+        // Without the spokes.
+        triangle(p0, p2, p1, 0b110);
+      }
+    }
+  }
 }
 
 }  // namespace
+
+size_t VBOBuilder::surfaceVertexCount(const PolySet& ps, FaceFilter filter, const Color4f& default_color,
+                                      bool force_default_color, double max_edge)
+{
+  size_t count = 0;
+  if (max_edge > 0) {
+    forEachTriangle(ps, Transform3d::Identity(), default_color, force_default_color, filter, {},
+                    max_edge, [&count](const auto&...) { count += 3; });
+    return count;
+  }
+  for (size_t i = 0, n = ps.indices.size(); i < n; ++i) {
+    if (filter != FaceFilter::All &&
+        !passes(filter, polygonColor(ps, i, default_color, force_default_color))) {
+      continue;
+    }
+    const size_t size = ps.indices[i].size();
+    count += size == 3 ? 3 : size == 4 ? 6 : 3 * size;
+  }
+  return count;
+}
 
 // splitmix64's finalizer, so that the low bits, which pick the slot, depend on every byte.
 uint64_t ElementsMap::hash(const GLbyte *vertex, size_t stride)
@@ -543,7 +646,7 @@ void VBOBuilder::allocateBuffers(size_t num_vertices)
   GL_CHECKD(glBindBuffer(GL_ARRAY_BUFFER, vertex_state_container_.verticesVBO()));
   GL_TRACE("glBufferData(GL_ARRAY_BUFFER, %d, %p, GL_STATIC_DRAW)", vbo_buffer_size % (void *)nullptr);
   GL_CHECKD(glBufferData(GL_ARRAY_BUFFER, vbo_buffer_size, nullptr, GL_STATIC_DRAW));
-  if (Feature::ExperimentalVxORenderersIndexing.is_enabled()) {
+  if (useElements()) {
     // Use smallest possible index data type
     if (num_vertices <= 0xff) {
       addElementsData(std::make_shared<AttributeData<GLubyte, 1, GL_UNSIGNED_BYTE>>());
@@ -617,7 +720,8 @@ void VBOBuilder::create_triangle(const Color4f& color, const Vector3d& p0, const
 // vertex states
 void VBOBuilder::create_surface(const PolySet& ps, const Transform3d& m, const Color4f& default_color,
                                 bool enable_barycentric, bool force_default_color,
-                                double crease_degrees)
+                                double crease_degrees, FaceFilter filter, uint8_t hidden_mask,
+                                double max_edge, std::vector<Vector3f> *centroids)
 {
   const std::shared_ptr<VertexData> vertex_data = data();
 
@@ -639,56 +743,22 @@ void VBOBuilder::create_surface(const PolySet& ps, const Transform3d& m, const C
   }
 
   const bool direct = directTriangles(enable_barycentric);
-  const auto triangle = [&](const Color4f& color, const Vector3d& p0, const Vector3d& p1,
-                            const Vector3d& p2, uint8_t hidden_edges) {
-    if (direct) {
-      emitTriangle(color, p0, p1, p2, hidden_edges, enable_barycentric, mirrored);
-    } else {
-      create_triangle(color, p0, p1, p2, hidden_edges, enable_barycentric, mirrored);
-    }
-  };
-
   const std::vector<uint8_t> hidden =
-    enable_barycentric ? hiddenEdges(ps, crease_degrees, default_color, force_default_color)
-                       : std::vector<uint8_t>();
-
-  for (size_t i = 0, n = ps.indices.size(); i < n; i++) {
-    const auto& poly = ps.indices[i];
-    const Color4f color = polygonColor(ps, i, default_color, force_default_color);
-    if (poly.size() == 3) {
-      const Vector3d p0 = m * ps.vertices[poly.at(0)];
-      const Vector3d p1 = m * ps.vertices[poly.at(1)];
-      const Vector3d p2 = m * ps.vertices[poly.at(2)];
-
-      triangle(color, p0, p1, p2, hidden.empty() ? 0 : hidden[i]);
-      triangle_count++;
-    } else if (poly.size() == 4) {
-      const Vector3d p0 = m * ps.vertices[poly.at(0)];
-      const Vector3d p1 = m * ps.vertices[poly.at(1)];
-      const Vector3d p2 = m * ps.vertices[poly.at(2)];
-      const Vector3d p3 = m * ps.vertices[poly.at(3)];
-
-      // Without the diagonal.
-      triangle(color, p0, p1, p3, 0b001);
-      triangle(color, p2, p3, p1, 0b001);
-      triangle_count += 2;
-    } else {
-      Vector3d center = Vector3d::Zero();
-      for (const auto& idx : poly) {
-        center += ps.vertices[idx];
-      }
-      center /= poly.size();
-      for (size_t i = 1; i <= poly.size(); i++) {
-        const Vector3d p0 = m * center;
-        const Vector3d p1 = m * ps.vertices[poly.at(i % poly.size())];
-        const Vector3d p2 = m * ps.vertices[poly.at(i - 1)];
-
-        // Without the spokes.
-        triangle(color, p0, p2, p1, 0b110);
-        triangle_count++;
-      }
-    }
-  }
+    enable_barycentric && hidden_mask != 0b111
+      ? hiddenEdges(ps, crease_degrees, default_color, force_default_color)
+      : std::vector<uint8_t>();
+  forEachTriangle(ps, m, default_color, force_default_color, filter, hidden, max_edge,
+                  [&](const Color4f& color, const Vector3d& p0, const Vector3d& p1,
+                      const Vector3d& p2, uint8_t hidden_edges) {
+                    hidden_edges |= hidden_mask;
+                    if (direct) {
+                      emitTriangle(color, p0, p1, p2, hidden_edges, enable_barycentric, mirrored);
+                    } else {
+                      create_triangle(color, p0, p1, p2, hidden_edges, enable_barycentric, mirrored);
+                    }
+                    if (centroids) centroids->emplace_back(((p0 + p1 + p2) / 3).cast<float>());
+                    triangle_count++;
+                  });
 
   GLenum elements_type = 0;
   if (useElements()) elements_type = elementsData()->glType();

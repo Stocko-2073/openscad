@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <utility>
 #include <memory>
 #include <cstddef>
@@ -34,7 +35,6 @@ class VBORenderer : public Renderer
 {
 public:
   VBORenderer();
-  virtual size_t calcNumVertices(const PolySet& polyset) const;
   virtual size_t calcNumEdgeVertices(const PolySet& polyset) const;
   virtual size_t calcNumEdgeVertices(const Polygon2d& polygon) const;
 
@@ -51,12 +51,43 @@ protected:
   void shader_attribs_enable(const ShaderUtils::ShaderInfo&) const;
   void shader_attribs_disable(const ShaderUtils::ShaderInfo&) const;
 
-  // For prepare(), draw() and getBoundingBox() to call after handling the geometry.
+  // For prepare(), draw() and getBoundingBox() to call after handling the geometry: first the
+  // translucent faces of polysets and the # and % overlays, then the interference overlaps.
+  // prepareTranslucent() sorts them for the modelview it finds, so it runs after the camera's set.
+  void prepareTranslucent(const std::vector<std::shared_ptr<const PolySet>>& polysets,
+                          const Color4f& default_color, const ShaderUtils::ShaderInfo *shaderinfo,
+                          double crease_degrees, bool edges);
+  void drawTranslucent(bool showedges, const ShaderUtils::ShaderInfo *shaderinfo) const;
+  void dropTranslucent() { translucent_.reset(); }
   void prepareOverlays();
   void drawOverlays(const ShaderUtils::ShaderInfo *shaderinfo) const;
   [[nodiscard]] BoundingBox overlayBoundingBox() const;
 
 private:
+  // Drawn after everything opaque, back to front and without writing depth, so nothing behind a
+  // translucent face is hidden. Triangle t is vertices 3t to 3t + 2: the geometry's first, then the
+  // overlays'.
+  struct Translucent {
+    Translucent() { GL_CHECKD(glGenBuffers(1, &sorted_elements)); }
+    Translucent(const Translucent&) = delete;
+    Translucent& operator=(const Translucent&) = delete;
+    ~Translucent() { GL_CHECKD(glDeleteBuffers(1, &sorted_elements)); }
+
+    VertexStateContainer container{false};
+    GLuint sorted_elements = 0;
+    std::vector<Vector3f> centroids;
+    size_t geometry_triangles = 0;                    // the rest are overlays, which aren't picked
+    std::shared_ptr<VertexState> barycentric_state;   // for the edge shader; null without edges
+    std::shared_ptr<VertexState> sorted_state;        // every triangle, from sorted_elements
+    std::shared_ptr<VertexState> geometry_state;      // the geometry's, unsorted, for picking
+    std::array<GLfloat, 3> sorted_for{NAN, NAN, NAN};  // the modelview's z row
+  };
+  void buildTranslucent(const std::vector<std::shared_ptr<const PolySet>>& polysets,
+                        const Color4f& default_color, const ShaderUtils::ShaderInfo *shaderinfo,
+                        double crease_degrees, bool edges);
+  void sortTranslucent();
+
   std::vector<overlay::Mesh> overlays_;
-  std::vector<VertexStateContainer> overlay_vertex_state_containers_;  // depth-tested, then x-ray
+  std::unique_ptr<Translucent> translucent_;
+  std::vector<VertexStateContainer> overlay_vertex_state_containers_;  // the x-ray ones
 };

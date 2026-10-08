@@ -19,6 +19,9 @@
 
 enum ShaderAttribIndex { BARYCENTRIC_ATTRIB };
 
+// Which faces of a PolySet to draw, by the alpha of the color each is drawn in.
+enum class FaceFilter : std::uint8_t { All, Opaque, Translucent };
+
 // Element index of each distinct interleaved vertex added since clear(), keyed by its bytes. Only
 // indices are stored, so inserting allocates only to grow; the caller keeps the vertices.
 class ElementsMap
@@ -388,10 +391,19 @@ public:
   void create_triangle(const Color4f& color, const Vector3d& p0, const Vector3d& p1, const Vector3d& p2,
                        uint8_t hidden_edges, bool enable_barycentric, bool mirror);
   // With enable_barycentric, edges between same-colored faces that lie flat or fold less than
-  // crease_degrees are hidden from the edge shader.
+  // crease_degrees are hidden from the edge shader, and so are those in hidden_mask (see
+  // barycentricFlags()) of every triangle. With max_edge, longer triangles are cut into pieces
+  // whose edges are no longer. Each triangle's centroid is appended to centroids.
   void create_surface(const PolySet& ps, const Transform3d& m, const Color4f& default_color,
                       bool enable_barycentric, bool force_default_color = false,
-                      double crease_degrees = 0);
+                      double crease_degrees = 0, FaceFilter filter = FaceFilter::All,
+                      uint8_t hidden_mask = 0, double max_edge = 0,
+                      std::vector<Vector3f> *centroids = nullptr);
+  // The vertices create_surface() makes, with the identity transform, of the faces of ps that pass
+  // the filter.
+  static size_t surfaceVertexCount(const PolySet& ps, FaceFilter filter = FaceFilter::All,
+                                   const Color4f& default_color = {},
+                                   bool force_default_color = false, double max_edge = 0);
   void create_edges(const Polygon2d& polygon, const Transform3d& m, const Color4f& color);
   void create_polygons(const PolySet& ps, const Transform3d& m, const Color4f& color);
 

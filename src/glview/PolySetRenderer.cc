@@ -121,21 +121,23 @@ void PolySetRenderer::createPolySetStates(const ShaderUtils::ShaderInfo *shaderi
   vbo_builder.addShaderData();
   const bool enable_barycentric = true;
 
+  Color4f color;
+  getColorSchemeColor(ColorMode::MATERIAL, color);
+  std::vector<size_t> counts;
   size_t num_vertices = 0;
   for (const auto& polyset : this->polysets_) {
-    num_vertices += calcNumVertices(*polyset);
+    counts.push_back(VBOBuilder::surfaceVertexCount(*polyset, FaceFilter::Opaque, color));
+    num_vertices += counts.back();
   }
   vbo_builder.allocateBuffers(num_vertices);
 
-  for (const auto& polyset : this->polysets_) {
-    Color4f color;
-    if (!polyset->colors.empty()) color = polyset->colors[0];
-    getShaderColor(ColorMode::MATERIAL, color, color);
+  for (size_t i = 0; i < this->polysets_.size(); ++i) {
+    if (counts[i] == 0) continue;
     add_shader_pointers(vbo_builder, shaderinfo);
 
     vbo_builder.writeSurface();
-    vbo_builder.create_surface(*polyset, Transform3d::Identity(), color, enable_barycentric, false,
-                               edge_crease_);
+    vbo_builder.create_surface(*this->polysets_[i], Transform3d::Identity(), color,
+                               enable_barycentric, false, edge_crease_, FaceFilter::Opaque);
   }
 
   vbo_builder.createInterleavedVBOs();
@@ -155,7 +157,7 @@ void PolySetRenderer::createPolygonSurfaceStates()
 
   size_t num_vertices = 0;
   for (const auto& [_, polyset] : this->polygons_) {
-    num_vertices += calcNumVertices(*polyset);
+    num_vertices += VBOBuilder::surfaceVertexCount(*polyset);
   }
 
   vbo_builder.allocateBuffers(num_vertices);
@@ -221,6 +223,7 @@ void PolySetRenderer::prepare(const ShaderUtils::ShaderInfo *shaderinfo)
   if (const int crease = Settings::Settings::edgeCreaseAngle.value(); crease != edge_crease_) {
     edge_crease_ = crease;
     polyset_vertex_state_containers_.clear();
+    dropTranslucent();
   }
   if (polyset_vertex_state_containers_.empty() && polygon_vertex_state_containers_.empty()) {
     if (!this->polysets_.empty() && !this->polygons_.empty()) {
@@ -231,6 +234,9 @@ void PolySetRenderer::prepare(const ShaderUtils::ShaderInfo *shaderinfo)
       createPolygonStates();
     }
   }
+  Color4f color;
+  getColorSchemeColor(ColorMode::MATERIAL, color);
+  prepareTranslucent(this->polysets_, color, shaderinfo, edge_crease_, true);
   prepareOverlays();
 }
 
@@ -238,6 +244,7 @@ void PolySetRenderer::draw(bool showedges, const ShaderUtils::ShaderInfo *shader
 {
   drawPolySets(showedges, shaderinfo);
   drawPolygons();
+  drawTranslucent(showedges, shaderinfo);
   drawOverlays(shaderinfo);
 }
 

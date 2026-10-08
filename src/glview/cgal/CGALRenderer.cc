@@ -129,6 +129,7 @@ void CGALRenderer::setColorScheme(const ColorScheme& cs)
   this->polyhedrons_.clear();  // Mark as dirty
 #endif
   vertex_state_containers_.clear();  // Mark as dirty
+  dropTranslucent();
   PRINTD("setColorScheme done");
 }
 
@@ -142,17 +143,21 @@ void CGALRenderer::createPolySetStates()
 
   vbo_builder.addSurfaceData();  // position, normal, color
 
+  Color4f color;
+  getColorSchemeColor(ColorMode::MATERIAL, color);
+  std::vector<size_t> counts;
   size_t num_vertices = 0;
   for (const auto& polyset : this->polysets_) {
-    num_vertices += calcNumVertices(*polyset);
+    counts.push_back(VBOBuilder::surfaceVertexCount(*polyset, FaceFilter::Opaque, color));
+    num_vertices += counts.back();
   }
   vbo_builder.allocateBuffers(num_vertices);
 
-  for (const auto& polyset : this->polysets_) {
-    Color4f color;
-    getColorSchemeColor(ColorMode::MATERIAL, color);
+  for (size_t i = 0; i < this->polysets_.size(); ++i) {
+    if (counts[i] == 0) continue;
     vbo_builder.writeSurface();
-    vbo_builder.create_surface(*polyset, Transform3d::Identity(), color, false);
+    vbo_builder.create_surface(*this->polysets_[i], Transform3d::Identity(), color, false, false, 0,
+                               FaceFilter::Opaque);
   }
 
   vbo_builder.createInterleavedVBOs();
@@ -172,7 +177,7 @@ void CGALRenderer::createPolygonSurfaceStates()
 
   size_t num_vertices = 0;
   for (const auto& [_, polyset] : this->polygons_) {
-    num_vertices += calcNumVertices(*polyset);
+    num_vertices += VBOBuilder::surfaceVertexCount(*polyset);
   }
 
   vbo_builder.allocateBuffers(num_vertices);
@@ -235,7 +240,7 @@ void CGALRenderer::createPolygonEdgeStates()
   vbo_builder.createInterleavedVBOs();
 }
 
-void CGALRenderer::prepare(const ShaderUtils::ShaderInfo * /*shaderinfo*/)
+void CGALRenderer::prepare(const ShaderUtils::ShaderInfo *shaderinfo)
 {
   PRINTD("prepare()");
   if (!vertex_state_containers_.size()) {
@@ -251,6 +256,9 @@ void CGALRenderer::prepare(const ShaderUtils::ShaderInfo * /*shaderinfo*/)
 #ifdef ENABLE_CGAL
   if (!this->nefPolyhedrons_.empty() && this->polyhedrons_.empty()) createPolyhedrons();
 #endif
+  Color4f color;
+  getColorSchemeColor(ColorMode::MATERIAL, color);
+  prepareTranslucent(this->polysets_, color, shaderinfo, 0, false);
   prepareOverlays();
 
   PRINTD("prepare() end");
@@ -289,6 +297,7 @@ void CGALRenderer::draw(bool showedges, const ShaderUtils::ShaderInfo *shaderinf
     p->draw(showedges);
   }
 #endif
+  drawTranslucent(false, shaderinfo);
   drawOverlays(shaderinfo);
 
   PRINTD("draw() end");
