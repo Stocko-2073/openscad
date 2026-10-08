@@ -88,6 +88,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -3147,18 +3148,6 @@ QString MainWindow::getCurrentFileName() const
  * Removes mnemonic markers (&) and hyphens, creating a camelCase name.
  * Examples: "&Editor" -> "Editor", "Error-&Log" -> "ErrorLog"
  */
-QString MainWindow::getDockBaseName(const QString& title) const
-{
-  QString baseName = title;
-  // Remove mnemonic marker
-  baseName.remove('&');
-  // Remove hyphens
-  baseName.remove('-');
-  // Remove spaces
-  baseName.remove(' ');
-  return baseName;
-}
-
 void MainWindow::onTabManagerAboutToCloseEditor(EditorInterface *closingEditor)
 {
   if (closingEditor == renderedEditor) {
@@ -3796,6 +3785,17 @@ void MainWindow::setupDocks()
     {colorListDock, _("C&olor List")},
     {viewportControlDock, _("&Viewport-Control")},
   };
+  // Not translated: saved input bindings and DBus call the toggle actions by these names.
+  const std::map<const Dock *, QString> actionNames = {
+    {editorDock, "Editor"},
+    {consoleDock, "Console"},
+    {parameterDock, "Customizer"},
+    {errorLogDock, "ErrorLog"},
+    {animateDock, "Animate"},
+    {fontListDock, "FontList"},
+    {colorListDock, "ColorList"},
+    {viewportControlDock, "ViewportControl"},
+  };
   // clang-format off
 
   // Connect the menu "Windows/Navigation" to slot that process it by opening in a pop menu
@@ -3816,8 +3816,7 @@ void MainWindow::setupDocks()
 
     // Get the toggle action from Qt and set an objectName for DBus accessibility
     QAction *toggleAction = dock->toggleViewAction();
-    QString baseName = getDockBaseName(title);
-    toggleAction->setObjectName("windowActionToggle" + baseName);
+    toggleAction->setObjectName("windowActionToggle" + actionNames.at(dock));
     menuWindow->addAction(toggleAction);
 
     auto dockAction = navigationMenu->addAction(title);

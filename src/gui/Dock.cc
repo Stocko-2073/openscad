@@ -61,8 +61,10 @@ void Dock::setName(const QString& name_)
   name = name_;
   // On Linux and Qt6.10 this is not needed, but older Qt versions
   // show the & mnemonic marker in the dock title. Allow keeping
-  // single & characters not directly followed by a letter.
-  name.replace(QRegularExpression("&([a-zA-Z])"), "\\1");
+  // single & characters not directly followed by a letter. Translations
+  // mark letters of any script, and CJK ones add the marker as "(&E)".
+  name.replace(QRegularExpression(R"(\s*\(&\p{L}\))"), "");
+  name.replace(QRegularExpression(R"(&(\p{L}))"), "\\1");
   updateTitle();
 }
 
