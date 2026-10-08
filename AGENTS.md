@@ -1,1 +1,1 @@
-Code in the now: test in the moment but add no unit or regression tests (a bug that recurs is fixed as new work), write no journals, specs or plans, and comment only the non-obvious why, never what the code already says or what it used to be.
+No unit or regression tests, a bug that recurs is discovered and fixed as new work. Write no journals or tombstones, the code is the work. Comment lightly only the non-obvious, and never what the code already says and never what it used to be.
