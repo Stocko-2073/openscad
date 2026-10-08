@@ -141,6 +141,15 @@ double maxAbsCoordinate(const Vector3d& v)
   return v.cwiseAbs().maxCoeff();
 }
 
+// Strict and lossy, for a hit at `point` on meshes within `box`.
+std::pair<Tolerance, Tolerance> tolerances(const Vector3d& point, const BoundingBox& box)
+{
+  const double maxCoordinate =
+    std::max({maxAbsCoordinate(point), maxAbsCoordinate(box.min()), maxAbsCoordinate(box.max())});
+  const Tolerance strict = strictTolerance(maxCoordinate, box.diagonal().norm());
+  return {strict, lossyTolerance(maxCoordinate, strict)};
+}
+
 struct Match {
   int index;
   bool parallel;     // has a face through the point, parallel to the hit face
@@ -340,8 +349,9 @@ private:
   std::unordered_map<const AbstractNode *, bool> subtracted;
 };
 
-// The nodes below `root` that LeafCollector takes whole, by the same rules. A plain walk, as a
-// visitor's per-node State costs far more.
+// The nodes below `root` that LeafCollector takes whole, by the same rules, `%` subtrees included,
+// as the picker collects each of those for its overlay. A plain walk, as a visitor's per-node State
+// costs far more.
 std::vector<const AbstractNode *> wholeNodes(const Tree& tree, const AbstractNode& root)
 {
   std::vector<const AbstractNode *> found;
@@ -349,7 +359,6 @@ std::vector<const AbstractNode *> wholeNodes(const Tree& tree, const AbstractNod
   while (!stack.empty()) {
     const AbstractNode *node = stack.back();
     stack.pop_back();
-    if (node != &root && node->modinst && node->modinst->isBackground()) continue;
     if (isWhole(*node)) {
       found.push_back(node);
       continue;
@@ -518,20 +527,45 @@ std::optional<SurfaceHit> castRay(const std::vector<PlacedMesh>& surface, const 
   return best;
 }
 
-std::vector<int> attribute(const std::vector<PlacedMesh>& surface, const std::vector<Leaf>& leaves,
-                           const Ray& ray)
+std::vector<Crossing> firstCrossings(const std::vector<PlacedMesh>& surface,
+                                     const std::vector<PlacedMesh>& overlays, const Ray& ray)
 {
-  const auto hit = castRay(surface, ray);
-  if (!hit) return {};
+  std::vector<Crossing> crossings;
+  for (size_t i = 0; i < overlays.size(); ++i) {
+    if (const auto hit = castRay({overlays[i]}, ray)) crossings.push_back({*hit, i});
+  }
+  if (const auto hit = castRay(surface, ray)) crossings.push_back({*hit, std::nullopt});
+  if (crossings.empty()) return crossings;
 
+  const SurfaceHit nearest =
+    std::min_element(crossings.begin(), crossings.end(), [](const Crossing& x, const Crossing& y) {
+      return x.hit.t < y.hit.t;
+    })->hit;
   BoundingBox box;
   for (const auto& mesh : surface) box.extend(worldBox(mesh));
-  const double maxCoordinate =
-    std::max({maxAbsCoordinate(hit->point), maxAbsCoordinate(box.min()), maxAbsCoordinate(box.max())});
-  const Tolerance strict = strictTolerance(maxCoordinate, box.diagonal().norm());
+  for (const auto& mesh : overlays) box.extend(worldBox(mesh));
+  // Lossy, as an overlay is evaluated apart from the result, which may round it differently.
+  const double coincide = tolerances(nearest.point, box).second.distance;
+  std::vector<Crossing> first;
+  for (const auto& crossing : crossings) {
+    if ((crossing.hit.point - nearest.point).norm() <= coincide) first.push_back(crossing);
+  }
+  std::stable_sort(first.begin(), first.end(), [](const Crossing& x, const Crossing& y) {
+    if (x.overlay.has_value() != y.overlay.has_value()) return x.overlay.has_value();
+    return x.hit.t < y.hit.t;
+  });
+  return first;
+}
 
-  auto matches = matchesAt(leaves, *hit, strict);
-  if (matches.empty()) matches = matchesAt(leaves, *hit, lossyTolerance(maxCoordinate, strict));
+std::vector<int> attribute(const std::vector<PlacedMesh>& surface, const std::vector<Leaf>& leaves,
+                           const SurfaceHit& hit)
+{
+  BoundingBox box;
+  for (const auto& mesh : surface) box.extend(worldBox(mesh));
+  const auto [strict, lossy] = tolerances(hit.point, box);
+
+  auto matches = matchesAt(leaves, hit, strict);
+  if (matches.empty()) matches = matchesAt(leaves, hit, lossy);
 
   std::vector<int> indices;
   indices.reserve(matches.size());

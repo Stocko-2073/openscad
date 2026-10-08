@@ -447,6 +447,9 @@ private:
   // Picker attribution, built on first use; dropped with the tree or rootGeom it came from.
   std::optional<std::vector<pick::Leaf>> pickRootLeaves;
   std::optional<std::vector<pick::PlacedMesh>> pickRootSurface;
+  std::unordered_map<int, std::vector<pick::Leaf>> pickOverlayLeaves;  // by the overlay's node
+  // The # and % overlays the view draws over rootGeom, from the same render.
+  std::vector<overlay::Mesh> pickOverlays;
   // The geometry of the hull() and other nodes the picker names whole, held for the result on
   // screen, which the geometry cache may drop; each render takes over what the last one held.
   std::shared_ptr<const pick::WholeGeometry> pickWholeGeometry;

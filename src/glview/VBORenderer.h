@@ -43,7 +43,8 @@ public:
     const ShaderUtils::ShaderInfo
       *shaderinfo);  // This could stay protected, were it not for VertexStateManager
 
-  // The # and % subtrees and interference overlaps, drawn translucent and never picked.
+  // The # and % subtrees and interference overlaps, drawn translucent; only the overlaps aren't
+  // picked.
   void setOverlays(std::vector<overlay::Mesh> overlays);
 
 protected:
@@ -76,10 +77,9 @@ private:
     VertexStateContainer container{false};
     GLuint sorted_elements = 0;
     std::vector<Vector3f> centroids;
-    size_t geometry_triangles = 0;                    // the rest are overlays, which aren't picked
+    size_t geometry_triangles = 0;                    // the rest are overlays
     std::shared_ptr<VertexState> barycentric_state;   // for the edge shader; null without edges
     std::shared_ptr<VertexState> sorted_state;        // every triangle, from sorted_elements
-    std::shared_ptr<VertexState> geometry_state;      // the geometry's, unsorted, for picking
     std::array<GLfloat, 3> sorted_for{NAN, NAN, NAN};  // the modelview's z row
   };
   void buildTranslucent(const std::vector<std::shared_ptr<const PolySet>>& polysets,

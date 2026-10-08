@@ -240,16 +240,11 @@ void VBORenderer::buildTranslucent(const std::vector<std::shared_ptr<const PolyS
                                FaceFilter::All, 0b111, max_edge, &translucent.centroids);
   }
 
-  // create_surface() leaves a state per surface; these two draw them all from the start.
+  // create_surface() leaves a state per surface; this one draws them all from the start.
   translucent.sorted_state = std::make_shared<VertexState>(
     GL_TRIANGLES, static_cast<GLsizei>(3 * translucent.centroids.size()), GL_UNSIGNED_INT, 0, 0,
     translucent.container.verticesVBO(), translucent.sorted_elements);
   vbo_builder.states().push_back(translucent.sorted_state);
-  vbo_builder.addAttributePointers(0);
-  translucent.geometry_state = std::make_shared<VertexState>(
-    GL_TRIANGLES, static_cast<GLsizei>(3 * translucent.geometry_triangles), 0, 0, 0,
-    translucent.container.verticesVBO(), 0);
-  vbo_builder.states().push_back(translucent.geometry_state);
   vbo_builder.addAttributePointers(0);
 
   vbo_builder.createInterleavedVBOs();
@@ -299,7 +294,7 @@ void VBORenderer::drawTranslucent(bool showedges, const ShaderUtils::ShaderInfo 
   if (shaderinfo && shaderinfo->type == ShaderUtils::ShaderType::SELECT_RENDERING) {
     GL_TRACE("glUseProgram(%d)", shaderinfo->resource.shader_program);
     GL_CHECKD(glUseProgram(shaderinfo->resource.shader_program));
-    translucent.geometry_state->draw();
+    translucent.sorted_state->draw();
     GL_TRACE0("glUseProgram(0)");
     GL_CHECKD(glUseProgram(0));
     return;

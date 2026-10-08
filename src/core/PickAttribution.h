@@ -66,10 +66,10 @@ using WholeGeometry = std::unordered_map<Hash128, std::shared_ptr<const Geometry
 std::vector<Leaf> collectLeaves(const Tree& tree, const AbstractNode& node, const Transform3d& matrix,
                                 bool evaluateWhole = false, const WholeGeometry *held = nullptr);
 
-// The isWhole() nodes' geometry below `root`, for the picker to hold while it shows root's
-// geometry: the cache drops what renders do not use, and a render that finds a subtree cached uses
-// nothing inside it. Reuses `previous`; `evaluator` must be of root's tree. Logs nothing and never
-// throws on hard warnings.
+// The isWhole() nodes' geometry below `root`, `%` subtrees included, for the picker to hold while
+// it shows root's geometry and overlays: the cache drops what renders do not use, and a render that
+// finds a subtree cached uses nothing inside it. Reuses `previous`; `evaluator` must be of root's
+// tree. Logs nothing and never throws on hard warnings.
 WholeGeometry holdWholeGeometry(GeometryEvaluator& evaluator, const AbstractNode& root,
                                 const WholeGeometry *previous);
 
@@ -78,9 +78,19 @@ std::vector<PlacedMesh> surfaceOf(const std::shared_ptr<const Geometry>& geom);
 
 std::optional<SurfaceHit> castRay(const std::vector<PlacedMesh>& surface, const Ray& ray);
 
-// Node indices of the leaves whose faces make `surface` where `ray` meets it, best first: those
-// adding material before those cutting it away, then in source order.
+struct Crossing {
+  SurfaceHit hit;
+  std::optional<size_t> overlay;  // into the overlays; none for the surface
+};
+
+// Where `ray` first meets `surface` or one of `overlays`, the meshes drawn translucent over it.
+// Where several coincide there, all of them: overlays first, as they are drawn over the surface.
+std::vector<Crossing> firstCrossings(const std::vector<PlacedMesh>& surface,
+                                     const std::vector<PlacedMesh>& overlays, const Ray& ray);
+
+// Node indices of the leaves whose faces make `surface` at `hit`, best first: those adding material
+// before those cutting it away, then in source order.
 std::vector<int> attribute(const std::vector<PlacedMesh>& surface, const std::vector<Leaf>& leaves,
-                           const Ray& ray);
+                           const SurfaceHit& hit);
 
 }  // namespace pick

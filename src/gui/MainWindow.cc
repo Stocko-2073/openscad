@@ -1923,6 +1923,7 @@ void MainWindow::renderWhenUnlocked()
 void MainWindow::cgalRender()
 {
   rootGeom.reset();
+  this->pickOverlays.clear();
   resetPickMemo();
   if (!this->rootFile || !this->rootNode) {
     this->geomRenderer = nullptr;
@@ -2008,6 +2009,10 @@ void MainWindow::actionRenderDone(const std::shared_ptr<const RenderResult>& res
   }
 #endif
   if (result->wholeGeometry) this->pickWholeGeometry = result->wholeGeometry;
+  this->pickOverlays.clear();
+  for (const auto& mesh : result->overlays) {
+    if (mesh.kind != overlay::Kind::Interference) this->pickOverlays.push_back(mesh);
+  }
   const std::shared_ptr<const Geometry>& root_geom = result->geometry;
   if (root_geom) {
     std::vector<std::string> options;
@@ -2115,7 +2120,7 @@ void MainWindow::leftClick(QPoint mouse)
 void MainWindow::rightClick(QPoint position)
 {
   // Nothing to select
-  if (!this->qglview->renderer || !this->rootNode || !this->rootGeom) {
+  if (!this->qglview->renderer || !this->rootNode || (!this->rootGeom && this->pickOverlays.empty())) {
     return;
   }
   if (this->animationFrameShown) return;
@@ -2247,7 +2252,7 @@ void MainWindow::addPickerAlsoHere(QMenu& menu, const std::vector<int>& primitiv
   }
 }
 
-// Node indices of the primitives whose faces make the surface under the cursor, best first.
+// Node indices of the primitives whose faces make what is under the cursor, best first.
 std::vector<int> MainWindow::pickPrimitives(const QGLView::PickResult& picked)
 {
   // This runs geometry code on the GUI thread: never during a compile or render.
@@ -2266,7 +2271,40 @@ std::vector<int> MainWindow::pickPrimitives(const QGLView::PickResult& picked)
       }
     }
     if (!this->pickRootSurface) return {};
-    return pick::attribute(*this->pickRootSurface, *this->pickRootLeaves, ray);
+
+    const auto overlayLeaves = [this](const overlay::Mesh& mesh) -> const std::vector<pick::Leaf>& {
+      const auto [it, added] = this->pickOverlayLeaves.try_emplace(mesh.index);
+      if (added) {
+        std::deque<std::shared_ptr<const AbstractNode>> path;
+        if (const auto node = this->rootNode->getNodeByID(mesh.index, path)) {
+          QApplication::setOverrideCursor(Qt::WaitCursor);
+          auto restoreCursor = sg::make_scope_guard([]() { QApplication::restoreOverrideCursor(); });
+          it->second =
+            pick::collectLeaves(this->tree, *node, mesh.matrix, false, this->pickWholeGeometry.get());
+        }
+      }
+      return it->second;
+    };
+    std::vector<pick::PlacedMesh> overlays;
+    for (const auto& mesh : this->pickOverlays) overlays.push_back({mesh.polyset});
+    std::vector<int> primitives;
+    for (const auto& crossing : pick::firstCrossings(*this->pickRootSurface, overlays, ray)) {
+      std::vector<int> found;
+      if (!crossing.overlay) {
+        found = pick::attribute(*this->pickRootSurface, *this->pickRootLeaves, crossing.hit);
+      } else {
+        const overlay::Mesh& mesh = this->pickOverlays[*crossing.overlay];
+        found = pick::attribute({overlays[*crossing.overlay]}, overlayLeaves(mesh), crossing.hit);
+        // Where no leaf matches, as in a 2D subtree, name the # or % node itself.
+        if (found.empty()) found.push_back(mesh.index);
+      }
+      for (const int index : found) {
+        if (std::find(primitives.begin(), primitives.end(), index) == primitives.end()) {
+          primitives.push_back(index);
+        }
+      }
+    }
+    return primitives;
   } catch (...) {
     // Best effort: no menu.
     return {};
@@ -2277,6 +2315,7 @@ void MainWindow::resetPickMemo()
 {
   this->pickRootLeaves.reset();
   this->pickRootSurface.reset();
+  this->pickOverlayLeaves.clear();
 }
 
 void MainWindow::measureFinished()
@@ -3127,6 +3166,7 @@ void MainWindow::onTabManagerAboutToCloseEditor(EditorInterface *closingEditor)
     this->qglview->setRenderer(nullptr);
     this->geomRenderer = nullptr;
     this->rootGeom.reset();
+    this->pickOverlays.clear();
 
     // Remove previous CSG tree
     this->absoluteRootNode.reset();

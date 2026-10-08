@@ -119,7 +119,7 @@ private:
 };
 
 void appendMeshes(const std::shared_ptr<const Geometry>& geom, Kind kind, const Transform3d& matrix,
-                  const Hash128& identity, std::vector<Mesh>& out)
+                  const Hash128& identity, int index, std::vector<Mesh>& out)
 {
   if (!geom || geom->isEmpty()) return;
   if (const auto list = std::dynamic_pointer_cast<const GeometryList>(geom)) {
@@ -128,7 +128,7 @@ void appendMeshes(const std::shared_ptr<const Geometry>& geom, Kind kind, const 
       Hasher128 h;
       h.h(identity);
       h.u64(index++);
-      appendMeshes(item.second, kind, matrix, h.finish(), out);
+      appendMeshes(item.second, kind, matrix, h.finish(), index, out);
     }
     return;
   }
@@ -140,7 +140,7 @@ void appendMeshes(const std::shared_ptr<const Geometry>& geom, Kind kind, const 
   }
   if (!ps || ps->isEmpty()) return;
   ps->transform(matrix);
-  out.push_back({kind, std::move(ps), identity});
+  out.push_back({kind, std::move(ps), identity, index, matrix});
 }
 
 void appendTarget(GeometryEvaluator& evaluator, const AbstractNode& node, Kind kind,
@@ -160,7 +160,7 @@ void appendTarget(GeometryEvaluator& evaluator, const AbstractNode& node, Kind k
   for (int row = 0; row < 4; ++row) {
     for (int col = 0; col < 4; ++col) h.f64(matrix(row, col));
   }
-  appendMeshes(evaluator.evaluateGeometry(node, false), kind, matrix, h.finish(), out);
+  appendMeshes(evaluator.evaluateGeometry(node, false), kind, matrix, h.finish(), node.index(), out);
 }
 
 }  // namespace
