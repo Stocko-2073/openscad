@@ -64,6 +64,7 @@ public:
 
   void transform(const Transform3d& mat) override;
   void setColor(const Color4f& c) override;
+  [[nodiscard]] bool hasTranslucentFaces() const override;
   void toOriginal();
   void resize(const Vector3d& newsize, const Eigen::Matrix<bool, 3, 1>& autosize) override;
 

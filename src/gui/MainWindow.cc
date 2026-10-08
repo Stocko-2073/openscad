@@ -1983,7 +1983,8 @@ std::shared_ptr<Renderer> MainWindow::resultRenderer(const RenderResult& result)
       this->shownResult->backend == shown.backend) {
     return this->geomRenderer;
   }
-  auto renderer = createGeometryRenderer(result.geometry, result.overlays);
+  auto renderer =
+    createGeometryRenderer(result.display ? result.display : result.geometry, result.overlays);
   this->shownResult.reset();
   if (renderer && result.digest) {
     shown.renderer = renderer;

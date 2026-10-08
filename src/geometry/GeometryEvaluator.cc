@@ -1,7 +1,9 @@
 #include "geometry/GeometryEvaluator.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 #include <iterator>
 #include <list>
 #include <memory>
@@ -45,6 +47,7 @@
 #include "utils/calc.h"
 #include "utils/degree_trig.h"
 #include "utils/printutils.h"
+#include "utils/Hash128.h"
 #ifdef ENABLE_CGAL
 #include <CGAL/Point_2.h>
 #include <CGAL/convex_hull_2.h>
@@ -53,6 +56,7 @@
 #include "geometry/cgal/cgalutils.h"
 #endif
 #ifdef ENABLE_MANIFOLD
+#include "geometry/manifold/ManifoldGeometry.h"
 #include "geometry/manifold/manifoldutils.h"
 #endif
 #ifdef ENABLE_PHYSICS
@@ -120,6 +124,107 @@ std::shared_ptr<const Geometry> GeometryEvaluator::evaluateGeometry(const Abstra
   return result;
 }
 
+namespace {
+
+constexpr uint64_t kOpaquePartsTag = 0x6f706171'00000001ULL;
+
+bool isTranslucentColor(const AbstractNode& node)
+{
+  const auto *color = dynamic_cast<const ColorNode *>(&node);
+  return color && color->color.hasAlpha() && color->color.a() < 1.0f;
+}
+
+// Whether node, or a node under it but not under a %, is a translucent color().
+bool holdsTranslucentColor(const AbstractNode& node)
+{
+  return isTranslucentColor(node) ||
+         std::any_of(node.getChildren().begin(), node.getChildren().end(), [](const auto& child) {
+           return !child->modinst->isBackground() && holdsTranslucentColor(*child);
+         });
+}
+
+// Union is associative, so a group can give up its children as parts in its place.
+void collectParts(const AbstractNode& node, std::vector<std::shared_ptr<const AbstractNode>>& parts)
+{
+  for (const auto& child : node.getChildren()) {
+    if (child->modinst->isBackground()) continue;
+    if (dynamic_cast<const GroupNode *>(child.get()) && holdsTranslucentColor(*child)) {
+      collectParts(*child, parts);
+    } else {
+      parts.push_back(child);
+    }
+  }
+}
+
+// Manifold evaluates lazily: on this thread, and before the cache measures it under its lock.
+void evaluateNow(const std::shared_ptr<const Geometry>& geom)
+{
+#ifdef ENABLE_MANIFOLD
+  if (const auto manifold = std::dynamic_pointer_cast<const ManifoldGeometry>(geom)) {
+    (void)manifold->getManifold().Status();
+  }
+#endif
+}
+
+}  // namespace
+
+std::shared_ptr<const GeometryList> GeometryEvaluator::evaluateDisplay(const AbstractNode& node)
+{
+  if (Feature::ExperimentalLazyUnion.is_enabled() || !dynamic_cast<const GroupNode *>(&node) ||
+      !holdsTranslucentColor(node)) {
+    return {};
+  }
+  std::vector<std::shared_ptr<const AbstractNode>> parts;
+  collectParts(node, parts);
+
+  Geometry::Geometries opaque, translucent;
+  Hasher128 opaque_key;
+  opaque_key.u64(kOpaquePartsTag);
+  for (const auto& part : parts) {
+    auto geom = evaluateGeometry(*part, true);
+    part->progress_report();
+    if (!geom || geom->isEmpty()) continue;
+    if (geom->getDimension() != 3) return {};
+    if (geom->hasTranslucentFaces()) {
+      translucent.emplace_back(nullptr, std::move(geom));
+    } else {
+      opaque_key.h(this->tree.digest(*part));
+      opaque.emplace_back(nullptr, std::move(geom));
+    }
+  }
+  if (translucent.empty() || opaque.size() + translucent.size() < 2) return {};
+
+  // Without nodes, which Animate's frames would keep past their tree.
+  Geometry::Geometries display;
+  if (opaque.size() == 1) {
+    display.push_back(opaque.front());
+  } else if (opaque.size() > 1) {
+    // Keyed by the opaque parts alone, so that changing a translucent one doesn't redo it.
+    const Hash128 key = opaque_key.finish();
+    std::shared_ptr<const Geometry> unioned;
+    if (!CGALCache::instance()->find(key, unioned) && !GeometryCache::instance()->find(key, unioned)) {
+      unioned = applyUnion3D(opaque).constptr();
+      evaluateNow(unioned);
+      cacheInsert(key, unioned);
+    }
+    display.emplace_back(nullptr, unioned);
+  }
+  display.insert(display.end(), translucent.begin(), translucent.end());
+  for (const auto& item : display) evaluateNow(item.second);
+  return std::make_shared<const GeometryList>(display);
+}
+
+std::shared_ptr<const Geometry> GeometryEvaluator::evaluateUnion(const AbstractNode& node,
+                                                                 const GeometryList& display)
+{
+  if (auto result = smartCacheGet(node, true)) return result;
+  auto result = applyUnion3D(display.getChildren()).constptr();
+  evaluateNow(result);
+  smartCacheInsert(node, result);
+  node.progress_report();
+  return result;
+}
+
 bool GeometryEvaluator::isValidDim(const Geometry::GeometryItem& item, unsigned int& dim) const
 {
   if (!item.first->modinst->isBackground() && item.second) {
@@ -180,26 +285,7 @@ GeometryEvaluator::ResultObject GeometryEvaluator::applyToChildren3D(const Abstr
     return ResultObject::constResult(applyMinkowski(actualchildren));
     break;
   }
-  case OpenSCADOperator::UNION: {
-    Geometry::Geometries actualchildren;
-    for (const auto& item : children) {
-      if (item.second && !item.second->isEmpty()) actualchildren.push_back(item);
-    }
-    if (actualchildren.empty()) return {};
-    if (actualchildren.size() == 1) return ResultObject::constResult(actualchildren.front().second);
-#ifdef ENABLE_MANIFOLD
-    if (RenderSettings::inst()->backend3D == RenderBackend3D::ManifoldBackend) {
-      return ResultObject::mutableResult(ManifoldUtils::applyOperator3DManifold(actualchildren, op));
-    }
-#endif
-#ifdef ENABLE_CGAL
-    return ResultObject::constResult(std::shared_ptr<const Geometry>(
-      CGALUtils::applyUnion3D(actualchildren.begin(), actualchildren.end())));
-#else
-    assert(false && "No boolean backend available");
-#endif
-    break;
-  }
+  case OpenSCADOperator::UNION: return applyUnion3D(children);
   default: {
 #ifdef ENABLE_MANIFOLD
     if (RenderSettings::inst()->backend3D == RenderBackend3D::ManifoldBackend) {
@@ -214,6 +300,29 @@ GeometryEvaluator::ResultObject GeometryEvaluator::applyToChildren3D(const Abstr
     break;
   }
   }
+}
+
+GeometryEvaluator::ResultObject GeometryEvaluator::applyUnion3D(const Geometry::Geometries& children)
+{
+  Geometry::Geometries actualchildren;
+  for (const auto& item : children) {
+    if (item.second && !item.second->isEmpty()) actualchildren.push_back(item);
+  }
+  if (actualchildren.empty()) return {};
+  if (actualchildren.size() == 1) return ResultObject::constResult(actualchildren.front().second);
+#ifdef ENABLE_MANIFOLD
+  if (RenderSettings::inst()->backend3D == RenderBackend3D::ManifoldBackend) {
+    return ResultObject::mutableResult(
+      ManifoldUtils::applyOperator3DManifold(actualchildren, OpenSCADOperator::UNION));
+  }
+#endif
+#ifdef ENABLE_CGAL
+  return ResultObject::constResult(std::shared_ptr<const Geometry>(
+    CGALUtils::applyUnion3D(actualchildren.begin(), actualchildren.end())));
+#else
+  assert(false && "No boolean backend available");
+  return {};
+#endif
 }
 
 GeometryEvaluator::ResultObject GeometryEvaluator::applyHull3D(const Geometry::Geometries& children)
@@ -351,8 +460,11 @@ std::vector<std::shared_ptr<const Polygon2d>> GeometryEvaluator::collectChildren
 void GeometryEvaluator::smartCacheInsert(const AbstractNode& node,
                                          const std::shared_ptr<const Geometry>& geom)
 {
-  const Hash128 key = this->tree.digest(node);
+  cacheInsert(this->tree.digest(node), geom);
+}
 
+void GeometryEvaluator::cacheInsert(const Hash128& key, const std::shared_ptr<const Geometry>& geom)
+{
   if (CGALCache::acceptsGeometry(geom)) {
     if (!CGALCache::instance()->contains(key)) {
       CGALCache::instance()->insert(key, geom);

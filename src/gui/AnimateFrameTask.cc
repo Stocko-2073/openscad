@@ -135,7 +135,9 @@ void FrameTask::run()
     if (is_cancelled(cancel_flag_)) throw ProgressCancelException();
 
     GeometryEvaluator geomevaluator(*tree);
-    result->geometry = geomevaluator.evaluateGeometry(*root_node, true);
+    // Frames are only drawn, never exported, so they skip the union of what's drawn.
+    result->geometry = geomevaluator.evaluateDisplay(*root_node);
+    if (!result->geometry) result->geometry = geomevaluator.evaluateGeometry(*root_node, true);
 #ifdef ENABLE_MANIFOLD
     // Manifold evaluates lazily; finish here rather than on the GUI thread.
     if (auto manifold = std::dynamic_pointer_cast<const ManifoldGeometry>(result->geometry)) {

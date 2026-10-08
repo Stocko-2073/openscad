@@ -18,6 +18,7 @@ struct Report;
 
 struct RenderResult {
   std::shared_ptr<const Geometry> geometry;  // null if there is none or the render failed
+  std::shared_ptr<const Geometry> display;   // what the view draws, when it isn't geometry
   std::optional<Hash128> digest;             // the root's (core/NodeDigest.h), unless it failed
   std::vector<overlay::Mesh> overlays;
   // Held while the result is shown; null if the render failed before making it.

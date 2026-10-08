@@ -1,6 +1,7 @@
 // Portions of this file are Copyright 2023 Google LLC, and licensed under GPL2+. See COPYING.
 #include "geometry/manifold/ManifoldGeometry.h"
 
+#include <algorithm>
 #include <manifold/cross_section.h>
 #include <manifold/manifold.h>
 
@@ -378,6 +379,13 @@ void ManifoldGeometry::setColor(const Color4f& c)
   originalIDToColor_.clear();
   originalIDToColor_[manifold_.OriginalID()] = c;
   subtractedIDs_.clear();
+}
+
+bool ManifoldGeometry::hasTranslucentFaces() const
+{
+  return std::any_of(originalIDToColor_.begin(), originalIDToColor_.end(), [](const auto& entry) {
+    return entry.second.hasAlpha() && entry.second.a() < 1.0f;
+  });
 }
 
 void ManifoldGeometry::toOriginal()

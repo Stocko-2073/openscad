@@ -117,6 +117,12 @@ void PolySet::setColor(const Color4f& c)
   color_indices.assign(indices.size(), 0);
 }
 
+bool PolySet::hasTranslucentFaces() const
+{
+  return std::any_of(colors.begin(), colors.end(),
+                     [](const Color4f& c) { return c.hasAlpha() && c.a() < 1.0f; });
+}
+
 bool PolySet::isConvex() const
 {
   if (convex_ || this->isEmpty()) return true;

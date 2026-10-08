@@ -59,6 +59,13 @@ unsigned int GeometryList::getDimension() const
   return dim;
 }
 
+size_t GeometryList::numFacets() const
+{
+  size_t facets = 0;
+  for (const auto& item : this->children) facets += item.second->numFacets();
+  return facets;
+}
+
 bool GeometryList::isEmpty() const
 {
   for (const auto& item : this->children) {

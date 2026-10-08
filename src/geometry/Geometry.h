@@ -42,6 +42,8 @@ public:
   [[nodiscard]] unsigned int getConvexity() const { return convexity; }
   void setConvexity(int c) { this->convexity = c; }
   virtual void setColor(const Color4f& c) {}
+  // Whether some face's color has alpha below 1. May say so of a color no face has any more.
+  [[nodiscard]] virtual bool hasTranslucentFaces() const { return false; }
 
   virtual void transform(const Transform3d& /*mat*/) { assert(!"transform not implemented!"); }
   virtual void resize(const Vector3d& /*newsize*/, const Eigen::Matrix<bool, 3, 1>& /*autosize*/)
@@ -94,11 +96,7 @@ public:
   [[nodiscard]] unsigned int getDimension() const override;
   [[nodiscard]] bool isEmpty() const override;
   [[nodiscard]] std::unique_ptr<Geometry> copy() const override;
-  [[nodiscard]] size_t numFacets() const override
-  {
-    assert(false && "not implemented");
-    return 0;
-  }
+  [[nodiscard]] size_t numFacets() const override;
 
   [[nodiscard]] const Geometries& getChildren() const { return this->children; }
 

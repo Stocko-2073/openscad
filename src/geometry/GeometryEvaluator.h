@@ -13,6 +13,7 @@
 #include "core/node.h"
 #include "geometry/Geometry.h"
 #include "geometry/linalg.h"
+#include "utils/Hash128.h"
 
 class CGALNefGeometry;
 class Polygon2d;
@@ -27,6 +28,13 @@ public:
   GeometryEvaluator(const Tree& tree);
 
   std::shared_ptr<const Geometry> evaluateGeometry(const AbstractNode& node, bool allownef);
+  // What the 3D view draws of node, if that's not evaluateGeometry(node, true): with lazy union off,
+  // the parts with translucent faces stay out of the union of the others, so that what they overlap
+  // shows through them. The parts are node's children, and those of the module calls and groups
+  // under it that hold a translucent color().
+  std::shared_ptr<const GeometryList> evaluateDisplay(const AbstractNode& node);
+  // evaluateGeometry(node, true), from what evaluateDisplay(node) returned.
+  std::shared_ptr<const Geometry> evaluateUnion(const AbstractNode& node, const GeometryList& display);
   // Once true for a node, stays true for this evaluator, which keeps what it found.
   bool isSmartCached(const AbstractNode& node);
 
@@ -119,6 +127,7 @@ private:
   const CachedGeometry& cached(const AbstractNode& node);
 
   void smartCacheInsert(const AbstractNode& node, const std::shared_ptr<const Geometry>& geom);
+  void cacheInsert(const Hash128& key, const std::shared_ptr<const Geometry>& geom);
   std::shared_ptr<const Geometry> smartCacheGet(const AbstractNode& node, bool preferNef);
   bool isValidDim(const Geometry::GeometryItem& item, unsigned int& dim) const;
   std::vector<std::shared_ptr<const Polygon2d>> collectChildren2D(const AbstractNode& node);
@@ -126,6 +135,7 @@ private:
   std::unique_ptr<Polygon2d> applyMinkowski2D(const AbstractNode& node);
   std::unique_ptr<Polygon2d> applyHull2D(const AbstractNode& node);
   ResultObject applyHull3D(const Geometry::Geometries& children);
+  ResultObject applyUnion3D(const Geometry::Geometries& children);
   std::unique_ptr<Polygon2d> applyFill2D(const AbstractNode& node);
   void applyResize3D(CGALNefGeometry& N, const Vector3d& newsize,
                      const Eigen::Matrix<bool, 3, 1>& autosize);

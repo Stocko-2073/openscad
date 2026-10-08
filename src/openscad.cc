@@ -518,7 +518,11 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
       LOG("Converted to backend-specific geometry");
     }
     std::vector<overlay::Mesh> overlays;
-    if (export_format == FileFormat::PNG) overlays = overlay::collect(tree, *tree.root());
+    std::shared_ptr<const Geometry> display_geom;
+    if (export_format == FileFormat::PNG) {
+      overlays = overlay::collect(tree, *tree.root());
+      display_geom = geomevaluator.evaluateDisplay(*tree.root());
+    }
     renderStatistic.endPhase(RenderStatistic::PHASE_GEOMETRY);
 
     const std::string input_filename = cmd.is_stdin ? "<stdin>" : cmd.filename;
@@ -534,8 +538,9 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
       bool success = true;
       bool const wrote = with_output(
         cmd.is_stdout, filename_str,
-        [&success, &root_geom, &overlays, &cmd, &camera](std::ostream& stream) {
-          success = export_png(root_geom, overlays, cmd.viewOptions, camera, stream);
+        [&success, &root_geom, &display_geom, &overlays, &cmd, &camera](std::ostream& stream) {
+          success = export_png(display_geom ? display_geom : root_geom, overlays, cmd.viewOptions,
+                               camera, stream);
         },
         std::ios::out | std::ios::binary);
       if (!success || !wrote) {
