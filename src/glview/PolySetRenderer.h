@@ -48,4 +48,5 @@ private:
 
   std::vector<VertexStateContainer> polyset_vertex_state_containers_;
   std::vector<VertexStateContainer> polygon_vertex_state_containers_;
+  int edge_crease_{-1};  // what polyset_vertex_state_containers_ were built with
 };

@@ -384,13 +384,14 @@ public:
   size_t shader_attributes_index_{0};
   void addShaderData();
 
-  void add_barycentric_attribute(size_t active_point_index, size_t primitive_index, size_t shape_size,
-                                 bool outlines);
+  void add_barycentric_attribute(size_t corner, uint8_t hidden_edges);
   void create_triangle(const Color4f& color, const Vector3d& p0, const Vector3d& p1, const Vector3d& p2,
-                       size_t primitive_index, size_t shape_size, bool outlines, bool enable_barycentric,
-                       bool mirror);
+                       uint8_t hidden_edges, bool enable_barycentric, bool mirror);
+  // With enable_barycentric, edges between same-colored faces that lie flat or fold less than
+  // crease_degrees are hidden from the edge shader.
   void create_surface(const PolySet& ps, const Transform3d& m, const Color4f& default_color,
-                      bool enable_barycentric, bool force_default_color = false);
+                      bool enable_barycentric, bool force_default_color = false,
+                      double crease_degrees = 0);
   void create_edges(const Polygon2d& polygon, const Transform3d& m, const Color4f& color);
   void create_polygons(const PolySet& ps, const Transform3d& m, const Color4f& color);
 
@@ -401,7 +402,7 @@ private:
   bool directTriangles(bool enable_barycentric);
   // create_triangle() without staging each vertex in the attribute vectors.
   void emitTriangle(const Color4f& color, const Vector3d& p0, const Vector3d& p1, const Vector3d& p2,
-                    size_t primitive_index, size_t shape_size, bool enable_barycentric, bool mirror);
+                    uint8_t hidden_edges, bool enable_barycentric, bool mirror);
   // `hash` is the vertex's ElementsMap::hash(), used only with elements.
   void emitVertex(const GLbyte *vertex, size_t stride, uint64_t hash);
   const GLbyte *elementsKeys(size_t stride);

@@ -107,6 +107,49 @@
           </property>
          </widget>
         </item>
+        <item>
+         <layout class="QHBoxLayout" name="horizontalLayoutEdgeCreaseAngle">
+          <item>
+           <widget class="QLabel" name="labelEdgeCreaseAngle">
+            <property name="text">
+             <string>Edge crease angle:</string>
+            </property>
+            <property name="buddy">
+             <cstring>spinBoxEdgeCreaseAngle</cstring>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QSpinBox" name="spinBoxEdgeCreaseAngle">
+            <property name="toolTip">
+             <string>Show Edges hides edges where faces meet at less than this angle. 0° hides only edges inside flat faces.</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+            </property>
+            <property name="keyboardTracking">
+             <bool>false</bool>
+            </property>
+            <property name="suffix">
+             <string>°</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="horizontalSpacerEdgeCreaseAngle">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
        </layout>
       </widget>
       <widget class="QWidget" name="pageEditor">

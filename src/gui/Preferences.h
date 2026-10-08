@@ -76,6 +76,7 @@ public slots:
   void on_enableHidapiTraceCheckBox_toggled(bool);
   void on_checkBoxShowWarningsIn3dView_toggled(bool);
   void on_checkBoxMouseCentricZoom_toggled(bool);
+  void on_spinBoxEdgeCreaseAngle_valueChanged(int);
   void on_checkBoxSimplifyViewerToolbar_toggled(bool);
   void on_checkBoxPickMenuCurrentFileOnly_toggled(bool);
   void on_timeThresholdOnRenderCompleteSoundEdit_textChanged(const QString&);

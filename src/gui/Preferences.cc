@@ -261,6 +261,7 @@ void Preferences::init()
   initIntSpinBox(this->spinBoxLineWrapIndentationIndent, Settings::Settings::lineWrapIndentation);
   initIntSpinBox(this->spinBoxShowWhitespaceSize, Settings::Settings::showWhitespaceSize);
   initIntSpinBox(this->spinBoxTabWidth, Settings::Settings::tabWidth);
+  initIntSpinBox(this->spinBoxEdgeCreaseAngle, Settings::Settings::edgeCreaseAngle);
 
   initComboBox(this->comboBoxOctoPrintFileFormat, Settings::Settings::octoPrintFileFormat);
   initComboBox(this->comboBoxOctoPrintAction, Settings::Settings::octoPrintAction);
@@ -606,6 +607,13 @@ void Preferences::on_checkBoxMouseCentricZoom_toggled(bool val)
   Settings::Settings::mouseCentricZoom.setValue(val);
   writeSettings();
   emit updateMouseCentricZoom(val);
+}
+
+void Preferences::on_spinBoxEdgeCreaseAngle_valueChanged(int val)
+{
+  Settings::Settings::edgeCreaseAngle.setValue(val);
+  writeSettings();
+  emit requestRedraw();
 }
 
 void Preferences::on_checkBoxSimplifyViewerToolbar_toggled(bool val)
@@ -1435,6 +1443,7 @@ void Preferences::updateGUI()
   updateIntSpinBox(this->spinBoxTabWidth, Settings::Settings::tabWidth);
   updateIntSpinBox(this->spinBoxLineWrapIndentationIndent, Settings::Settings::lineWrapIndentation);
   updateIntSpinBox(this->spinBoxShowWhitespaceSize, Settings::Settings::showWhitespaceSize);
+  updateIntSpinBox(this->spinBoxEdgeCreaseAngle, Settings::Settings::edgeCreaseAngle);
   initUpdateCheckBox(this->checkBoxAutoIndent, Settings::Settings::autoIndent);
   initUpdateCheckBox(this->checkBoxBackspaceUnindents, Settings::Settings::backspaceUnindents);
   initUpdateCheckBox(this->checkBoxHighlightCurrentLine, Settings::Settings::highlightCurrentLine);

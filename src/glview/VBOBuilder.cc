@@ -10,9 +10,11 @@
 #include <memory>
 #include <cstdint>
 #include <cstdio>
+#include <numeric>
 
 #include "geometry/linalg.h"
 #include "geometry/Polygon2d.h"
+#include "utils/degree_trig.h"
 #include "utils/printutils.h"
 #include "utils/hash.h"  // IWYU pragma: keep
 
@@ -30,36 +32,88 @@ Vector3d triangleNormal(const Vector3d& p0, const Vector3d& p1, const Vector3d& 
   return {nx / nl, ny / nl, nz / nl};
 }
 
-std::array<GLubyte, 3> barycentricFlags(size_t active_point_index, size_t primitive_index,
-                                        size_t shape_size, bool outlines)
+// Bit i of hidden_edges hides the edge opposite corner i: the shader draws an edge where a coordinate
+// nears 0, and one that is 1 at all three corners never does.
+std::array<GLubyte, 3> barycentricFlags(size_t corner, uint8_t hidden_edges)
 {
-  std::array<GLubyte, 3> barycentric_flags;
+  std::array<GLubyte, 3> flags;
+  for (size_t i = 0; i < 3; ++i) flags[i] = i == corner || (hidden_edges >> i & 1);
+  return flags;
+}
 
-  if (!outlines) {
-    // top / bottom or 3d object
-    if (shape_size == 3) {
-      // true, true, true
-      barycentric_flags = {0, 0, 0};
-    } else if (shape_size == 4) {
-      // false, true, true
-      barycentric_flags = {1, 0, 0};
-    } else {
-      // true, false, false
-      barycentric_flags = {0, 1, 1};
-    }
-  } else {
-    // sides
-    if (primitive_index == 0) {
-      // true, false, true
-      barycentric_flags = {0, 1, 0};
-    } else {
-      // true, true, false
-      barycentric_flags = {0, 0, 1};
+Color4f polygonColor(const PolySet& ps, size_t i, const Color4f& default_color, bool force_default_color)
+{
+  if (force_default_color || i >= ps.color_indices.size()) return default_color;
+  const int32_t index = ps.color_indices[i];
+  return index >= 0 && static_cast<size_t>(index) < ps.colors.size() && ps.colors[index].isValid()
+           ? ps.colors[index]
+           : default_color;
+}
+
+// Per triangle, the barycentricFlags() bits of the edges it shares with a same-colored triangle that
+// lies flat with it or folds less than crease_degrees from it.
+std::vector<uint8_t> hiddenEdges(const PolySet& ps, double crease_degrees, const Color4f& default_color,
+                                 bool force_default_color)
+{
+  const size_t n = ps.indices.size();
+  std::vector<Vector3d> normals(n);  // NaN where degenerate
+  std::vector<double> areas(n);
+  std::vector<uint32_t> first(ps.vertices.size() + 1, 0);
+  for (size_t t = 0; t < n; ++t) {
+    const auto& f = ps.indices[t];
+    if (f.size() != 3) continue;
+    const Vector3d& v0 = ps.vertices[f[0]];
+    const Vector3d c = (ps.vertices[f[1]] - v0).cross(ps.vertices[f[2]] - v0);
+    areas[t] = c.norm();
+    normals[t] = c / areas[t];
+    for (size_t k = 0; k < 3; ++k) ++first[std::min(f[k], f[(k + 1) % 3])];
+  }
+  std::partial_sum(first.begin(), first.end(), first.begin());
+  // Bucketed by lower vertex v in [first[v], first[v + 1]), keyed by upper vertex << 1 | descending.
+  struct HalfEdge {
+    uint32_t key, edge;  // edge = 3 * triangle + k
+  };
+  std::vector<HalfEdge> half_edges(first.back());
+  for (size_t t = 0; t < n; ++t) {
+    const auto& f = ps.indices[t];
+    if (f.size() != 3) continue;
+    for (uint32_t k = 0; k < 3; ++k) {
+      const uint32_t a = f[k], b = f[(k + 1) % 3];
+      half_edges[--first[std::min(a, b)]] = {std::max(a, b) << 1 | (a > b),
+                                             static_cast<uint32_t>(3 * t + k)};
     }
   }
-
-  barycentric_flags[active_point_index] = 1;
-  return barycentric_flags;
+  const double min_dot = cos_degrees(crease_degrees) + 1e-9;  // a fold of exactly the crease shows
+  const BoundingBox bbox = ps.getBoundingBox();
+  const double tolerance = 1e-6 * bbox.min().cwiseAbs().cwiseMax(bbox.max().cwiseAbs()).maxCoeff();
+  std::vector<uint8_t> hidden(n, 0);
+  for (size_t v = 0; v + 1 < first.size(); ++v) {
+    const auto begin = half_edges.begin() + first[v], end = half_edges.begin() + first[v + 1];
+    std::sort(begin, end, [](HalfEdge x, HalfEdge y) { return x.key < y.key; });
+    for (auto run = begin, it = begin; run != end; run = it) {
+      while (it != end && it->key >> 1 == run->key >> 1) ++it;
+      // Only a manifold, consistently wound edge pairs up.
+      if (it - run != 2 || run[0].key == run[1].key) continue;
+      const uint32_t e = run[0].edge, g = run[1].edge, p = e / 3, q = g / 3;
+      if (polygonColor(ps, p, default_color, force_default_color) !=
+          polygonColor(ps, q, default_color, force_default_color)) {
+        continue;
+      }
+      const double dot = normals[p].dot(normals[q]);
+      bool hide = dot > min_dot;
+      // Under 60° only, so a sliver thinner than the tolerance can't flatten a crease it lies along.
+      if (!hide && !(dot < 0.5)) {
+        const auto [s, l] = areas[p] < areas[q] ? std::pair{e, q} : std::pair{g, p};
+        const Vector3d& apex = ps.vertices[ps.indices[s / 3][(s % 3 + 2) % 3]];
+        hide = std::abs(normals[l].dot(apex - ps.vertices[v])) <= tolerance;
+      }
+      if (hide) {
+        hidden[p] |= 1 << (e % 3 + 2) % 3;
+        hidden[q] |= 1 << (g % 3 + 2) % 3;
+      }
+    }
+  }
+  return hidden;
 }
 
 size_t surfaceVertexCount(const PolySet& ps)
@@ -279,8 +333,8 @@ bool VBOBuilder::directTriangles(bool enable_barycentric)
 }
 
 void VBOBuilder::emitTriangle(const Color4f& color, const Vector3d& p0, const Vector3d& p1,
-                              const Vector3d& p2, size_t primitive_index, size_t shape_size,
-                              bool enable_barycentric, bool mirror)
+                              const Vector3d& p2, uint8_t hidden_edges, bool enable_barycentric,
+                              bool mirror)
 {
   const Vector3d n = triangleNormal(p0, p1, p2);
   const std::array<const Vector3d *, 3> points = {&p0, &p1, &p2};
@@ -302,7 +356,7 @@ void VBOBuilder::emitTriangle(const Color4f& color, const Vector3d& p0, const Ve
     floats[9] = color.a();
     std::memcpy(vertices[corner].data(), floats.data(), floats_size);
     if (enable_barycentric) {
-      const auto flags = barycentricFlags(corner, primitive_index, shape_size, false);
+      const auto flags = barycentricFlags(corner, hidden_edges);
       const std::array<GLubyte, 4> barycentric = {flags[0], flags[1], flags[2], 0};
       std::memcpy(vertices[corner].data() + floats_size, barycentric.data(), barycentric.size());
     }
@@ -519,44 +573,42 @@ void VBOBuilder::addShaderData()
     std::make_shared<AttributeData<GLubyte, 4, GL_UNSIGNED_BYTE>>());  // barycentric
 }
 
-void VBOBuilder::add_barycentric_attribute(size_t active_point_index, size_t primitive_index,
-                                           size_t shape_size, bool outlines)
+void VBOBuilder::add_barycentric_attribute(size_t corner, uint8_t hidden_edges)
 {
   const std::shared_ptr<VertexData> vertex_data = data();
-  const auto barycentric_flags =
-    barycentricFlags(active_point_index, primitive_index, shape_size, outlines);
+  const auto barycentric_flags = barycentricFlags(corner, hidden_edges);
   addAttributeValues(*(vertex_data->attributes()[shader_attributes_index_ + BARYCENTRIC_ATTRIB]),
                      barycentric_flags[0], barycentric_flags[1], barycentric_flags[2], 0);
 }
 
 void VBOBuilder::create_triangle(const Color4f& color, const Vector3d& p0, const Vector3d& p1,
-                                 const Vector3d& p2, size_t primitive_index, size_t shape_size,
-                                 bool outlines, bool enable_barycentric, bool mirror)
+                                 const Vector3d& p2, uint8_t hidden_edges, bool enable_barycentric,
+                                 bool mirror)
 {
   const Vector3d n = triangleNormal(p0, p1, p2);
 
   if (!data()) return;
 
   if (enable_barycentric) {
-    add_barycentric_attribute(0, primitive_index, shape_size, outlines);
+    add_barycentric_attribute(0, hidden_edges);
   }
-  createVertex({p0, p1, p2}, {n, n, n}, color, 0, primitive_index, shape_size, outlines, mirror);
+  createVertex({p0, p1, p2}, {n, n, n}, color, 0);
 
   if (!mirror) {
     if (enable_barycentric) {
-      add_barycentric_attribute(1, primitive_index, shape_size, outlines);
+      add_barycentric_attribute(1, hidden_edges);
     }
-    createVertex({p0, p1, p2}, {n, n, n}, color, 1, primitive_index, shape_size, outlines, mirror);
+    createVertex({p0, p1, p2}, {n, n, n}, color, 1);
   }
   if (enable_barycentric) {
-    add_barycentric_attribute(2, primitive_index, shape_size, outlines);
+    add_barycentric_attribute(2, hidden_edges);
   }
-  createVertex({p0, p1, p2}, {n, n, n}, color, 2, primitive_index, shape_size, outlines, mirror);
+  createVertex({p0, p1, p2}, {n, n, n}, color, 2);
   if (mirror) {
     if (enable_barycentric) {
-      add_barycentric_attribute(1, primitive_index, shape_size, outlines);
+      add_barycentric_attribute(1, hidden_edges);
     }
-    createVertex({p0, p1, p2}, {n, n, n}, color, 1, primitive_index, shape_size, outlines, mirror);
+    createVertex({p0, p1, p2}, {n, n, n}, color, 1);
   }
 }
 
@@ -564,7 +616,8 @@ void VBOBuilder::create_triangle(const Color4f& color, const Vector3d& p0, const
 // This will usually create a new VertexState and append it to our
 // vertex states
 void VBOBuilder::create_surface(const PolySet& ps, const Transform3d& m, const Color4f& default_color,
-                                bool enable_barycentric, bool force_default_color)
+                                bool enable_barycentric, bool force_default_color,
+                                double crease_degrees)
 {
   const std::shared_ptr<VertexData> vertex_data = data();
 
@@ -587,30 +640,27 @@ void VBOBuilder::create_surface(const PolySet& ps, const Transform3d& m, const C
 
   const bool direct = directTriangles(enable_barycentric);
   const auto triangle = [&](const Color4f& color, const Vector3d& p0, const Vector3d& p1,
-                            const Vector3d& p2, size_t primitive_index, size_t shape_size) {
+                            const Vector3d& p2, uint8_t hidden_edges) {
     if (direct) {
-      emitTriangle(color, p0, p1, p2, primitive_index, shape_size, enable_barycentric, mirrored);
+      emitTriangle(color, p0, p1, p2, hidden_edges, enable_barycentric, mirrored);
     } else {
-      create_triangle(color, p0, p1, p2, primitive_index, shape_size, false, enable_barycentric,
-                      mirrored);
+      create_triangle(color, p0, p1, p2, hidden_edges, enable_barycentric, mirrored);
     }
   };
 
-  auto has_colors = !ps.color_indices.empty();
+  const std::vector<uint8_t> hidden =
+    enable_barycentric ? hiddenEdges(ps, crease_degrees, default_color, force_default_color)
+                       : std::vector<uint8_t>();
 
   for (size_t i = 0, n = ps.indices.size(); i < n; i++) {
     const auto& poly = ps.indices[i];
-    const size_t color_index = has_colors && i < ps.color_indices.size() ? ps.color_indices[i] : -1;
-    const auto& color = !force_default_color && color_index >= 0 && color_index < ps.colors.size() &&
-                            ps.colors[color_index].isValid()
-                          ? ps.colors[color_index]
-                          : default_color;
+    const Color4f color = polygonColor(ps, i, default_color, force_default_color);
     if (poly.size() == 3) {
       const Vector3d p0 = m * ps.vertices[poly.at(0)];
       const Vector3d p1 = m * ps.vertices[poly.at(1)];
       const Vector3d p2 = m * ps.vertices[poly.at(2)];
 
-      triangle(color, p0, p1, p2, 0, poly.size());
+      triangle(color, p0, p1, p2, hidden.empty() ? 0 : hidden[i]);
       triangle_count++;
     } else if (poly.size() == 4) {
       const Vector3d p0 = m * ps.vertices[poly.at(0)];
@@ -618,8 +668,9 @@ void VBOBuilder::create_surface(const PolySet& ps, const Transform3d& m, const C
       const Vector3d p2 = m * ps.vertices[poly.at(2)];
       const Vector3d p3 = m * ps.vertices[poly.at(3)];
 
-      triangle(color, p0, p1, p3, 0, poly.size());
-      triangle(color, p2, p3, p1, 1, poly.size());
+      // Without the diagonal.
+      triangle(color, p0, p1, p3, 0b001);
+      triangle(color, p2, p3, p1, 0b001);
       triangle_count += 2;
     } else {
       Vector3d center = Vector3d::Zero();
@@ -632,7 +683,8 @@ void VBOBuilder::create_surface(const PolySet& ps, const Transform3d& m, const C
         const Vector3d p1 = m * ps.vertices[poly.at(i % poly.size())];
         const Vector3d p2 = m * ps.vertices[poly.at(i - 1)];
 
-        triangle(color, p0, p2, p1, i - 1, poly.size());
+        // Without the spokes.
+        triangle(color, p0, p2, p1, 0b110);
         triangle_count++;
       }
     }
@@ -698,10 +750,9 @@ void VBOBuilder::create_polygons(const PolySet& ps, const Transform3d& m, const 
   }
 
   const bool direct = directTriangles(false);
-  const auto triangle = [&](const Vector3d& p0, const Vector3d& p1, const Vector3d& p2,
-                            size_t primitive_index, size_t shape_size) {
-    if (direct) emitTriangle(color, p0, p1, p2, primitive_index, shape_size, false, mirrored);
-    else create_triangle(color, p0, p1, p2, primitive_index, shape_size, false, false, mirrored);
+  const auto triangle = [&](const Vector3d& p0, const Vector3d& p1, const Vector3d& p2) {
+    if (direct) emitTriangle(color, p0, p1, p2, 0, false, mirrored);
+    else create_triangle(color, p0, p1, p2, 0, false, mirrored);
   };
 
   for (const auto& poly : ps.indices) {
@@ -710,7 +761,7 @@ void VBOBuilder::create_polygons(const PolySet& ps, const Transform3d& m, const 
       const Vector3d p1 = m * ps.vertices[poly.at(1)];
       const Vector3d p2 = m * ps.vertices[poly.at(2)];
 
-      triangle(p0, p1, p2, 0, poly.size());
+      triangle(p0, p1, p2);
       triangle_count++;
     } else if (poly.size() == 4) {
       const Vector3d p0 = m * ps.vertices[poly.at(0)];
@@ -718,8 +769,8 @@ void VBOBuilder::create_polygons(const PolySet& ps, const Transform3d& m, const 
       const Vector3d p2 = m * ps.vertices[poly.at(2)];
       const Vector3d p3 = m * ps.vertices[poly.at(3)];
 
-      triangle(p0, p1, p3, 0, poly.size());
-      triangle(p2, p3, p1, 1, poly.size());
+      triangle(p0, p1, p3);
+      triangle(p2, p3, p1);
       triangle_count += 2;
     } else {
       Vector3d center = Vector3d::Zero();
@@ -735,7 +786,7 @@ void VBOBuilder::create_polygons(const PolySet& ps, const Transform3d& m, const 
         const Vector3d p1 = m * ps.vertices[poly.at(i % poly.size())];
         const Vector3d p2 = m * ps.vertices[poly.at(i - 1)];
 
-        triangle(p0, p2, p1, i - 1, poly.size());
+        triangle(p0, p2, p1);
         triangle_count++;
       }
     }

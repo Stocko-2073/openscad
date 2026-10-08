@@ -40,6 +40,7 @@
 #include "utils/printutils.h"
 #include "glview/system-gl.h"
 #include "core/Selection.h"
+#include "core/Settings.h"
 #include "geometry/cgal/cgalutils.h"
 #include "geometry/Geometry.h"
 #include "geometry/linalg.h"
@@ -133,7 +134,8 @@ void PolySetRenderer::createPolySetStates(const ShaderUtils::ShaderInfo *shaderi
     add_shader_pointers(vbo_builder, shaderinfo);
 
     vbo_builder.writeSurface();
-    vbo_builder.create_surface(*polyset, Transform3d::Identity(), color, enable_barycentric, false);
+    vbo_builder.create_surface(*polyset, Transform3d::Identity(), color, enable_barycentric, false,
+                               edge_crease_);
   }
 
   vbo_builder.createInterleavedVBOs();
@@ -216,6 +218,10 @@ void PolySetRenderer::createPolygonEdgeStates()
 
 void PolySetRenderer::prepare(const ShaderUtils::ShaderInfo *shaderinfo)
 {
+  if (const int crease = Settings::Settings::edgeCreaseAngle.value(); crease != edge_crease_) {
+    edge_crease_ = crease;
+    polyset_vertex_state_containers_.clear();
+  }
   if (polyset_vertex_state_containers_.empty() && polygon_vertex_state_containers_.empty()) {
     if (!this->polysets_.empty() && !this->polygons_.empty()) {
       LOG(message_group::Error, "PolySetRenderer::prepare() called with both polysets and polygons");

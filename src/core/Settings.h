@@ -385,6 +385,7 @@ class Settings
 public:
   static SettingsEntryBool showWarningsIn3dView;
   static SettingsEntryBool mouseCentricZoom;
+  static SettingsEntryInt edgeCreaseAngle;
   static SettingsEntryBool simplifyViewerToolbar;
   static SettingsEntryBool pickMenuCurrentFileOnly;
   static SettingsEntryInt indentationWidth;
