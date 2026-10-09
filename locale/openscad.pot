@@ -1,4 +1,4 @@
-# #-#-#-#-#  openscad-tmp.pot (OpenSCAD 2026.10.08)  #-#-#-#-#
+# #-#-#-#-#  openscad-tmp.pot (OpenSCAD 2026.10.09)  #-#-#-#-#
 # SOME DESCRIPTIVE TITLE.
 # Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the OpenSCAD package.
@@ -7,10 +7,10 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"#-#-#-#-#  openscad-tmp.pot (OpenSCAD 2026.10.08)  #-#-#-#-#\n"
-"Project-Id-Version: OpenSCAD 2026.10.08\n"
+"#-#-#-#-#  openscad-tmp.pot (OpenSCAD 2026.10.09)  #-#-#-#-#\n"
+"Project-Id-Version: OpenSCAD 2026.10.09\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-08 11:57-0400\n"
+"POT-Creation-Date: 2026-10-09 09:41-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -21,7 +21,7 @@ msgstr ""
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 "#-#-#-#-#  appdata-strings.pot (PACKAGE VERSION)  #-#-#-#-#\n"
 "Project-Id-Version: PACKAGE VERSION\n"
-"POT-Creation-Date: 2026-10-08 11:57-0400\n"
+"POT-Creation-Date: 2026-10-09 09:41-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1990,7 +1990,7 @@ msgid "Enable/Disable experimental features"
 msgstr ""
 
 #: build/OpenSCADLibInternal_autogen/include/ui_Preferences.h:2285
-#: src/gui/ColorSchemeEditor.cc:78
+#: src/gui/ColorSchemeEditor.cc:80
 msgid "Axes"
 msgstr ""
 
@@ -2698,36 +2698,36 @@ msgid ""
 "distance = %.2f, fov = %.2f"
 msgstr ""
 
-#: src/glview/ColorMap.cc:95
+#: src/glview/ColorMap.cc:96
 #, c-format
 msgid "Can't write '%1$s'"
 msgstr ""
 
-#: src/glview/ColorMap.cc:102
+#: src/glview/ColorMap.cc:103
 #, c-format
 msgid "Can't write '%1$s': %2$s"
 msgstr ""
 
-#: src/glview/ColorMap.cc:318
+#: src/glview/ColorMap.cc:313
 msgid "There is no user config folder to keep color schemes in."
 msgstr ""
 
-#: src/glview/ColorMap.cc:323
+#: src/glview/ColorMap.cc:318
 #, c-format
 msgid "Can't create '%1$s': %2$s"
 msgstr ""
 
-#: src/glview/ColorMap.cc:330 src/glview/ColorMap.cc:354
+#: src/glview/ColorMap.cc:325 src/glview/ColorMap.cc:349
 #, c-format
 msgid "The name '%1$s' is already taken."
 msgstr ""
 
-#: src/glview/ColorMap.cc:351 src/glview/ColorMap.cc:375
+#: src/glview/ColorMap.cc:346 src/glview/ColorMap.cc:370
 #, c-format
 msgid "'%1$s' is not a user color scheme."
 msgstr ""
 
-#: src/glview/ColorMap.cc:382
+#: src/glview/ColorMap.cc:377
 #, c-format
 msgid "Can't delete '%1$s': %2$s"
 msgstr ""
@@ -2754,68 +2754,78 @@ msgstr ""
 msgid "Filter (%1 colors found)"
 msgstr ""
 
-#: src/gui/ColorSchemeEditor.cc:62
+#: src/gui/ColorSchemeEditor.cc:64
 msgid "Built-in color schemes are read-only. Duplicate one to edit it."
 msgstr ""
 
-#: src/gui/ColorSchemeEditor.cc:74
+#: src/gui/ColorSchemeEditor.cc:76
 msgid "View"
 msgstr ""
 
-#: src/gui/ColorSchemeEditor.cc:75
+#: src/gui/ColorSchemeEditor.cc:77
 msgid "Background"
 msgstr ""
 
-#: src/gui/ColorSchemeEditor.cc:76
+#: src/gui/ColorSchemeEditor.cc:78
 msgid "Background gradient"
 msgstr ""
 
-#: src/gui/ColorSchemeEditor.cc:77
+#: src/gui/ColorSchemeEditor.cc:79
 msgid ""
 "The bottom of the background. The same color as Background makes it solid."
 msgstr ""
 
-#: src/gui/ColorSchemeEditor.cc:79
+#: src/gui/ColorSchemeEditor.cc:81
 msgid "Crosshair"
 msgstr ""
 
-#: src/gui/ColorSchemeEditor.cc:80
+#: src/gui/ColorSchemeEditor.cc:82
 msgid "3D"
 msgstr ""
 
-#: src/gui/ColorSchemeEditor.cc:81 src/gui/ColorSchemeEditor.cc:85
+#: src/gui/ColorSchemeEditor.cc:83 src/gui/ColorSchemeEditor.cc:102
 msgid "Faces"
 msgstr ""
 
-#: src/gui/ColorSchemeEditor.cc:82
+#: src/gui/ColorSchemeEditor.cc:84
 msgid "Cut faces"
 msgstr ""
 
-#: src/gui/ColorSchemeEditor.cc:83
+#: src/gui/ColorSchemeEditor.cc:85
 msgid "The faces left where difference() cuts parts away."
 msgstr ""
 
-#: src/gui/ColorSchemeEditor.cc:84
-msgid "2D"
-msgstr ""
-
 #: src/gui/ColorSchemeEditor.cc:86
-msgid "Outlines"
-msgstr ""
-
-#: src/gui/ColorSchemeEditor.cc:87
-msgid "CGAL backend only"
+msgid ""
+"How Show Edges shades each edge from its face's color: 0 is black, 0.5 the "
+"face's color and 1 white."
 msgstr ""
 
 #: src/gui/ColorSchemeEditor.cc:88
+msgid "Edge brightness"
+msgstr ""
+
+#: src/gui/ColorSchemeEditor.cc:101
+msgid "2D"
+msgstr ""
+
+#: src/gui/ColorSchemeEditor.cc:103
+msgid "Outlines"
+msgstr ""
+
+#: src/gui/ColorSchemeEditor.cc:104
+msgid "CGAL backend only"
+msgstr ""
+
+#: src/gui/ColorSchemeEditor.cc:105
 msgid "Edges"
 msgstr ""
 
-#: src/gui/ColorSchemeEditor.cc:89
+#: src/gui/ColorSchemeEditor.cc:106
 msgid "Cut edges"
 msgstr ""
 
-#: src/gui/ColorSchemeEditor.cc:166
+#: src/gui/ColorSchemeEditor.cc:200
 msgid "Color scheme"
 msgstr ""
 

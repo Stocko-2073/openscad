@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: OpenSCAD 2021.12.04\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-08 11:57-0400\n"
+"POT-Creation-Date: 2026-10-09 09:41-0400\n"
 "PO-Revision-Date: 2021-12-04 17:55+0300\n"
 "Last-Translator: Serkan ÖNDER <serkanonder@outlook.com>\n"
 "Language-Team: Turkish\n"
@@ -2044,7 +2044,7 @@ msgid "Enable/Disable experimental features"
 msgstr "Deneysel özellikleri Etkinleştir/Devre Dışı Bırak"
 
 #: build/OpenSCADLibInternal_autogen/include/ui_Preferences.h:2285
-#: src/gui/ColorSchemeEditor.cc:78
+#: src/gui/ColorSchemeEditor.cc:80
 msgid "Axes"
 msgstr "Eksen"
 
@@ -2779,36 +2779,36 @@ msgstr ""
 "Görünüm alanı: çeviri = [ %.2f %.2f %.2f ], döndür = [ %.2f %.2f %.2f ], "
 "mesafe = %.2f, fov = %.2f"
 
-#: src/glview/ColorMap.cc:95
+#: src/glview/ColorMap.cc:96
 #, c-format
 msgid "Can't write '%1$s'"
 msgstr "'%1$s' yazılamadı"
 
-#: src/glview/ColorMap.cc:102
+#: src/glview/ColorMap.cc:103
 #, c-format
 msgid "Can't write '%1$s': %2$s"
 msgstr "'%1$s' yazılamadı: %2$s"
 
-#: src/glview/ColorMap.cc:318
+#: src/glview/ColorMap.cc:313
 msgid "There is no user config folder to keep color schemes in."
 msgstr "Renk şemalarını saklamak için bir kullanıcı yapılandırma klasörü yok."
 
-#: src/glview/ColorMap.cc:323
+#: src/glview/ColorMap.cc:318
 #, c-format
 msgid "Can't create '%1$s': %2$s"
 msgstr "'%1$s' oluşturulamadı: %2$s"
 
-#: src/glview/ColorMap.cc:330 src/glview/ColorMap.cc:354
+#: src/glview/ColorMap.cc:325 src/glview/ColorMap.cc:349
 #, c-format
 msgid "The name '%1$s' is already taken."
 msgstr "'%1$s' adı zaten kullanılıyor."
 
-#: src/glview/ColorMap.cc:351 src/glview/ColorMap.cc:375
+#: src/glview/ColorMap.cc:346 src/glview/ColorMap.cc:370
 #, c-format
 msgid "'%1$s' is not a user color scheme."
 msgstr "'%1$s' bir kullanıcı renk şeması değil."
 
-#: src/glview/ColorMap.cc:382
+#: src/glview/ColorMap.cc:377
 #, c-format
 msgid "Can't delete '%1$s': %2$s"
 msgstr "'%1$s' silinemedi: %2$s"
@@ -2836,72 +2836,84 @@ msgstr ""
 msgid "Filter (%1 colors found)"
 msgstr "Filtre (%1 renk bulundu)"
 
-#: src/gui/ColorSchemeEditor.cc:62
+#: src/gui/ColorSchemeEditor.cc:64
 msgid "Built-in color schemes are read-only. Duplicate one to edit it."
 msgstr ""
 "Yerleşik renk şemaları salt okunurdur. Düzenlemek için birini çoğaltın."
 
-#: src/gui/ColorSchemeEditor.cc:74
+#: src/gui/ColorSchemeEditor.cc:76
 msgid "View"
 msgstr "Görünüm alanı"
 
-#: src/gui/ColorSchemeEditor.cc:75
+#: src/gui/ColorSchemeEditor.cc:77
 msgid "Background"
 msgstr "Arka plan"
 
-#: src/gui/ColorSchemeEditor.cc:76
+#: src/gui/ColorSchemeEditor.cc:78
 msgid "Background gradient"
 msgstr "Arka plan gradyanı"
 
-#: src/gui/ColorSchemeEditor.cc:77
+#: src/gui/ColorSchemeEditor.cc:79
 msgid ""
 "The bottom of the background. The same color as Background makes it solid."
 msgstr ""
 "Arka planın alt kısmı. Arka plan ile aynı renk seçilirse arka plan düz renk "
 "olur."
 
-#: src/gui/ColorSchemeEditor.cc:79
+#: src/gui/ColorSchemeEditor.cc:81
 msgid "Crosshair"
 msgstr "Artı işareti"
 
-#: src/gui/ColorSchemeEditor.cc:80
+#: src/gui/ColorSchemeEditor.cc:82
 msgid "3D"
 msgstr "3B"
 
-#: src/gui/ColorSchemeEditor.cc:81 src/gui/ColorSchemeEditor.cc:85
+#: src/gui/ColorSchemeEditor.cc:83 src/gui/ColorSchemeEditor.cc:102
 msgid "Faces"
 msgstr "Yüzler"
 
-#: src/gui/ColorSchemeEditor.cc:82
+#: src/gui/ColorSchemeEditor.cc:84
 msgid "Cut faces"
 msgstr "Kesim yüzleri"
 
-#: src/gui/ColorSchemeEditor.cc:83
+#: src/gui/ColorSchemeEditor.cc:85
 msgid "The faces left where difference() cuts parts away."
 msgstr ""
 "difference() işlevinin parçaları kesip çıkardığı yerlerde kalan yüzler."
 
-#: src/gui/ColorSchemeEditor.cc:84
+#: src/gui/ColorSchemeEditor.cc:86
+msgid ""
+"How Show Edges shades each edge from its face's color: 0 is black, 0.5 the "
+"face's color and 1 white."
+msgstr ""
+"\"Kenarları Göster\" her kenarın tonunu yüzünün renginden alır: 0 siyah, 0,5 "
+"yüzün kendi rengi, 1 beyazdır."
+
+#: src/gui/ColorSchemeEditor.cc:88
+msgid "Edge brightness"
+msgstr "Kenar parlaklığı"
+
+#: src/gui/ColorSchemeEditor.cc:101
 msgid "2D"
 msgstr "2B"
 
-#: src/gui/ColorSchemeEditor.cc:86
+#: src/gui/ColorSchemeEditor.cc:103
 msgid "Outlines"
 msgstr "Anahatlar"
 
-#: src/gui/ColorSchemeEditor.cc:87
+#: src/gui/ColorSchemeEditor.cc:104
 msgid "CGAL backend only"
 msgstr "Yalnızca CGAL arka ucu için"
 
-#: src/gui/ColorSchemeEditor.cc:88
+#: src/gui/ColorSchemeEditor.cc:105
 msgid "Edges"
 msgstr "Kenarlar"
 
-#: src/gui/ColorSchemeEditor.cc:89
+#: src/gui/ColorSchemeEditor.cc:106
 msgid "Cut edges"
 msgstr "Kesim kenarları"
 
-#: src/gui/ColorSchemeEditor.cc:166
+#: src/gui/ColorSchemeEditor.cc:200
 msgid "Color scheme"
 msgstr "Renk şeması"
 
