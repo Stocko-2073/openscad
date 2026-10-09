@@ -1,5 +1,7 @@
 #version 120
 
+uniform float edge_brightness;  // 0 black, 0.5 the face's color, 1 white
+
 varying vec4 color;
 varying vec3 vBC;
 varying float shading;
@@ -19,6 +21,7 @@ float edgeFactor() {
 }
 
 void main(void) {
-  vec4 color_edge = vec4((color.rgb + vec3(1))/2, 1.0);
+  float b = 2.0 * edge_brightness;
+  vec4 color_edge = vec4(mix(color.rgb * min(b, 1.0), vec3(1.0), max(b - 1.0, 0.0)), 1.0);
   gl_FragColor = mix(color_edge, vec4(color.rgb * shading, color.a), edgeFactor());
 }

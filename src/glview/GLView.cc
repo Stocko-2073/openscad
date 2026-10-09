@@ -43,7 +43,10 @@ void GLView::setupShader()
   edge_shader = std::make_unique<ShaderUtils::ShaderInfo>(ShaderUtils::ShaderInfo{
     .resource = resource,
     .type = ShaderUtils::ShaderType::EDGE_RENDERING,
-    .uniforms = {},
+    .uniforms =
+      {
+        {"edge_brightness", glGetUniformLocation(resource.shader_program, "edge_brightness")},
+      },
     .attributes =
       {
         {"barycentric", glGetAttribLocation(resource.shader_program, "barycentric")},
@@ -194,6 +197,11 @@ void GLView::paintGL()
   glLineWidth(2);
   glColor3d(1.0, 0.0, 0.0);
 
+  if (edge_shader && edge_shader->resource.shader_program) {
+    glUseProgram(edge_shader->resource.shader_program);
+    glUniform1f(edge_shader->uniforms.at("edge_brightness"), this->colorscheme->edge_brightness);
+    glUseProgram(0);
+  }
   if (this->renderer) {
     this->renderer->prepare(edge_shader.get());
     this->renderer->draw(showedges, edge_shader.get());

@@ -566,9 +566,9 @@ void Preferences::on_toolButtonColorSchemeDuplicate_clicked()
 
   ColorScheme copy = *colors;
   // The editor shows and sets each of these pairs as one color.
-  copy[RenderColor::OPENCSG_FACE_FRONT_COLOR] =
+  copy.colors[RenderColor::OPENCSG_FACE_FRONT_COLOR] =
     ColorMap::getColor(copy, RenderColor::CGAL_FACE_FRONT_COLOR);
-  copy[RenderColor::OPENCSG_FACE_BACK_COLOR] =
+  copy.colors[RenderColor::OPENCSG_FACE_BACK_COLOR] =
     ColorMap::getColor(copy, RenderColor::CGAL_FACE_BACK_COLOR);
 
   const QString sourceName = QString::fromStdString(source);

@@ -76,15 +76,16 @@ std::string hexColor(const Color4f& color)
 }
 
 std::string writeColorScheme(const fs::path& path, const std::string& name, int index,
-                             const ColorScheme& colors)
+                             const ColorScheme& scheme)
 {
   nlohmann::ordered_json json;
   json["name"] = name;
   json["index"] = index;
   json["show-in-gui"] = true;
+  json["edge-brightness"] = scheme.edge_brightness;
   auto& jsonColors = json["colors"];
   for (const auto& [color, key] : COLOR_KEYS) {
-    jsonColors[key] = hexColor(ColorMap::getColor(colors, color));
+    jsonColors[key] = hexColor(ColorMap::getColor(scheme, color));
   }
 
   fs::path tmp = path;
@@ -141,28 +142,19 @@ RenderColorScheme::RenderColorScheme() : _path("")
   _index = 1000;
   _show_in_gui = true;
 
-  _color_scheme.insert(
-    ColorScheme::value_type(RenderColor::BACKGROUND_COLOR, Color4f(0xff, 0xff, 0xe5)));
-  _color_scheme.insert(
-    ColorScheme::value_type(RenderColor::BACKGROUND_STOP_COLOR, Color4f(0xff, 0xff, 0xe5)));
-  _color_scheme.insert(ColorScheme::value_type(RenderColor::AXES_COLOR, Color4f(0x00, 0x00, 0x00)));
-  _color_scheme.insert(
-    ColorScheme::value_type(RenderColor::OPENCSG_FACE_FRONT_COLOR, Color4f(0xf9, 0xd7, 0x2c)));
-  _color_scheme.insert(
-    ColorScheme::value_type(RenderColor::OPENCSG_FACE_BACK_COLOR, Color4f(0x9d, 0xcb, 0x51)));
-  _color_scheme.insert(
-    ColorScheme::value_type(RenderColor::CGAL_FACE_FRONT_COLOR, Color4f(0xf9, 0xd7, 0x2c)));
-  _color_scheme.insert(
-    ColorScheme::value_type(RenderColor::CGAL_FACE_2D_COLOR, Color4f(0x00, 0xbf, 0x99)));
-  _color_scheme.insert(
-    ColorScheme::value_type(RenderColor::CGAL_FACE_BACK_COLOR, Color4f(0x9d, 0xcb, 0x51)));
-  _color_scheme.insert(
-    ColorScheme::value_type(RenderColor::CGAL_EDGE_FRONT_COLOR, Color4f(0xff, 0xec, 0x5e)));
-  _color_scheme.insert(
-    ColorScheme::value_type(RenderColor::CGAL_EDGE_BACK_COLOR, Color4f(0xab, 0xd8, 0x56)));
-  _color_scheme.insert(
-    ColorScheme::value_type(RenderColor::CGAL_EDGE_2D_COLOR, Color4f(0xff, 0x00, 0x00)));
-  _color_scheme.insert(ColorScheme::value_type(RenderColor::CROSSHAIR_COLOR, Color4f(0x80, 0x00, 0x00)));
+  auto& colors = _color_scheme.colors;
+  colors.emplace(RenderColor::BACKGROUND_COLOR, Color4f(0xff, 0xff, 0xe5));
+  colors.emplace(RenderColor::BACKGROUND_STOP_COLOR, Color4f(0xff, 0xff, 0xe5));
+  colors.emplace(RenderColor::AXES_COLOR, Color4f(0x00, 0x00, 0x00));
+  colors.emplace(RenderColor::OPENCSG_FACE_FRONT_COLOR, Color4f(0xf9, 0xd7, 0x2c));
+  colors.emplace(RenderColor::OPENCSG_FACE_BACK_COLOR, Color4f(0x9d, 0xcb, 0x51));
+  colors.emplace(RenderColor::CGAL_FACE_FRONT_COLOR, Color4f(0xf9, 0xd7, 0x2c));
+  colors.emplace(RenderColor::CGAL_FACE_2D_COLOR, Color4f(0x00, 0xbf, 0x99));
+  colors.emplace(RenderColor::CGAL_FACE_BACK_COLOR, Color4f(0x9d, 0xcb, 0x51));
+  colors.emplace(RenderColor::CGAL_EDGE_FRONT_COLOR, Color4f(0xff, 0xec, 0x5e));
+  colors.emplace(RenderColor::CGAL_EDGE_BACK_COLOR, Color4f(0xab, 0xd8, 0x56));
+  colors.emplace(RenderColor::CGAL_EDGE_2D_COLOR, Color4f(0xff, 0x00, 0x00));
+  colors.emplace(RenderColor::CROSSHAIR_COLOR, Color4f(0x80, 0x00, 0x00));
 }
 
 RenderColorScheme::RenderColorScheme(const fs::path& path, bool user) : _path(path), _user(user)
@@ -173,15 +165,18 @@ RenderColorScheme::RenderColorScheme(const fs::path& path, bool user) : _path(pa
     _name = pt.get<std::string>("name");
     _index = pt.get<int>("index");
     _show_in_gui = pt.get<bool>("show-in-gui");
+    _color_scheme.edge_brightness =
+      std::clamp(pt.get("edge-brightness", _color_scheme.edge_brightness), 0.0, 1.0);
 
     const boost::property_tree::ptree& colors = pt.get_child("colors");
+    auto& schemeColors = _color_scheme.colors;
     for (const auto& [color, key] : COLOR_KEYS) {
-      if (color != RenderColor::BACKGROUND_STOP_COLOR) _color_scheme[color] = readColor(colors, key);
+      if (color != RenderColor::BACKGROUND_STOP_COLOR) schemeColors[color] = readColor(colors, key);
     }
     try {
-      _color_scheme[RenderColor::BACKGROUND_STOP_COLOR] = readColor(colors, "background-stop");
+      schemeColors[RenderColor::BACKGROUND_STOP_COLOR] = readColor(colors, "background-stop");
     } catch (const std::exception&) {
-      _color_scheme[RenderColor::BACKGROUND_STOP_COLOR] = _color_scheme[RenderColor::BACKGROUND_COLOR];
+      schemeColors[RenderColor::BACKGROUND_STOP_COLOR] = schemeColors[RenderColor::BACKGROUND_COLOR];
     }
   } catch (const std::exception& e) {
     LOG("Error reading color scheme file: '%1$s': %2$s", path.generic_string().c_str(), e.what());
@@ -443,9 +438,9 @@ std::list<std::string> ColorMap::colorSchemeNames(bool guiOnly) const
 
 Color4f ColorMap::getColor(const ColorScheme& cs, const RenderColor rc)
 {
-  if (cs.count(rc)) return cs.at(rc);
-  if (ColorMap::inst()->defaultColorScheme().count(rc))
-    return ColorMap::inst()->defaultColorScheme().at(rc);
+  if (cs.colors.count(rc)) return cs.colors.at(rc);
+  const RenderColors& defaults = ColorMap::inst()->defaultColorScheme().colors;
+  if (defaults.count(rc)) return defaults.at(rc);
   return {0, 0, 0, 127};
 }
 

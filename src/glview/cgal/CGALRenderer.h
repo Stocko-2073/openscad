@@ -50,5 +50,5 @@ private:
 #endif
 
   std::vector<VertexStateContainer> vertex_state_containers_;
-  ColorScheme built_colors_;  // what polyhedrons_ and vertex_state_containers_ were built with
+  RenderColors built_colors_;  // what polyhedrons_ and vertex_state_containers_ were built with
 };

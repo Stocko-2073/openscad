@@ -60,7 +60,7 @@
 #endif
 
 CGALRenderer::CGALRenderer(const std::shared_ptr<const class Geometry>& geom)
-  : built_colors_(*colorscheme_)
+  : built_colors_(colorscheme_->colors)
 {
   this->addGeometry(geom);
   PRINTD("CGALRenderer::CGALRenderer() -> createPolyhedrons()");
@@ -240,13 +240,13 @@ void CGALRenderer::prepare(const ShaderUtils::ShaderInfo *shaderinfo)
 {
   PRINTD("prepare()");
   // A new color scheme takes effect here, where the view's GL context is current to free buffers in.
-  if (*colorscheme_ != built_colors_) {
+  if (colorscheme_->colors != built_colors_) {
 #ifdef ENABLE_CGAL
     this->polyhedrons_.clear();
 #endif
     vertex_state_containers_.clear();
     dropTranslucent();
-    built_colors_ = *colorscheme_;
+    built_colors_ = colorscheme_->colors;
   }
   if (!vertex_state_containers_.size()) {
     if (!this->polysets_.empty() && !this->polygons_.empty()) {

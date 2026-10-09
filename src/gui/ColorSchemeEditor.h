@@ -7,11 +7,12 @@
 
 #include "glview/ColorMap.h"
 
+class QDoubleSpinBox;
 class QGridLayout;
 class QLabel;
 class QToolButton;
 
-// Shows a render color scheme's colors, and saves a user scheme's as they're picked.
+// Shows a render color scheme, and saves a user scheme as its colors and edge brightness are set.
 class ColorSchemeEditor : public QWidget
 {
   Q_OBJECT
@@ -34,6 +35,8 @@ private:
   void addSection(const QString& title);
   void addRow(const QString& title, std::vector<RenderColor> colors, const QString& tooltip = {});
   void pick(const Row& row);
+  void setEdgeBrightness(double value);
+  bool save(ColorScheme scheme);
   void showColors();
 
   QGridLayout *grid_;
@@ -41,6 +44,7 @@ private:
   QString section_;
   QLabel *readOnlyNote_;
   std::vector<Row> rows_;
+  QDoubleSpinBox *edgeBrightness_;
   QString name_;
-  ColorScheme colors_;
+  ColorScheme scheme_;
 };

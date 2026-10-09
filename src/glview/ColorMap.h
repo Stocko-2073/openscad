@@ -30,7 +30,12 @@ enum class RenderColor {
   CROSSHAIR_COLOR
 };
 
-using ColorScheme = std::map<RenderColor, Color4f>;
+using RenderColors = std::map<RenderColor, Color4f>;
+
+struct ColorScheme {
+  RenderColors colors;
+  double edge_brightness = 0.75;  // Show Edges: 0 black, 0.5 the face's color, 1 white
+};
 
 class RenderColorScheme
 {

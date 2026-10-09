@@ -8,6 +8,7 @@
 
 #include <QColor>
 #include <QColorDialog>
+#include <QDoubleSpinBox>
 #include <QFont>
 #include <QGridLayout>
 #include <QIcon>
@@ -16,6 +17,7 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QRectF>
+#include <QSignalBlocker>
 #include <QSize>
 #include <QSizePolicy>
 #include <QToolButton>
@@ -81,6 +83,21 @@ ColorSchemeEditor::ColorSchemeEditor(QWidget *parent) : QWidget(parent)
   addRow(_("Faces"), {RenderColor::CGAL_FACE_FRONT_COLOR, RenderColor::OPENCSG_FACE_FRONT_COLOR});
   addRow(_("Cut faces"), {RenderColor::CGAL_FACE_BACK_COLOR, RenderColor::OPENCSG_FACE_BACK_COLOR},
          _("The faces left where difference() cuts parts away."));
+  const QString edgeTip = _("How Show Edges shades each edge from its face's color: 0 is black, "
+                            "0.5 the face's color and 1 white.");
+  auto *edgeLabel = new QLabel(_("Edge brightness"), this);
+  edgeLabel->setIndent(12);
+  edgeLabel->setToolTip(edgeTip);
+  edgeBrightness_ = new QDoubleSpinBox(this);
+  edgeBrightness_->setRange(0.0, 1.0);
+  edgeBrightness_->setSingleStep(0.05);
+  edgeBrightness_->setDecimals(2);
+  edgeBrightness_->setKeyboardTracking(false);
+  edgeBrightness_->setToolTip(edgeTip);
+  grid_->addWidget(edgeLabel, gridRow_, 0);
+  grid_->addWidget(edgeBrightness_, gridRow_++, 1, 1, 2, Qt::AlignLeft);
+  connect(edgeBrightness_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          &ColorSchemeEditor::setEdgeBrightness);
   addSection(_("2D"));
   addRow(_("Faces"), {RenderColor::CGAL_FACE_2D_COLOR});
   addRow(_("Outlines"), {RenderColor::CGAL_EDGE_2D_COLOR});
@@ -128,18 +145,21 @@ void ColorSchemeEditor::addRow(const QString& title, std::vector<RenderColor> co
 void ColorSchemeEditor::setScheme(const QString& name)
 {
   name_ = name;
-  const ColorScheme *colors = ColorMap::inst()->findColorScheme(name.toStdString());
-  colors_ = colors ? *colors : ColorScheme{};
+  const ColorScheme *scheme = ColorMap::inst()->findColorScheme(name.toStdString());
+  scheme_ = scheme ? *scheme : ColorScheme{};
   const bool editable = ColorMap::inst()->isUserColorScheme(name.toStdString());
-  readOnlyNote_->setVisible(colors && !editable);
+  readOnlyNote_->setVisible(scheme && !editable);
   for (const auto& row : rows_) row.swatch->setEnabled(editable);
+  edgeBrightness_->setReadOnly(!editable);
+  const QSignalBlocker blocker(edgeBrightness_);
+  edgeBrightness_->setValue(scheme_.edge_brightness);
   showColors();
 }
 
 void ColorSchemeEditor::showColors()
 {
   for (const auto& row : rows_) {
-    const QColor color = toQColor(ColorMap::getColor(colors_, row.colors.front()));
+    const QColor color = toQColor(ColorMap::getColor(scheme_, row.colors.front()));
     row.swatch->setIcon(swatchIcon(color, devicePixelRatioF()));
     row.hex->setText(color.name());
   }
@@ -147,26 +167,40 @@ void ColorSchemeEditor::showColors()
 
 void ColorSchemeEditor::pick(const Row& row)
 {
-  const QColor current = toQColor(ColorMap::getColor(colors_, row.colors.front()));
+  const QColor current = toQColor(ColorMap::getColor(scheme_, row.colors.front()));
   const QColor picked = QColorDialog::getColor(current, this, row.title);
   if (!picked.isValid() || picked == current) return;
 
   const Color4f color(picked.red(), picked.green(), picked.blue());
-  ColorScheme colors = colors_;
+  ColorScheme scheme = scheme_;
   // A solid background stays solid.
   if (row.colors.front() == RenderColor::BACKGROUND_COLOR &&
-      ColorMap::getColor(colors_, RenderColor::BACKGROUND_STOP_COLOR) ==
-        ColorMap::getColor(colors_, RenderColor::BACKGROUND_COLOR)) {
-    colors[RenderColor::BACKGROUND_STOP_COLOR] = color;
+      ColorMap::getColor(scheme_, RenderColor::BACKGROUND_STOP_COLOR) ==
+        ColorMap::getColor(scheme_, RenderColor::BACKGROUND_COLOR)) {
+    scheme.colors[RenderColor::BACKGROUND_STOP_COLOR] = color;
   }
-  for (const auto rc : row.colors) colors[rc] = color;
+  for (const auto rc : row.colors) scheme.colors[rc] = color;
+  if (save(std::move(scheme))) showColors();
+}
 
-  const std::string name = name_.toStdString();
-  if (const auto error = ColorMap::inst()->saveUserColorScheme(name, name, colors); !error.empty()) {
-    QMessageBox::critical(this, _("Color scheme"), QString::fromStdString(error), QMessageBox::Ok);
-    return;
+void ColorSchemeEditor::setEdgeBrightness(double value)
+{
+  ColorScheme scheme = scheme_;
+  scheme.edge_brightness = value;
+  if (!save(std::move(scheme))) {
+    const QSignalBlocker blocker(edgeBrightness_);
+    edgeBrightness_->setValue(scheme_.edge_brightness);
   }
-  colors_ = std::move(colors);
-  showColors();
+}
+
+bool ColorSchemeEditor::save(ColorScheme scheme)
+{
+  const std::string name = name_.toStdString();
+  if (const auto error = ColorMap::inst()->saveUserColorScheme(name, name, scheme); !error.empty()) {
+    QMessageBox::critical(this, _("Color scheme"), QString::fromStdString(error), QMessageBox::Ok);
+    return false;
+  }
+  scheme_ = std::move(scheme);
   emit schemeEdited(name_);
+  return true;
 }
