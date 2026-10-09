@@ -67,6 +67,14 @@ public:
   }
   [[nodiscard]] bool hasAlpha() const { return color_[3] >= 0.0f; }
 
+  // This color's set components, with the unset ones taken from base.
+  [[nodiscard]] Color4f filledFrom(Color4f base) const
+  {
+    if (hasRgb()) base.setRgb(r(), g(), b());
+    if (hasAlpha()) base.setAlpha(a());
+    return base;
+  }
+
   void setRgba(int r, int g, int b, int a = 255)
   {
     color_ << static_cast<float>(r) / 255.0f, static_cast<float>(g) / 255.0f,

@@ -155,34 +155,36 @@ std::shared_ptr<PolySet> ManifoldGeometry::toPolySet(const ColorScheme& colorSch
   std::map<Color4f, int32_t> colorToIndex;
   std::map<uint32_t, int32_t> originalIDToColorIndex;
 
+  const auto frontColor = ColorMap::getColor(colorScheme, RenderColor::CGAL_FACE_FRONT_COLOR);
+  const auto backColor = ColorMap::getColor(colorScheme, RenderColor::CGAL_FACE_BACK_COLOR);
+
   auto getFaceFrontColorIndex = [&]() -> int {
     if (faceFrontColorIndex < 0) {
       faceFrontColorIndex = ps->colors.size();
-      ps->colors.push_back(ColorMap::getColor(colorScheme, RenderColor::CGAL_FACE_FRONT_COLOR));
+      ps->colors.push_back(frontColor);
     }
     return faceFrontColorIndex;
   };
   auto getFaceBackColorIndex = [&]() -> int {
     if (faceBackColorIndex < 0) {
       faceBackColorIndex = ps->colors.size();
-      ps->colors.push_back(ColorMap::getColor(colorScheme, RenderColor::CGAL_FACE_BACK_COLOR));
+      ps->colors.push_back(backColor);
     }
     return faceBackColorIndex;
   };
 
   auto getColorIndex = [&](uint32_t originalID) -> int32_t {
-    if (subtractedIDs_.find(originalID) != subtractedIDs_.end()) {
-      return getFaceBackColorIndex();
-    }
     auto colorIndexIt = originalIDToColorIndex.find(originalID);
     if (colorIndexIt != originalIDToColorIndex.end()) {
       return colorIndexIt->second;
     }
+    const bool subtracted = subtractedIDs_.find(originalID) != subtractedIDs_.end();
     auto colorIt = originalIDToColor_.find(originalID);
     if (colorIt == originalIDToColor_.end()) {
-      return getFaceFrontColorIndex();
+      return subtracted ? getFaceBackColorIndex() : getFaceFrontColorIndex();
     }
-    const auto& color = colorIt->second;
+    // A color that sets only alpha keeps the face's front or cut-face color.
+    const auto color = colorIt->second.filledFrom(subtracted ? backColor : frontColor);
 
     auto pair = colorToIndex.insert({color, ps->colors.size()});
     if (pair.second) {
@@ -374,6 +376,14 @@ void ManifoldGeometry::transform(const Transform3d& mat)
 
 void ManifoldGeometry::setColor(const Color4f& c)
 {
+  if (!c.isValid()) {
+    // Each part keeps its own color for the components c leaves unset.
+    for (const auto id : originalIDs_) {
+      auto& color = originalIDToColor_[id];
+      color = c.filledFrom(color);
+    }
+    return;
+  }
   if (manifold_.OriginalID() == -1) {
     manifold_ = manifold_.AsOriginal();
   }

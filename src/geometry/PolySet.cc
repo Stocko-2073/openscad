@@ -113,8 +113,18 @@ void PolySet::transform(const Transform3d& mat)
 
 void PolySet::setColor(const Color4f& c)
 {
-  colors = {c};
-  color_indices.assign(indices.size(), 0);
+  if (c.isValid() || color_indices.empty()) {
+    colors = {c};
+    color_indices.assign(indices.size(), 0);
+    return;
+  }
+  for (auto& color : colors) color = c.filledFrom(color);
+  const auto uncolored = [](int32_t index) { return index < 0; };
+  if (std::any_of(color_indices.begin(), color_indices.end(), uncolored)) {
+    std::replace_if(color_indices.begin(), color_indices.end(), uncolored,
+                    static_cast<int32_t>(colors.size()));
+    colors.push_back(c);
+  }
 }
 
 bool PolySet::hasTranslucentFaces() const

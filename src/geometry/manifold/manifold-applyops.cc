@@ -60,7 +60,9 @@ std::shared_ptr<ManifoldGeometry> applyOperator3DManifold(const Geometry::Geomet
       if (item.first) item.first->progress_report();
     }
     if (pts.empty()) return nullptr;
-    return std::make_shared<ManifoldGeometry>(manifold::Manifold::Hull(pts));
+    auto hull = std::make_shared<ManifoldGeometry>(manifold::Manifold::Hull(pts));
+    hull->toOriginal();
+    return hull;
   }
 
   std::shared_ptr<ManifoldGeometry> geom;
