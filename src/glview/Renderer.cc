@@ -138,16 +138,14 @@ bool Renderer::getShaderColor(Renderer::ColorMode colormode, const Color4f& obje
 {
   // If an object was colored, use any set components from that color, except in pure highlight mode
   if ((colormode == ColorMode::BACKGROUND || colormode != ColorMode::HIGHLIGHT)) {
-    if (object_color.hasRgb()) outcolor.setRgb(object_color.r(), object_color.g(), object_color.b());
-    if (object_color.hasAlpha()) outcolor.setAlpha(object_color.a());
+    outcolor = object_color.filledFrom(outcolor);
     if (outcolor.isValid()) return true;
   }
 
   // Fill in missing components with the color from the colorscheme
   Color4f basecol;
   if (Renderer::getColorSchemeColor(colormode, basecol)) {
-    if (!outcolor.hasRgb()) outcolor.setRgb(basecol.r(), basecol.g(), basecol.b());
-    if (!outcolor.hasAlpha()) outcolor.setAlpha(basecol.a());
+    outcolor = outcolor.filledFrom(basecol);
     return true;
   }
 

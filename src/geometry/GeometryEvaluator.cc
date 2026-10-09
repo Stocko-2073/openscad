@@ -619,7 +619,7 @@ Response GeometryEvaluator::visit(State& state, const ColorNode& node)
     if (!isSmartCached(node)) {
       // First union all children
       ResultObject res = applyToChildren(node, OpenSCADOperator::UNION);
-      if ((geom = res.constptr()) && (node.color.hasRgb() || node.color.hasAlpha())) {
+      if ((geom = res.constptr()) && !node.color.isUnset()) {
         auto mutableGeom = res.asMutableGeometry();
         if (mutableGeom) mutableGeom->setColor(node.color);
         geom = mutableGeom;

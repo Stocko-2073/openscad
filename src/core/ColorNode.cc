@@ -52,7 +52,7 @@ static std::shared_ptr<AbstractNode> builtin_color(const ModuleInstantiation *in
 {
   auto node = std::make_shared<ColorNode>(inst);
 
-  static const std::vector<Identifier> required{"c", "alpha"};
+  static const std::vector<Identifier> required{"c", "alpha", "saturation"};
   Parameters parameters = Parameters::parse(std::move(arguments), inst->location(), required);
   if (parameters["c"].type() == Value::Type::VECTOR) {
     const auto& vec = parameters["c"].toVector();
@@ -85,14 +85,24 @@ static std::shared_ptr<AbstractNode> builtin_color(const ModuleInstantiation *in
           "color() expects alpha between 0.0 and 1.0. Value of %1$.1f is out of range", node->color.a());
     }
   }
+  if (parameters["saturation"].type() == Value::Type::NUMBER) {
+    const auto saturation = static_cast<float>(parameters["saturation"].toDouble());
+    if (saturation < 0.0f || saturation > 1.0f) {
+      LOG(message_group::Warning, inst->location(), parameters.documentRoot(),
+          "color() expects saturation between 0.0 and 1.0. Value of %1$.1f is out of range", saturation);
+    }
+    node->color.scaleSaturation(saturation);
+  }
 
   return children.instantiate(node);
 }
 
 std::string ColorNode::toString() const
 {
-  return STR("color([", this->color.r(), ", ", this->color.g(), ", ", this->color.b(), ", ",
-             this->color.a(), "])");
+  auto s = STR("color([", this->color.r(), ", ", this->color.g(), ", ", this->color.b(), ", ",
+               this->color.a(), "]");
+  if (this->color.saturation() != 1.0f) s += STR(", saturation = ", this->color.saturation());
+  return s + ")";
 }
 
 bool ColorNode::hashContent(NodeHasher& h) const
@@ -103,6 +113,7 @@ bool ColorNode::hashContent(NodeHasher& h) const
   h.f64(this->color.g());
   h.f64(this->color.b());
   h.f64(this->color.a());
+  h.f64(this->color.saturation());
   return true;
 }
 
@@ -116,7 +127,7 @@ void register_builtin_color()
   Builtins::init("color", new BuiltinModule(builtin_color),
                  {
                    "color(c = [r, g, b, a])",
-                   "color(c = [r, g, b], alpha = 1.0)",
+                   "color(c = [r, g, b], alpha = 1.0, saturation = 1.0)",
                    "color(\"#hexvalue\")",
                    "color(\"colorname\", 1.0)",
                  });

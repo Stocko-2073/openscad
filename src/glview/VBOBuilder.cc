@@ -47,10 +47,7 @@ Color4f polygonColor(const PolySet& ps, size_t i, const Color4f& default_color, 
   if (force_default_color || i >= ps.color_indices.size()) return default_color;
   const int32_t index = ps.color_indices[i];
   if (index < 0 || static_cast<size_t>(index) >= ps.colors.size()) return default_color;
-  Color4f color = ps.colors[index];
-  if (!color.hasRgb()) color.setRgb(default_color.r(), default_color.g(), default_color.b());
-  if (!color.hasAlpha()) color.setAlpha(default_color.a());
-  return color;
+  return ps.colors[index].filledFrom(default_color);
 }
 
 bool passes(FaceFilter filter, const Color4f& color)

@@ -66,22 +66,46 @@ public:
     return color_[0] >= 0.0f && color_[1] >= 0.0f && color_[2] >= 0.0f;
   }
   [[nodiscard]] bool hasAlpha() const { return color_[3] >= 0.0f; }
+  [[nodiscard]] bool isUnset() const { return !hasRgb() && !hasAlpha() && saturation_ == 1.0f; }
 
-  // This color's set components, with the unset ones taken from base.
+  // This color's set components, with the unset ones taken from base. Without RGB, base's RGB takes
+  // the saturation this color holds.
   [[nodiscard]] Color4f filledFrom(Color4f base) const
   {
     if (hasRgb()) base.setRgb(r(), g(), b());
+    else base.scaleSaturation(saturation_);
     if (hasAlpha()) base.setAlpha(a());
     return base;
+  }
+
+  // Moves RGB toward the gray of the same luma: 0 is that gray, 1 leaves it. Without RGB, the color
+  // holds the factor for whatever RGB fills it in.
+  void scaleSaturation(float s)
+  {
+    if (!hasRgb()) {
+      saturation_ *= s;
+      return;
+    }
+    const float luma = 0.2126f * r() + 0.7152f * g() + 0.0722f * b();
+    for (int i = 0; i < 3; ++i) color_[i] = std::clamp(luma + s * (color_[i] - luma), 0.0f, 1.0f);
   }
 
   void setRgba(int r, int g, int b, int a = 255)
   {
     color_ << static_cast<float>(r) / 255.0f, static_cast<float>(g) / 255.0f,
       static_cast<float>(b) / 255.0f, static_cast<float>(a) / 255.0f;
+    saturation_ = 1.0f;
   }
-  void setRgba(float r, float g, float b, float a = 1.0f) { color_ << r, g, b, a; }
-  void setRgb(float r, float g, float b) { color_.head<3>() << r, g, b; }
+  void setRgba(float r, float g, float b, float a = 1.0f)
+  {
+    color_ << r, g, b, a;
+    saturation_ = 1.0f;
+  }
+  void setRgb(float r, float g, float b)
+  {
+    color_.head<3>() << r, g, b;
+    saturation_ = 1.0f;
+  }
   void setAlpha(float a) { color_[3] = a; }
 
   bool getRgba(int& r, int& g, int& b, int& a) const
@@ -120,6 +144,7 @@ public:
   [[nodiscard]] float g() const { return color_[1]; }
   [[nodiscard]] float b() const { return color_[2]; }
   [[nodiscard]] float a() const { return color_[3]; }
+  [[nodiscard]] float saturation() const { return saturation_; }
 
   [[nodiscard]] bool operator<(const Color4f& b) const
   {
@@ -127,10 +152,13 @@ public:
       if (color_[i] < b.color_[i]) return true;
       if (color_[i] > b.color_[i]) return false;
     }
-    return false;
+    return saturation_ < b.saturation_;
   }
 
-  [[nodiscard]] bool operator==(const Color4f& b) const { return color_ == b.color_; }
+  [[nodiscard]] bool operator==(const Color4f& b) const
+  {
+    return color_ == b.color_ && saturation_ == b.saturation_;
+  }
 
   [[nodiscard]] bool operator!=(const Color4f& b) const { return !(*this == b); }
 
@@ -144,6 +172,7 @@ public:
     hash = std::hash<float>{}(g()) ^ (hash << 1);
     hash = std::hash<float>{}(b()) ^ (hash << 1);
     hash = std::hash<float>{}(a()) ^ (hash << 1);
+    hash = std::hash<float>{}(saturation_) ^ (hash << 1);
     return hash;
   }
 
@@ -152,6 +181,8 @@ private:
   // Use Eigen::DontAlign so we can store Color4f in STL containers
   // https://eigen.tuxfamily.org/dox/group__DenseMatrixManipulation__Alignement.html
   Eigen::Matrix<float, 4, 1, Eigen::DontAlign> color_;
+  // Only differs from 1 while RGB is unset; scaleSaturation() applies it to set RGB at once.
+  float saturation_ = 1.0f;
 };
 
 template <>
