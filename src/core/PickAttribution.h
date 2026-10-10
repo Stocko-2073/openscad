@@ -3,6 +3,7 @@
 // The right-click picker: names the primitives whose faces make the rendered surface where the
 // clicked pixel's ray meets it. A face cut by difference() belongs to the primitive that cut it.
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -39,6 +40,29 @@ struct Leaf {
   // Cuts material away rather than adding it: it is subtracted by an odd number of difference()s.
   // (a - (b - c) = a - b + a∩c, so c adds material again.)
   bool subtracted = false;
+  int solid = -1;  // into LeafTree::solids
+};
+
+// A node of the collected subtree, as far as where it has a surface goes.
+struct Solid {
+  enum class Op : std::uint8_t {
+    Union,  // also groups, transforms, color() and the like
+    Intersection,
+    Difference,  // the first operand less the others
+    List,        // a lazy union's top level, drawn as it is
+    Leaf,
+    Unknown,  // a leaf the picker has no geometry for
+  };
+  Op op = Op::Union;
+  int parent = -1;            // into the solids; none for the node collected
+  std::vector<int> operands;  // into the solids
+  int leaf = -1;              // into the leaves, for a Leaf
+  BoundingBox bbox;           // world space
+};
+
+struct LeafTree {
+  std::vector<Leaf> leaves;
+  std::vector<Solid> solids;
 };
 
 struct SurfaceHit {
@@ -60,11 +84,12 @@ Vector3d closestPointOnTriangle(const Vector3d& p, const Vector3d& a, const Vect
 // The isWhole() nodes' geometry by digest; null for one without geometry.
 using WholeGeometry = std::unordered_map<Hash128, std::shared_ptr<const Geometry>, Hash128Hash>;
 
-// The 3D primitives that make up `node`; `matrix` places node's parent. `%` subtrees below `node`
-// are left out; its own modifier is ignored. Logs nothing and never throws on hard warnings.
-// Unless `evaluateWhole`, isWhole() nodes come only from `held` or the geometry cache.
-std::vector<Leaf> collectLeaves(const Tree& tree, const AbstractNode& node, const Transform3d& matrix,
-                                bool evaluateWhole = false, const WholeGeometry *held = nullptr);
+// The 3D primitives that make up `node`, and how its subtree combines them; `matrix` places node's
+// parent. `%` subtrees below `node` are left out; its own modifier is ignored. Logs nothing and
+// never throws on hard warnings. Unless `evaluateWhole`, isWhole() nodes come only from `held` or
+// the geometry cache.
+LeafTree collectLeaves(const Tree& tree, const AbstractNode& node, const Transform3d& matrix,
+                       bool evaluateWhole = false, const WholeGeometry *held = nullptr);
 
 // The isWhole() nodes' geometry below `root`, `%` subtrees included, for the picker to hold while
 // it shows root's geometry and overlays: the cache drops what renders do not use, and a render that
@@ -90,8 +115,9 @@ std::vector<Crossing> crossings(const std::vector<PlacedMesh>& surface,
                                 const std::vector<PlacedMesh>& overlays, const Ray& ray);
 
 // Node indices of the leaves whose faces make `surface` at `hit`, best first: those adding material
-// before those cutting it away, then in source order.
-std::vector<int> attribute(const std::vector<PlacedMesh>& surface, const std::vector<Leaf>& leaves,
+// before those cutting it away, then in source order. A leaf's face counts only where the nodes
+// above it keep it on their surface, so not where an intersection() clips the leaf away.
+std::vector<int> attribute(const std::vector<PlacedMesh>& surface, const LeafTree& leaves,
                            const SurfaceHit& hit);
 
 }  // namespace pick

@@ -445,9 +445,9 @@ private:
   void linkPickerAction(QAction *action, const AbstractNode& step);
 
   // Picker attribution, built on first use; dropped with the tree or rootGeom it came from.
-  std::optional<std::vector<pick::Leaf>> pickRootLeaves;
+  std::optional<pick::LeafTree> pickRootLeaves;
   std::optional<std::vector<pick::PlacedMesh>> pickRootSurface;
-  std::unordered_map<int, std::vector<pick::Leaf>> pickOverlayLeaves;  // by the overlay's node
+  std::unordered_map<int, pick::LeafTree> pickOverlayLeaves;  // by the overlay's node
   // The # and % overlays the view draws over rootGeom, from the same render.
   std::vector<overlay::Mesh> pickOverlays;
   // The geometry of the hull() and other nodes the picker names whole, held for the result on

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -11,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "Feature.h"
 #include "core/CgalAdvNode.h"
 #include "core/CsgOpNode.h"
 #include "core/ModuleInstantiation.h"
@@ -151,20 +154,151 @@ std::pair<Tolerance, Tolerance> tolerances(const Vector3d& point, const Bounding
 }
 
 struct Match {
-  int index;
+  const Leaf *leaf;
   bool parallel;     // has a face through the point, parallel to the hit face
   bool material;     // that face points the way the surface does (it adds material there)
   double alignment;  // best |cos| between a face through the point and the hit face
 };
 
-std::vector<Match> matchesAt(const std::vector<Leaf>& leaves, const SurfaceHit& hit,
-                             const Tolerance& tolerance)
+enum class Where : std::uint8_t { Outside, On, Inside, Unknown };
+
+Where flip(Where where)
+{
+  if (where == Where::Inside) return Where::Outside;
+  if (where == Where::Outside) return Where::Inside;
+  return where;
+}
+
+// Van Oosterom and Strackee: the solid angle triangle abc subtends at the origin, signed by its
+// winding, given the corners' distances from the origin.
+double solidAngle(const double *a, const double *b, const double *c, double la, double lb, double lc)
+{
+  const double det = a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) +
+                     a[2] * (b[0] * c[1] - b[1] * c[0]);
+  const double ab = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const double ac = a[0] * c[0] + a[1] * c[1] + a[2] * c[2];
+  const double bc = b[0] * c[0] + b[1] * c[1] + b[2] * c[2];
+  return 2 * std::atan2(det, la * lb * lc + ab * lc + ac * lb + bc * la);
+}
+
+// Where a point is against the solids of a LeafTree.
+class Classifier
+{
+public:
+  Classifier(const LeafTree& tree, const Vector3d& point, double tolerance)
+    : tree(tree),
+      point(point),
+      tolerance(tolerance),
+      probe(point - Vector3d::Constant(tolerance), point + Vector3d::Constant(tolerance))
+  {
+  }
+
+  // Whether a face of `leaf` through the point is on the surface of the subtree collected, as
+  // every node above the leaf still has a surface there.
+  bool surfaces(const Leaf& leaf)
+  {
+    Where where = Where::On;
+    for (int below = leaf.solid, i = this->tree.solids[below].parent; i >= 0;
+         below = i, i = this->tree.solids[i].parent) {
+      const Solid& solid = this->tree.solids[i];
+      where = combine(solid, below, where);
+      if (solid.op != Solid::Op::List && (where == Where::Inside || where == Where::Outside)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+private:
+  Where of(int index)
+  {
+    const Solid& solid = this->tree.solids[index];
+    if (!solid.bbox.intersects(this->probe)) return Where::Outside;
+    if (solid.op == Solid::Op::Leaf) return of(this->tree.leaves[solid.leaf]);
+    if (solid.op == Solid::Op::Unknown) return Where::Unknown;
+    return combine(solid, -1, Where::Unknown);
+  }
+
+  // Where the point is against `solid`, given where it is against its operand `known`. A union is
+  // outside where all its operands are, an intersection inside where all are, and a difference is
+  // its first operand intersected with the others turned inside out.
+  Where combine(const Solid& solid, int known, Where knownWhere)
+  {
+    if (solid.operands.empty()) return Where::Outside;
+    const bool isUnion = solid.op == Solid::Op::Union || solid.op == Solid::Op::List;
+    bool on = false, unknown = false;
+    for (size_t i = 0; i < solid.operands.size(); ++i) {
+      Where where = solid.operands[i] == known ? knownWhere : of(solid.operands[i]);
+      if (isUnion || (solid.op == Solid::Op::Difference && i > 0)) where = flip(where);
+      if (where == Where::Outside) return isUnion ? Where::Inside : Where::Outside;
+      on = on || where == Where::On;
+      unknown = unknown || where == Where::Unknown;
+    }
+    if (unknown) return Where::Unknown;
+    if (on) return Where::On;
+    return isUnion ? Where::Outside : Where::Inside;
+  }
+
+  // By the winding number, ±1 inside a closed mesh whichever way its faces turn. An affine map
+  // keeps it, so it is counted in the mesh's own frame, placing only the faces near the point.
+  Where of(const Leaf& leaf)
+  {
+    if (const auto it = this->classified.find(&leaf); it != this->classified.end()) return it->second;
+    const Transform3d& matrix = leaf.mesh.matrix;
+    // Squashed flat: no inside, and no faces in any result.
+    if (!(std::abs(matrix.linear().determinant()) > 0)) {
+      return this->classified[&leaf] = Where::Outside;
+    }
+    const Transform3d inverse = matrix.inverse();
+    const Vector3d local = inverse * this->point;
+    BoundingBox near;
+    for (int corner = 0; corner < 8; ++corner) {
+      near.extend(inverse * this->probe.corner(static_cast<BoundingBox::CornerType>(corner)));
+    }
+
+    const auto& vertices = leaf.mesh.polyset->vertices;
+    std::vector<double> offsets(3 * vertices.size()), lengths(vertices.size());
+    for (size_t i = 0; i < vertices.size(); ++i) {
+      double *offset = &offsets[3 * i];
+      for (int k = 0; k < 3; ++k) offset[k] = vertices[i][k] - local[k];
+      lengths[i] = std::sqrt(offset[0] * offset[0] + offset[1] * offset[1] + offset[2] * offset[2]);
+    }
+    double angle = 0;
+    bool on = false;
+    forEachTriangle(*leaf.mesh.polyset, [&](int i, int j, int k) {
+      if (on) return;
+      if (!outsideBox(vertices[i].data(), vertices[j].data(), vertices[k].data(), near.min().data(),
+                      near.max().data())) {
+        const Vector3d a = matrix * vertices[i], b = matrix * vertices[j], c = matrix * vertices[k];
+        const Vector3d ab = b - a, ac = c - a;
+        if (ab.cross(ac).norm() > kDegenerate * ab.norm() * ac.norm() &&
+            (closestPointOnTriangle(this->point, a, b, c) - this->point).norm() <= this->tolerance) {
+          on = true;
+          return;
+        }
+      }
+      angle += solidAngle(&offsets[3 * i], &offsets[3 * j], &offsets[3 * k], lengths[i], lengths[j],
+                          lengths[k]);
+    });
+    Where where = Where::On;
+    if (!on) where = std::abs(angle) > 2 * M_PI ? Where::Inside : Where::Outside;
+    return this->classified[&leaf] = where;
+  }
+
+  const LeafTree& tree;
+  const Vector3d point;
+  const double tolerance;
+  const BoundingBox probe;  // around the point, by the tolerance
+  std::unordered_map<const Leaf *, Where> classified;
+};
+
+std::vector<Match> matchesAt(const LeafTree& tree, const SurfaceHit& hit, const Tolerance& tolerance)
 {
   const Vector3d pad = Vector3d::Constant(tolerance.distance);
   const Vector3d lo = hit.point - pad, hi = hit.point + pad;
   const BoundingBox probe(lo, hi);
   std::vector<Match> matches;
-  for (const auto& leaf : leaves) {
+  for (const auto& leaf : tree.leaves) {
     if (!leaf.bbox.intersects(probe)) continue;
     bool near = false, parallel = false, material = false;
     double alignment = 0, nearestParallel = std::numeric_limits<double>::infinity();
@@ -187,8 +321,15 @@ std::vector<Match> matchesAt(const std::vector<Leaf>& leaves, const SurfaceHit& 
         material = cosine > 0;
       }
     });
-    if (near) matches.push_back({leaf.index, parallel, material, alignment});
+    if (near) matches.push_back({&leaf, parallel, material, alignment});
   }
+
+  Classifier classifier(tree, hit.point, tolerance.distance);
+  std::vector<Match> kept;
+  std::copy_if(matches.begin(), matches.end(), std::back_inserter(kept),
+               [&](const Match& m) { return classifier.surfaces(*m.leaf); });
+  // None kept means the classifying erred, as on a mesh that isn't closed.
+  if (!kept.empty()) matches = std::move(kept);
 
   // A face parallel to the hit face beats one that only touches it at an edge.
   const bool anyParallel =
@@ -200,12 +341,12 @@ std::vector<Match> matchesAt(const std::vector<Leaf>& leaves, const SurfaceHit& 
     // Where a face is both added and cut away, the one that adds it made the surface.
     std::stable_sort(matches.begin(), matches.end(), [](const Match& x, const Match& y) {
       if (x.material != y.material) return x.material;
-      return x.index < y.index;
+      return x.leaf->index < y.leaf->index;
     });
   } else {
     std::stable_sort(matches.begin(), matches.end(), [](const Match& x, const Match& y) {
       if (x.alignment != y.alignment) return x.alignment > y.alignment;
-      return x.index < y.index;
+      return x.leaf->index < y.leaf->index;
     });
   }
   return matches;
@@ -273,7 +414,7 @@ public:
   Response visit(State& state, const PhysicsNode& node) override { return addLeaf(state, node, true); }
 #endif
 
-  std::vector<Leaf> leaves;
+  LeafTree collected;
 
 private:
   // The start node's own modifier is ignored, so a `%render()` can still be looked into.
@@ -304,15 +445,43 @@ private:
     return it == this->held->end() ? nullptr : &it->second;
   }
 
+  [[nodiscard]] Solid::Op opOf(const AbstractNode& node) const
+  {
+    if (const auto *op = dynamic_cast<const CsgOpNode *>(&node)) {
+      if (op->type == OpenSCADOperator::INTERSECTION) return Solid::Op::Intersection;
+      if (op->type == OpenSCADOperator::DIFFERENCE) return Solid::Op::Difference;
+    }
+    if (dynamic_cast<const AbstractIntersectionNode *>(&node)) return Solid::Op::Intersection;
+    // GeometryEvaluator leaves these as a list.
+    if (&node == &this->start && dynamic_cast<const ListNode *>(&node)) return Solid::Op::List;
+    if (dynamic_cast<const RootNode *>(&node) && Feature::ExperimentalLazyUnion.is_enabled()) {
+      return Solid::Op::List;
+    }
+    return Solid::Op::Union;
+  }
+
   void enter(const State& state, const AbstractNode& node)
   {
+    const auto parent = state.parent();
     bool subtracted = this->cutters.count(&node) > 0;
-    if (const auto parent = state.parent()) {
+    if (parent) {
       if (const auto it = this->subtracted.find(parent.get()); it != this->subtracted.end()) {
         subtracted = subtracted != it->second;
       }
     }
     this->subtracted[&node] = subtracted;
+
+    auto& solids = this->collected.solids;
+    const int parentSolid = parent ? this->solidOf.at(parent.get()) : -1;
+    // Its children are operands of its parent, as in GeometryEvaluator.
+    if (&node != &this->start && dynamic_cast<const ListNode *>(&node)) {
+      this->solidOf[&node] = parentSolid;
+      return;
+    }
+    const int index = static_cast<int>(solids.size());
+    solids.push_back({opOf(node), parentSolid});
+    if (parentSolid >= 0) solids[parentSolid].operands.push_back(index);
+    this->solidOf[&node] = index;
   }
 
   Response addLeaf(const State& state, const AbstractNode& node, bool whole)
@@ -320,6 +489,7 @@ private:
     if (!state.isPrefix()) return Response::ContinueTraversal;
     if (isBackground(node)) return Response::PruneTraversal;
     enter(state, node);
+    Solid& solid = this->collected.solids[this->solidOf[&node]];
     std::shared_ptr<const PolySet> ps;
     if (!whole || this->evaluateWhole) {
       ps = meshOf(this->evaluator.evaluateGeometry(node, false));
@@ -328,6 +498,11 @@ private:
     } else if (this->evaluator.isSmartCached(node)) {
       // Only a lookup: a right-click must not re-run a hull() or physics() the cache has dropped.
       ps = meshOf(this->evaluator.evaluateGeometry(node, false));
+    } else {
+      solid.op = Solid::Op::Unknown;
+      // Anywhere, for all the picker knows.
+      solid.bbox = BoundingBox(Vector3d::Constant(-std::numeric_limits<double>::infinity()),
+                               Vector3d::Constant(std::numeric_limits<double>::infinity()));
     }
     if (ps && !ps->isEmpty()) {
       Leaf leaf;
@@ -335,7 +510,11 @@ private:
       leaf.mesh = {drawable(ps), state.matrix()};
       leaf.bbox = worldBox(leaf.mesh);
       leaf.subtracted = this->subtracted[&node];
-      this->leaves.push_back(std::move(leaf));
+      leaf.solid = this->solidOf[&node];
+      solid.op = Solid::Op::Leaf;
+      solid.leaf = static_cast<int>(this->collected.leaves.size());
+      solid.bbox = leaf.bbox;
+      this->collected.leaves.push_back(std::move(leaf));
     }
     return Response::PruneTraversal;
   }
@@ -347,6 +526,8 @@ private:
   const WholeGeometry *held;
   std::unordered_set<const AbstractNode *> cutters;  // operands after the first of a difference()
   std::unordered_map<const AbstractNode *, bool> subtracted;
+  // The solid each node's children are operands of.
+  std::unordered_map<const AbstractNode *, int> solidOf;
 };
 
 // The nodes below `root` that LeafCollector takes whole, by the same rules, `%` subtrees included,
@@ -448,15 +629,20 @@ Vector3d closestPointOnTriangle(const Vector3d& p, const Vector3d& a, const Vect
   return a + ab * (vb * denom) + ac * (vc * denom);
 }
 
-std::vector<Leaf> collectLeaves(const Tree& tree, const AbstractNode& node, const Transform3d& matrix,
-                                bool evaluateWhole, const WholeGeometry *held)
+LeafTree collectLeaves(const Tree& tree, const AbstractNode& node, const Transform3d& matrix,
+                       bool evaluateWhole, const WholeGeometry *held)
 {
   const PrintSuppressGuard quiet;
   LeafCollector collector(tree, node, evaluateWhole, held);
   State state(nullptr);
   state.setMatrix(matrix);
   collector.traverse(node, state);
-  return std::move(collector.leaves);
+  // A node's result lies within what its operands' do, and each solid comes after its parent.
+  auto& solids = collector.collected.solids;
+  for (size_t i = solids.size(); i-- > 0;) {
+    if (solids[i].parent >= 0) solids[solids[i].parent].bbox.extend(solids[i].bbox);
+  }
+  return std::move(collector.collected);
 }
 
 WholeGeometry holdWholeGeometry(GeometryEvaluator& evaluator, const AbstractNode& root,
@@ -556,7 +742,7 @@ std::vector<Crossing> crossings(const std::vector<PlacedMesh>& surface,
   return all;
 }
 
-std::vector<int> attribute(const std::vector<PlacedMesh>& surface, const std::vector<Leaf>& leaves,
+std::vector<int> attribute(const std::vector<PlacedMesh>& surface, const LeafTree& leaves,
                            const SurfaceHit& hit)
 {
   BoundingBox box;
@@ -568,7 +754,7 @@ std::vector<int> attribute(const std::vector<PlacedMesh>& surface, const std::ve
 
   std::vector<int> indices;
   indices.reserve(matches.size());
-  for (const auto& match : matches) indices.push_back(match.index);
+  for (const auto& match : matches) indices.push_back(match.leaf->index);
   return indices;
 }
 

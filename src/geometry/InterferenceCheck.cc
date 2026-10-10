@@ -102,7 +102,8 @@ private:
     if (it == leavesByPart_.end()) {
       // Parts are direct children of the root, so the identity is the world frame.
       it = leavesByPart_
-             .emplace(part.number, pick::collectLeaves(tree_, *part.node, Transform3d::Identity(), true))
+             .emplace(part.number,
+                      pick::collectLeaves(tree_, *part.node, Transform3d::Identity(), true).leaves)
              .first;
     }
     return it->second;

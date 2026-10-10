@@ -2247,7 +2247,7 @@ std::vector<int> MainWindow::pickPrimitives(const QGLView::PickResult& picked)
     }
     if (!this->pickRootSurface) return {};
 
-    const auto overlayLeaves = [this](const overlay::Mesh& mesh) -> const std::vector<pick::Leaf>& {
+    const auto overlayLeaves = [this](const overlay::Mesh& mesh) -> const pick::LeafTree& {
       const auto [it, added] = this->pickOverlayLeaves.try_emplace(mesh.index);
       if (added) {
         std::deque<std::shared_ptr<const AbstractNode>> path;
