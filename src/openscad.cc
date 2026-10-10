@@ -66,6 +66,7 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <sstream>
 #include <stdexcept>
@@ -87,6 +88,7 @@
 #include "core/BuiltinContext.h"
 #include "core/Builtins.h"
 #include "core/Context.h"
+#include "core/EvalMemo.h"
 #include "core/EvaluationSession.h"
 #include "core/ModifierOverlays.h"
 #include "core/RenderVariables.h"
@@ -117,6 +119,7 @@
 #include "utils/StackCheck.h"
 #include "utils/exceptions.h"
 #include "utils/printutils.h"
+#include "utils/scope_guard.hpp"
 
 #ifdef ENABLE_PYTHON
 #include "python/python_public.h"
@@ -185,6 +188,7 @@ struct CommandLine {
   const std::string summaryFile;
   const bool interferenceCheck;
   const std::string interferenceFile;  // "-" means stdout
+  memo::MemoTable *memoTable;          // null: evaluate every module call
 };
 
 namespace {
@@ -419,6 +423,13 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
 
   {
     const RenderStatistic::ScopedPhase phase(renderStatistic, RenderStatistic::PHASE_EVALUATION);
+    // Destroyed before the session, whose values it holds, even when evaluation throws.
+    std::optional<memo::EvalMemoSession> memo;
+    if (cmd.memoTable) {
+      memo.emplace(*cmd.memoTable, *root_file);
+      session.setMemo(&*memo);
+    }
+    const auto detach = sg::make_scope_guard([&session]() noexcept { session.setMemo(nullptr); });
 #ifdef ENABLE_PYTHON
     if (python_result_node != NULL && python_active) {
       absolute_root_node = python_result_node;
@@ -428,7 +439,12 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
 #ifdef ENABLE_PYTHON
     }
 #endif
+    if (memo && memo->stats().userCalls > 0) {
+      renderStatistic.setPhaseNote(RenderStatistic::PHASE_EVALUATION, memo->stats().note());
+    }
   }
+  // Keeps what this evaluation used: of an --animate frame, the calls that don't read $t.
+  if (cmd.memoTable) cmd.memoTable->evict(0);
 
   Camera camera = cmd.camera;
   if (file_context) {
@@ -956,6 +972,10 @@ int openscad_main(int argc, char **argv)
       "=true/false, configure the parameter check for user modules and functions")
     ("check-parameter-ranges", po::value<std::string>(),
       "=true/false, configure the parameter range check for builtin modules")
+    ("reuse-module-results", po::value<std::string>(),
+      "=true/false, reuse what an identical user module call produced earlier in this run: "
+      "repeated calls, later --animate frames and further -o outputs. Default true; off with "
+      "--profile")
     ("debug", po::value<std::string>(),
       "special debug info - specify 'all' or a set of source file names")
     ("profile", "count script-level function calls, module instantiations and loop iterations "
@@ -1076,10 +1096,12 @@ int openscad_main(int argc, char **argv)
   if (vm.count("traceDepth")) {
     OpenSCAD::traceDepth = vm["traceDepth"].as<unsigned int>();
   }
+  bool reuseModuleResults = true;
   std::map<std::string, bool *> flags;
   flags.insert(std::make_pair("trace-usermodule-parameters", &OpenSCAD::traceUsermoduleParameters));
   flags.insert(std::make_pair("check-parameters", &OpenSCAD::parameterCheck));
   flags.insert(std::make_pair("check-parameter-ranges", &OpenSCAD::rangeCheck));
+  flags.insert(std::make_pair("reuse-module-results", &reuseModuleResults));
   for (const auto& flag : flags) {
     std::string name = flag.first;
     if (vm.count(name)) {
@@ -1091,6 +1113,8 @@ int openscad_main(int argc, char **argv)
       }
     }
   }
+  // The profile counts what a full evaluation runs.
+  if (ScriptProfile::enabled) reuseModuleResults = false;
 
   if (vm.count("help")) help(argv[0], desc);
   if (vm.count("help-export")) help_export();
@@ -1226,6 +1250,7 @@ int openscad_main(int argc, char **argv)
       if (arg_info) {
         rc = info();
       } else {
+        memo::MemoTable memoTable;
         for (const auto& filename : output_files) {
           const bool is_stdin = inputFiles[0] == "-";
           const std::string input_file = is_stdin ? "<stdin>" : inputFiles[0];
@@ -1248,7 +1273,8 @@ int openscad_main(int argc, char **argv)
                                                     : std::vector<std::string>{},
                                 vm.count("summary-file") ? vm["summary-file"].as<std::string>() : "",
                                 interferenceCheck,
-                                interferenceFile};
+                                interferenceFile,
+                                reuseModuleResults ? &memoTable : nullptr};
           rc |= cmdline(cmd);
         }
       }

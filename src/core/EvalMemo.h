@@ -108,6 +108,12 @@ struct Stats {
   // Boundaries a fresh evaluation would reach, and how many of them reused calls stood for.
   size_t userCalls = 0;
   size_t userCallsReused = 0;
+
+  [[nodiscard]] std::string note() const
+  {
+    return "reused " + std::to_string(userCallsReused) + " of " + std::to_string(userCalls) +
+           " module calls";
+  }
 };
 
 struct DollarRead {

@@ -1037,9 +1037,7 @@ void MainWindow::instantiateRoot()
       session.setMemo(nullptr);
       const auto& stats = memo->stats();
       if (stats.userCalls > 0) {
-        renderStatistic.setPhaseNote(RenderStatistic::PHASE_EVALUATION,
-                                     "reused " + std::to_string(stats.userCallsReused) + " of " +
-                                       std::to_string(stats.userCalls) + " module calls");
+        renderStatistic.setPhaseNote(RenderStatistic::PHASE_EVALUATION, stats.note());
       }
       this->memoReplaced = memo->takeReplaced();
       this->memoToTrim = memoTable;

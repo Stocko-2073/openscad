@@ -541,6 +541,7 @@ void StreamVisitor::printRenderingTime(const std::chrono::milliseconds ms,
         nlohmann::json phaseJson;
         phaseJson["name"] = phase.name;
         phaseJson["total"] = phase.ms.count();
+        if (!phase.note.empty()) phaseJson["note"] = phase.note;
         phasesJson.push_back(phaseJson);
       }
       timeJson["phases"] = phasesJson;
