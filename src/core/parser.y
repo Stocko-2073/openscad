@@ -84,6 +84,7 @@ static fs::path mainFilePath;
 static bool parsingMainFile;
 
 bool fileEnded=false;
+static size_t commandLineAhead = 0;
 %}
 
 %initial-action
@@ -755,6 +756,21 @@ static void warn_reassignment(const Location& loc, const std::shared_ptr<Assignm
 			path2);
 }
 
+// Whether the names an expression reads include a variable or function of the file's, which it could
+// not see ahead of the file's assignments. The first `ahead` are command-line ones already there.
+static bool readsFileScope(const LocalScope& scope, const memo::ASTHasher& names, size_t ahead)
+{
+	for (const auto& name : names.functions) {
+		if (scope.lookup<UserFunction *>(name)) return true;
+	}
+	for (const auto& name : names.vars) {
+		for (size_t i = ahead; i < scope.assignments.size(); ++i) {
+			if (scope.assignments[i]->getName() == name) return true;
+		}
+	}
+	return false;
+}
+
 void handle_assignment(const std::string token, Expression *expr, const Location loc)
 {
 	bool found = false;
@@ -788,7 +804,25 @@ void handle_assignment(const std::string token, Expression *expr, const Location
 		}
 	}
 	if (!found) {
-		scope_stack.top()->addAssignment(assignment(token, std::shared_ptr<Expression>(expr), loc));
+		auto& scope = *scope_stack.top();
+		auto added = assignment(token, std::shared_ptr<Expression>(expr), loc);
+		if (!fileEnded) {
+			scope.addAssignment(added);
+		} else {
+			memo::ASTHasher names;
+			names.expr(added->getExpr().get());
+			if (!parsingMainFile) {
+				// Besides those replacing its own, a used file takes only command-line assignments that
+				// read no names. The rest name the main file's variables, and would be evaluated against
+				// this file's, once per lookup into it.
+				if (names.vars.empty() && names.functions.empty()) scope.addAssignment(added);
+			} else if (readsFileScope(scope, names, commandLineAhead)) {
+				scope.addAssignment(added);
+			} else {
+				// Pre-defined, so that the file's own assignments see it: travel = $t * 100 under -D '$t=0.5'.
+				scope.assignments.insert(scope.assignments.begin() + commandLineAhead++, added);
+			}
+		}
 	}
 }
 
@@ -815,6 +849,7 @@ bool parse(SourceFile *&file, const std::string& text, const std::string &filena
   parser_error_pos = -1;
   parser_input_buffer = text.c_str();
   fileEnded = false;
+  commandLineAhead = 0;
 
   rootfile = new SourceFile(parser_sourcefile.parent_path().string(), parser_sourcefile.filename().string());
   scope_stack.push(rootfile->scope);
