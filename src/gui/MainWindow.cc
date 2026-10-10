@@ -2128,17 +2128,10 @@ void MainWindow::rightClick(QPoint position)
   if (this->animationFrameShown) return;
 
   const QGLView::PickResult picked = this->qglview->pickObject(position);
-  const std::vector<int> primitives = pickPrimitives(picked);
-  const int index = primitives.empty() ? -1 : primitives.front();
-  std::deque<std::shared_ptr<const AbstractNode>> path;
-  const std::shared_ptr<const AbstractNode> result = this->rootNode->getNodeByID(index, path);
+  QMenu tracemenu(this);
+  addPickerHits(tracemenu, pickPrimitives(picked));
 
-  if (result) {
-    // Create context menu with the backtrace
-    QMenu tracemenu(this);
-    addPickerMenuSteps(tracemenu, path);
-    addPickerAlsoHere(tracemenu, primitives);
-
+  if (!tracemenu.isEmpty()) {
     // Before starting we need to lock the GUI to avoid interferance with reload/update
     // triggered by other part of the application (eg: changing the renderedEditor)
     GuiLocker::lock();
@@ -2157,104 +2150,84 @@ void MainWindow::rightClick(QPoint position)
   }
 }
 
-void MainWindow::addPickerMenuSteps(QMenu& menu,
-                                    const std::deque<std::shared_ptr<const AbstractNode>>& path)
+// One entry per primitive along the ray, opening onto the steps of its path above it.
+void MainWindow::addPickerHits(QMenu& menu, const std::vector<int>& primitives)
 {
-  std::stringstream ss;
-  const bool currentFileOnly = Settings::Settings::pickMenuCurrentFileOnly.value();
-  for (const auto& step : path) {
-    if (step->name() == "root") {
-      continue;
-    }
-    const bool hasSourceRef = step->modinst && !step->modinst->location().isNone();
-    if (currentFileOnly) {
-      if (!hasSourceRef) continue;
-      const auto& fileName = step->modinst->location().fileName();
-      if (!get_library_for_path(step->modinst->location().filePath()).empty()) continue;
-      if (renderedEditor->filepath.toStdString() != fileName) continue;
-    }
-    if (!hasSourceRef) {
-      // Show an entry so the backtrace stays complete; no jump/highlight (no "id", no hover)
-      std::string name;
-      if (step->modinst) {
-        const std::string vname = step->verbose_name();
-        const int first_position = (vname.find("module") == std::string::npos) ? 0 : 7;
-        name = vname.empty() ? step->modinst->name().str() : vname.substr(first_position);
-      } else {
-        const std::string vname = step->verbose_name();
-        const int first_position = (vname.find("module") == std::string::npos) ? 0 : 7;
-        name = vname.empty() ? "?" : vname.substr(first_position);
-      }
-      ss.str("");
-      ss << name << " (no source reference)";
-      menu.addAction(QString::fromStdString(ss.str()));
-      continue;
-    }
-    auto location = step->modinst->location();
-    ss.str("");
-
-    // Drop any "module" prefix: it reads like the declaration, not the instantiation.
-    const int first_position = (step->verbose_name().find("module") == std::string::npos) ? 0 : 7;
-    std::string name = step->verbose_name().substr(first_position);
-
-    if (step->verbose_name().empty()) name = step->modinst->name();
-
-    const fs::path libpath = get_library_for_path(location.filePath());
-    if (!libpath.empty()) {
-      // Display the library (without making the window too wide!)
-      ss << name << " (library " << location.fileName().substr(libpath.string().length() + 1) << ":"
-         << location.firstLine() << ")";
-    } else if (renderedEditor->filepath.toStdString() == location.fileName()) {
-      ss << name << " (" << location.filePath().filename().string() << ":" << location.firstLine()
-         << ")";
-    } else {
-      auto relative_filename =
-        fs_uncomplete(location.filePath(),
-                      fs::path(renderedEditor->filepath.toStdString()).parent_path())
-          .generic_string();
-
-      ss << name << " (" << relative_filename << ":" << location.firstLine() << ")";
-    }
-    auto action = menu.addAction(QString::fromStdString(ss.str()));
-    if (editorDock->isVisible()) {
-      action->setProperty("id", step->idx);
-      connect(action, &QAction::hovered, this, &MainWindow::onHoveredObjectInSelectionMenu);
-    }
-  }
-}
-
-// Submenus for the other primitives with a face at the clicked point (coincident faces).
-void MainWindow::addPickerAlsoHere(QMenu& menu, const std::vector<int>& primitives)
-{
-  constexpr int maxSubmenus = 8;
-  int added = 0;
-  // "Current file only" can reduce two primitives to the same module call.
+  constexpr int maxHits = 20;
+  // Listed once: primitives that show the same steps, as a for()'s iterations do, or two in one
+  // module call with "Current file only".
   QSet<QString> shown;
-  if (!menu.actions().isEmpty()) shown.insert(menu.actions().front()->text());
-  for (size_t i = 1; i < primitives.size() && added < maxSubmenus; ++i) {
+  for (const int index : primitives) {
+    if (shown.size() == maxHits) break;
     std::deque<std::shared_ptr<const AbstractNode>> path;
-    if (!this->rootNode->getNodeByID(primitives[i], path)) continue;
-    auto *submenu = new QMenu(&menu);
-    addPickerMenuSteps(*submenu, path);
-    if (submenu->actions().isEmpty() || shown.contains(submenu->actions().front()->text())) {
-      delete submenu;
-      continue;
+    if (!this->rootNode->getNodeByID(index, path)) continue;
+    std::vector<std::pair<std::shared_ptr<const AbstractNode>, QString>> steps;
+    QStringList texts;
+    for (const auto& node : path) {
+      const QString text = pickerStepText(*node);
+      if (text.isEmpty()) continue;
+      steps.emplace_back(node, text);
+      texts << text;
     }
-    const QAction *first = submenu->actions().front();
-    shown.insert(first->text());
-    submenu->setTitle(QString(_("Also here: %1")).arg(first->text()));
-    if (first->property("id").isValid()) {
-      submenu->menuAction()->setProperty("id", first->property("id"));
-      connect(submenu->menuAction(), &QAction::hovered, this,
-              &MainWindow::onHoveredObjectInSelectionMenu);
+    const QString key = texts.join('\n');
+    if (steps.empty() || shown.contains(key)) continue;
+    shown.insert(key);
+    QAction *hit;
+    if (steps.size() == 1) {
+      hit = menu.addAction(steps.front().second);
+    } else {
+      QMenu *rest = menu.addMenu(steps.front().second);
+      for (auto step = steps.begin() + 1; step != steps.end(); ++step) {
+        linkPickerAction(rest->addAction(step->second), *step->first);
+      }
+      hit = rest->menuAction();
     }
-    if (added == 0 && !menu.actions().isEmpty()) menu.addSeparator();
-    menu.addMenu(submenu);
-    ++added;
+    linkPickerAction(hit, *steps.front().first);
   }
 }
 
-// Node indices of the primitives whose faces make what is under the cursor, best first.
+// How the picker menu names a step of a primitive's path; empty for a step it leaves out.
+QString MainWindow::pickerStepText(const AbstractNode& step) const
+{
+  if (step.name() == "root") return {};
+  const bool hasSourceRef = step.modinst && !step.modinst->location().isNone();
+  if (Settings::Settings::pickMenuCurrentFileOnly.value()) {
+    if (!hasSourceRef) return {};
+    const auto& location = step.modinst->location();
+    if (!get_library_for_path(location.filePath()).empty()) return {};
+    if (renderedEditor->filepath.toStdString() != location.fileName()) return {};
+  }
+  const std::string name = interference::pickerDisplayName(step);
+  if (!hasSourceRef) return QString::fromStdString(name + " (no source reference)");
+
+  const auto& location = step.modinst->location();
+  std::stringstream ss;
+  ss << name << " (";
+  const fs::path libpath = get_library_for_path(location.filePath());
+  if (!libpath.empty()) {
+    // Display the library (without making the window too wide!)
+    ss << "library " << location.fileName().substr(libpath.string().length() + 1);
+  } else if (renderedEditor->filepath.toStdString() == location.fileName()) {
+    ss << location.filePath().filename().string();
+  } else {
+    ss << fs_uncomplete(location.filePath(),
+                        fs::path(renderedEditor->filepath.toStdString()).parent_path())
+            .generic_string();
+  }
+  ss << ":" << location.firstLine() << ")";
+  return QString::fromStdString(ss.str());
+}
+
+// Hovering `action` selects `step` in the editor.
+void MainWindow::linkPickerAction(QAction *action, const AbstractNode& step)
+{
+  if (!step.modinst || step.modinst->location().isNone() || !editorDock->isVisible()) return;
+  action->setProperty("id", step.idx);
+  connect(action, &QAction::hovered, this, &MainWindow::onHoveredObjectInSelectionMenu);
+}
+
+// Node indices of the primitives whose faces make the surfaces along the ray under the cursor,
+// nearest first.
 std::vector<int> MainWindow::pickPrimitives(const QGLView::PickResult& picked)
 {
   // This runs geometry code on the GUI thread: never during a compile or render.
@@ -2290,7 +2263,7 @@ std::vector<int> MainWindow::pickPrimitives(const QGLView::PickResult& picked)
     std::vector<pick::PlacedMesh> overlays;
     for (const auto& mesh : this->pickOverlays) overlays.push_back({mesh.polyset});
     std::vector<int> primitives;
-    for (const auto& crossing : pick::firstCrossings(*this->pickRootSurface, overlays, ray)) {
+    for (const auto& crossing : pick::crossings(*this->pickRootSurface, overlays, ray)) {
       std::vector<int> found;
       if (!crossing.overlay) {
         found = pick::attribute(*this->pickRootSurface, *this->pickRootLeaves, crossing.hit);

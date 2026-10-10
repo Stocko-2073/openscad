@@ -76,17 +76,18 @@ WholeGeometry holdWholeGeometry(GeometryEvaluator& evaluator, const AbstractNode
 // 2D parts are skipped.
 std::vector<PlacedMesh> surfaceOf(const std::shared_ptr<const Geometry>& geom);
 
-std::optional<SurfaceHit> castRay(const std::vector<PlacedMesh>& surface, const Ray& ray);
+// Every point where `ray` meets `surface`, nearest first.
+std::vector<SurfaceHit> castRay(const std::vector<PlacedMesh>& surface, const Ray& ray);
 
 struct Crossing {
   SurfaceHit hit;
   std::optional<size_t> overlay;  // into the overlays; none for the surface
 };
 
-// Where `ray` first meets `surface` or one of `overlays`, the meshes drawn translucent over it.
-// Where several coincide there, all of them: overlays first, as they are drawn over the surface.
-std::vector<Crossing> firstCrossings(const std::vector<PlacedMesh>& surface,
-                                     const std::vector<PlacedMesh>& overlays, const Ray& ray);
+// Every point where `ray` meets `surface` or one of `overlays`, the meshes drawn translucent over
+// it, nearest first. Of those that coincide, overlays come first, as they are drawn over the surface.
+std::vector<Crossing> crossings(const std::vector<PlacedMesh>& surface,
+                                const std::vector<PlacedMesh>& overlays, const Ray& ray);
 
 // Node indices of the leaves whose faces make `surface` at `hit`, best first: those adding material
 // before those cutting it away, then in source order.

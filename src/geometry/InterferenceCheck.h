@@ -100,7 +100,7 @@ void logReport(const Report& report, const Tree& tree);
 
 void writeJson(const Report& report, const Tree& tree, const Options& opts, std::ostream& out);
 
-// Picker helpers, kept identical to MainWindow::addPickerMenuSteps().
+// Picker helpers, kept identical to MainWindow::pickerStepText().
 std::string pickerDisplayName(const AbstractNode& node);
 bool isCurrentFileStep(const AbstractNode& node, const std::string& currentFile);
 SourceRef sourceRef(const AbstractNode& node, const Tree& tree);

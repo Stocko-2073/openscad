@@ -487,11 +487,10 @@ std::vector<PlacedMesh> surfaceOf(const std::shared_ptr<const Geometry>& geom)
   return surface;
 }
 
-std::optional<SurfaceHit> castRay(const std::vector<PlacedMesh>& surface, const Ray& ray)
+std::vector<SurfaceHit> castRay(const std::vector<PlacedMesh>& surface, const Ray& ray)
 {
-  std::optional<SurfaceHit> best;
-  double bestT = std::numeric_limits<double>::infinity();
-  if (!(ray.direction.squaredNorm() > 0)) return best;
+  std::vector<SurfaceHit> hits;
+  if (!(ray.direction.squaredNorm() > 0)) return hits;
   // Two directions across the ray. A triangle the ray passes through has corners on both sides of
   // it along each, so most triangles are skipped after two dot products per vertex.
   const Vector3d along = ray.direction.normalized();
@@ -518,43 +517,43 @@ std::optional<SurfaceHit> castRay(const std::vector<PlacedMesh>& surface, const 
       }
       const Vector3d &a = world[i], &b = world[j], &c = world[k];
       const auto t = intersectTriangle(ray.origin, ray.direction, a, b, c);
-      if (!t || *t < 0 || *t > 1 || *t >= bestT) return;
-      bestT = *t;
-      best = SurfaceHit{*t, ray.origin + *t * ray.direction,
-                        world.orientation * (b - a).cross(c - a).normalized()};
+      if (!t || !(*t >= 0 && *t <= 1)) return;
+      hits.push_back({*t, ray.origin + *t * ray.direction,
+                      world.orientation * (b - a).cross(c - a).normalized()});
     });
   }
-  return best;
+  std::sort(hits.begin(), hits.end(),
+            [](const SurfaceHit& x, const SurfaceHit& y) { return x.t < y.t; });
+  return hits;
 }
 
-std::vector<Crossing> firstCrossings(const std::vector<PlacedMesh>& surface,
-                                     const std::vector<PlacedMesh>& overlays, const Ray& ray)
+std::vector<Crossing> crossings(const std::vector<PlacedMesh>& surface,
+                                const std::vector<PlacedMesh>& overlays, const Ray& ray)
 {
-  std::vector<Crossing> crossings;
+  std::vector<Crossing> all;
   for (size_t i = 0; i < overlays.size(); ++i) {
-    if (const auto hit = castRay({overlays[i]}, ray)) crossings.push_back({*hit, i});
+    for (const auto& hit : castRay({overlays[i]}, ray)) all.push_back({hit, i});
   }
-  if (const auto hit = castRay(surface, ray)) crossings.push_back({*hit, std::nullopt});
-  if (crossings.empty()) return crossings;
+  for (const auto& hit : castRay(surface, ray)) all.push_back({hit, std::nullopt});
+  std::sort(all.begin(), all.end(),
+            [](const Crossing& x, const Crossing& y) { return x.hit.t < y.hit.t; });
 
-  const SurfaceHit nearest =
-    std::min_element(crossings.begin(), crossings.end(), [](const Crossing& x, const Crossing& y) {
-      return x.hit.t < y.hit.t;
-    })->hit;
   BoundingBox box;
   for (const auto& mesh : surface) box.extend(worldBox(mesh));
   for (const auto& mesh : overlays) box.extend(worldBox(mesh));
-  // Lossy, as an overlay is evaluated apart from the result, which may round it differently.
-  const double coincide = tolerances(nearest.point, box).second.distance;
-  std::vector<Crossing> first;
-  for (const auto& crossing : crossings) {
-    if ((crossing.hit.point - nearest.point).norm() <= coincide) first.push_back(crossing);
+  for (auto group = all.begin(); group != all.end();) {
+    const Vector3d nearest = group->hit.point;
+    // Lossy, as an overlay is evaluated apart from the result, which may round it differently.
+    const double coincide = tolerances(nearest, box).second.distance;
+    const auto end = std::find_if(group, all.end(), [&](const Crossing& crossing) {
+      return (crossing.hit.point - nearest).norm() > coincide;
+    });
+    std::stable_sort(group, end, [](const Crossing& x, const Crossing& y) {
+      return x.overlay.has_value() && !y.overlay.has_value();
+    });
+    group = end;
   }
-  std::stable_sort(first.begin(), first.end(), [](const Crossing& x, const Crossing& y) {
-    if (x.overlay.has_value() != y.overlay.has_value()) return x.overlay.has_value();
-    return x.hit.t < y.hit.t;
-  });
-  return first;
+  return all;
 }
 
 std::vector<int> attribute(const std::vector<PlacedMesh>& surface, const std::vector<Leaf>& leaves,

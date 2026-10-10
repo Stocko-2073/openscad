@@ -441,7 +441,8 @@ private:
                        // Edit->Copy
 
   int currentlySelectedObject{-1};
-  void addPickerMenuSteps(QMenu& menu, const std::deque<std::shared_ptr<const AbstractNode>>& path);
+  QString pickerStepText(const AbstractNode& step) const;
+  void linkPickerAction(QAction *action, const AbstractNode& step);
 
   // Picker attribution, built on first use; dropped with the tree or rootGeom it came from.
   std::optional<std::vector<pick::Leaf>> pickRootLeaves;
@@ -468,7 +469,7 @@ private:
   };
   std::optional<ShownResult> shownResult;
   std::vector<int> pickPrimitives(const QGLView::PickResult& picked);
-  void addPickerAlsoHere(QMenu& menu, const std::vector<int>& primitives);
+  void addPickerHits(QMenu& menu, const std::vector<int>& primitives);
 
   // Freed and trimmed by trimMemo() once the last evaluation's result is on screen.
   std::vector<std::shared_ptr<AbstractNode>> memoReplaced;
