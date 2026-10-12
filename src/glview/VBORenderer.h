@@ -77,9 +77,8 @@ private:
     VertexStateContainer container{false};
     GLuint sorted_elements = 0;
     std::vector<Vector3f> centroids;
-    size_t geometry_triangles = 0;                    // the rest are overlays
-    std::shared_ptr<VertexState> barycentric_state;   // for the edge shader; null without edges
-    std::shared_ptr<VertexState> sorted_state;        // every triangle, from sorted_elements
+    std::shared_ptr<VertexState> barycentric_state;    // for the edge shader; null without edges
+    std::shared_ptr<VertexState> sorted_state;         // every triangle, from sorted_elements
     std::array<GLfloat, 3> sorted_for{NAN, NAN, NAN};  // the modelview's z row
   };
   void buildTranslucent(const std::vector<std::shared_ptr<const PolySet>>& polysets,

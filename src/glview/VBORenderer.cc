@@ -227,7 +227,6 @@ void VBORenderer::buildTranslucent(const std::vector<std::shared_ptr<const PolyS
                                crease_degrees, FaceFilter::Translucent, edges ? 0 : 0b111, max_edge,
                                &translucent.centroids);
   }
-  translucent.geometry_triangles = translucent.centroids.size();
   for (const auto& mesh : overlays_) {
     Color4f color;
     switch (mesh.kind) {
@@ -241,8 +240,9 @@ void VBORenderer::buildTranslucent(const std::vector<std::shared_ptr<const PolyS
       if (mesh.polyset->getDimension() == 2) getColorSchemeColor(ColorMode::CGAL_FACE_2D_COLOR, color);
     }
     vbo_builder.writeSurface();
-    vbo_builder.create_surface(*mesh.polyset, Transform3d::Identity(), color, true, !mesh.ownColors, 0,
-                               FaceFilter::All, 0b111, max_edge, &translucent.centroids);
+    vbo_builder.create_surface(*mesh.polyset, Transform3d::Identity(), color, true, !mesh.ownColors,
+                               crease_degrees, FaceFilter::All, edges ? 0 : 0b111, max_edge,
+                               &translucent.centroids);
   }
 
   // create_surface() leaves a state per surface; this one draws them all from the start.
@@ -305,9 +305,7 @@ void VBORenderer::drawTranslucent(bool showedges, const ShaderUtils::ShaderInfo 
     return;
   }
 
-  // Edges only with the geometry's: overlays alone keep the fixed-function lighting.
-  const bool edges = showedges && translucent.barycentric_state &&
-                     translucent.geometry_triangles > 0 && shaderinfo &&
+  const bool edges = showedges && translucent.barycentric_state && shaderinfo &&
                      shaderinfo->type == ShaderUtils::ShaderType::EDGE_RENDERING;
   if (edges) {
     GL_TRACE("glUseProgram(%d)", shaderinfo->resource.shader_program);
