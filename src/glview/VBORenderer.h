@@ -67,7 +67,7 @@ protected:
 private:
   // Drawn after everything opaque, back to front and without writing depth, so nothing behind a
   // translucent face is hidden. Triangle t is vertices 3t to 3t + 2: the geometry's first, then the
-  // overlays'.
+  // % overlays', then from highlights_from the # overlays'.
   struct Translucent {
     Translucent() { GL_CHECKD(glGenBuffers(1, &sorted_elements)); }
     Translucent(const Translucent&) = delete;
@@ -77,6 +77,7 @@ private:
     VertexStateContainer container{false};
     GLuint sorted_elements = 0;
     std::vector<Vector3f> centroids;
+    size_t highlights_from = 0;
     std::shared_ptr<VertexState> barycentric_state;    // for the edge shader; null without edges
     std::shared_ptr<VertexState> sorted_state;         // every triangle, from sorted_elements
     std::array<GLfloat, 3> sorted_for{NAN, NAN, NAN};  // the modelview's z row

@@ -16,7 +16,7 @@ class Tree;
 namespace overlay {
 
 enum class Kind : std::uint8_t {
-  Highlight,     // `#`: drawn pink, and part of the result
+  Highlight,     // `#`: drawn pink, and part of the result or of the `%` it's in
   Background,    // `%`: drawn grey, or in color when on a color(), and not part of the result
   Interference,  // where two top-level parts overlap: drawn red, through the result
 };
@@ -36,9 +36,10 @@ struct Mesh {
 };
 
 // The `#` and `%` subtrees of `root`, not looking into extrusions, projection(), offset() or
-// roof(), whose children are outlines they reshape. `#` inside `#` adds nothing; `%` inside either
-// is drawn on its own; the root's own `%` is ignored. A `%` on a color() is colored as the result
-// would color it, except that what the color() sets wins over the color()s above it. Throws what
+// roof(), whose children are outlines they reshape. `#` inside `#` adds nothing; `%` inside either,
+// and `#` inside `%`, is drawn on its own; a node that is both is drawn as a `#` that isn't part of
+// the result; the root's own `%` is ignored. A `%` on a color() is colored as the result would
+// color it, except that what the color() sets wins over the color()s above it. Throws what
 // evaluation throws.
 std::vector<Mesh> collect(const Tree& tree, const AbstractNode& root);
 

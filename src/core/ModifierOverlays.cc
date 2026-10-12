@@ -110,13 +110,17 @@ private:
   Response enter(const State& state, const AbstractNode& node, bool lookInside)
   {
     if (state.isPostfix()) {
-      if (!this->open.empty() && this->open.back() == &node) this->open.pop_back();
+      if (!this->open.empty() && this->open.back().first == &node) this->open.pop_back();
       return Response::ContinueTraversal;
     }
-    if (isBackground(node) && &node != &this->root) {
-      record(Kind::Background, node, state);
-    } else if (isHighlight(node) && this->open.empty()) {
+    const bool background = isBackground(node) && &node != &this->root;
+    // Within an open `#` with no `%` between, a `#` is drawn as part of it, unless its own `%`
+    // leaves it out.
+    const bool inHighlight = !this->open.empty() && this->open.back().second == Kind::Highlight;
+    if (isHighlight(node) && (background || !inHighlight)) {
       record(Kind::Highlight, node, state);
+    } else if (background) {
+      record(Kind::Background, node, state);
     }
     if (!lookInside || !this->tree.hasModifierBelow(node)) return Response::PruneTraversal;
     return Response::ContinueTraversal;
@@ -140,13 +144,13 @@ private:
       }
     }
     this->targets.push_back({kind, std::move(target), state.matrix()});
-    this->open.push_back(&node);
+    this->open.emplace_back(&node, kind);
   }
 
   const Tree& tree;
   const AbstractNode& root;
   GeometryEvaluator& evaluator;
-  std::vector<const AbstractNode *> open;  // targets being traversed, innermost last
+  std::vector<std::pair<const AbstractNode *, Kind>> open;  // targets being traversed, innermost last
 };
 
 void appendMeshes(const std::shared_ptr<const Geometry>& geom, Kind kind, const ColorNode *color,

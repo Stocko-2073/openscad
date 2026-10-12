@@ -227,22 +227,27 @@ void VBORenderer::buildTranslucent(const std::vector<std::shared_ptr<const PolyS
                                crease_degrees, FaceFilter::Translucent, edges ? 0 : 0b111, max_edge,
                                &translucent.centroids);
   }
-  for (const auto& mesh : overlays_) {
-    Color4f color;
-    switch (mesh.kind) {
-    case overlay::Kind::Highlight:    getColorSchemeColor(ColorMode::HIGHLIGHT, color); break;
-    case overlay::Kind::Background:   getColorSchemeColor(ColorMode::BACKGROUND, color); break;
-    case overlay::Kind::Interference: continue;
+  // The # overlays last, for sortTranslucent() to keep after the rest.
+  for (const bool highlights : {false, true}) {
+    if (highlights) translucent.highlights_from = translucent.centroids.size();
+    for (const auto& mesh : overlays_) {
+      if ((mesh.kind == overlay::Kind::Highlight) != highlights) continue;
+      Color4f color;
+      switch (mesh.kind) {
+      case overlay::Kind::Highlight:    getColorSchemeColor(ColorMode::HIGHLIGHT, color); break;
+      case overlay::Kind::Background:   getColorSchemeColor(ColorMode::BACKGROUND, color); break;
+      case overlay::Kind::Interference: continue;
+      }
+      // What the faces' colors leave unset is filled in as on the result's surfaces.
+      if (mesh.ownColors) {
+        color = default_color;
+        if (mesh.polyset->getDimension() == 2) getColorSchemeColor(ColorMode::CGAL_FACE_2D_COLOR, color);
+      }
+      vbo_builder.writeSurface();
+      vbo_builder.create_surface(*mesh.polyset, Transform3d::Identity(), color, true, !mesh.ownColors,
+                                 crease_degrees, FaceFilter::All, edges ? 0 : 0b111, max_edge,
+                                 &translucent.centroids);
     }
-    // What the faces' colors leave unset is filled in as on the result's surfaces.
-    if (mesh.ownColors) {
-      color = default_color;
-      if (mesh.polyset->getDimension() == 2) getColorSchemeColor(ColorMode::CGAL_FACE_2D_COLOR, color);
-    }
-    vbo_builder.writeSurface();
-    vbo_builder.create_surface(*mesh.polyset, Transform3d::Identity(), color, true, !mesh.ownColors,
-                               crease_degrees, FaceFilter::All, edges ? 0 : 0b111, max_edge,
-                               &translucent.centroids);
   }
 
   // create_surface() leaves a state per surface; this one draws them all from the start.
@@ -272,9 +277,12 @@ void VBORenderer::sortTranslucent()
   std::vector<GLfloat> keys;
   keys.reserve(translucent.centroids.size());
   for (const auto& centroid : translucent.centroids) keys.push_back(z.dot(centroid));
-  // Farthest first; a # overlay coinciding with its geometry ties, and stays after it.
+  // Farthest first, the # overlays after the rest, so that one tints what it lies on and shows
+  // through what's in front of it.
   std::vector<GLuint> order;
   sortedOrder(keys, order);
+  std::stable_partition(order.begin(), order.end(),
+                        [&](GLuint triangle) { return triangle < translucent.highlights_from; });
   std::vector<GLuint> elements;
   elements.reserve(3 * order.size());
   for (const GLuint triangle : order) {
