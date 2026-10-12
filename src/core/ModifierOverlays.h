@@ -17,7 +17,7 @@ namespace overlay {
 
 enum class Kind : std::uint8_t {
   Highlight,     // `#`: drawn pink, and part of the result
-  Background,    // `%`: drawn grey, and not part of the result
+  Background,    // `%`: drawn grey, or in color when on a color(), and not part of the result
   Interference,  // where two top-level parts overlap: drawn red, through the result
 };
 
@@ -31,11 +31,15 @@ struct Mesh {
   // overlap), and the matrix placing that node's parent.
   int index = -1;
   Transform3d matrix = Transform3d::Identity();
+  // Drawn in its faces' colors, with what they leave unset filled in as the result fills it.
+  bool ownColors = false;
 };
 
 // The `#` and `%` subtrees of `root`, not looking into extrusions, projection(), offset() or
 // roof(), whose children are outlines they reshape. `#` inside `#` adds nothing; `%` inside either
-// is drawn on its own; the root's own `%` is ignored. Throws what evaluation throws.
+// is drawn on its own; the root's own `%` is ignored. A `%` on a color() is colored as the result
+// would color it, except that what the color() sets wins over the color()s above it. Throws what
+// evaluation throws.
 std::vector<Mesh> collect(const Tree& tree, const AbstractNode& root);
 
 }  // namespace overlay

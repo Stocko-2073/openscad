@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/ColorNode.h"
 #include "core/ModuleInstantiation.h"
 #include "core/NodeVisitor.h"
 #include "core/State.h"
@@ -35,6 +36,13 @@ bool isBackground(const AbstractNode& node)
 bool isHighlight(const AbstractNode& node)
 {
   return node.modinst && node.modinst->isHighlight();
+}
+
+// A `%` on a color(). Not a child of a `%` list, which takes the list's kind.
+const ColorNode *coloredBackground(Kind kind, const AbstractNode& node)
+{
+  if (kind != Kind::Background || !isBackground(node)) return nullptr;
+  return dynamic_cast<const ColorNode *>(&node);
 }
 
 // `matrix` places the node's parent: evaluateGeometry() applies the node's own transform.
@@ -71,6 +79,14 @@ public:
     return response;
   }
 
+  // The state's color is what the color()s above a node give it, the outer over the inner.
+  Response visit(State& state, const ColorNode& node) override
+  {
+    const Response response = enter(state, node, true);
+    if (state.isPrefix()) state.setColor(state.color().filledFrom(node.color));
+    return response;
+  }
+
 #ifdef ENABLE_PHYSICS
   // The simulated pose is baked into the node's geometry, so the node is placed by its parent's
   // matrix and its children follow the pose.
@@ -98,17 +114,32 @@ private:
       return Response::ContinueTraversal;
     }
     if (isBackground(node) && &node != &this->root) {
-      record(Kind::Background, node, state.matrix());
+      record(Kind::Background, node, state);
     } else if (isHighlight(node) && this->open.empty()) {
-      record(Kind::Highlight, node, state.matrix());
+      record(Kind::Highlight, node, state);
     }
     if (!lookInside || !this->tree.hasModifierBelow(node)) return Response::PruneTraversal;
     return Response::ContinueTraversal;
   }
 
-  void record(Kind kind, const AbstractNode& node, const Transform3d& matrix)
+  void record(Kind kind, const AbstractNode& node, const State& state)
   {
-    this->targets.push_back({kind, node.shared_from_this(), matrix});
+    std::shared_ptr<const AbstractNode> target = node.shared_from_this();
+    if (const auto *color = coloredBackground(kind, node)) {
+      const Color4f composed = color->color.filledFrom(state.color());
+      if (composed != color->color) {
+        // Evaluated in its place, so that the composed color is applied once. It keeps the
+        // original's index, as one from this thread's counter may repeat an index in the subtree,
+        // and the evaluator keys children by index. It lives as long as the targets, as the
+        // evaluator keys the nodes it found cached by address.
+        auto standIn = std::static_pointer_cast<ColorNode>(color->copy());
+        standIn->color = composed;
+        standIn->children = color->children;
+        standIn->idx = color->idx;
+        target = std::move(standIn);
+      }
+    }
+    this->targets.push_back({kind, std::move(target), state.matrix()});
     this->open.push_back(&node);
   }
 
@@ -118,29 +149,31 @@ private:
   std::vector<const AbstractNode *> open;  // targets being traversed, innermost last
 };
 
-void appendMeshes(const std::shared_ptr<const Geometry>& geom, Kind kind, const Transform3d& matrix,
-                  const Hash128& identity, int index, std::vector<Mesh>& out)
+void appendMeshes(const std::shared_ptr<const Geometry>& geom, Kind kind, const ColorNode *color,
+                  const Transform3d& matrix, const Hash128& identity, int index, std::vector<Mesh>& out)
 {
   if (!geom || geom->isEmpty()) return;
   if (const auto list = std::dynamic_pointer_cast<const GeometryList>(geom)) {
-    uint64_t index = 0;
+    uint64_t position = 0;
     for (const auto& item : list->getChildren()) {
       Hasher128 h;
       h.h(identity);
-      h.u64(index++);
-      appendMeshes(item.second, kind, matrix, h.finish(), index, out);
+      h.u64(position++);
+      appendMeshes(item.second, kind, color, matrix, h.finish(), index, out);
     }
     return;
   }
   std::unique_ptr<PolySet> ps;
   if (const auto polygon = std::dynamic_pointer_cast<const Polygon2d>(geom)) {
     ps = polygon->tessellate();
+    // A Polygon2d keeps no color.
+    if (ps && color) ps->setColor(color->color);
   } else if (const auto mesh = PolySetUtils::getGeometryAsPolySet(geom)) {
     ps = mesh->isTriangular() ? std::make_unique<PolySet>(*mesh) : PolySetUtils::tessellate_faces(*mesh);
   }
   if (!ps || ps->isEmpty()) return;
   ps->transform(matrix);
-  out.push_back({kind, std::move(ps), identity, index, matrix});
+  out.push_back({kind, std::move(ps), identity, index, matrix, color != nullptr});
 }
 
 void appendTarget(GeometryEvaluator& evaluator, const AbstractNode& node, Kind kind,
@@ -154,13 +187,17 @@ void appendTarget(GeometryEvaluator& evaluator, const AbstractNode& node, Kind k
     }
     return;
   }
+  const ColorNode *color = coloredBackground(kind, node);
   Hasher128 h;
   h.u64(static_cast<uint64_t>(kind));
+  // `%m()`, with m a lone color(), has that color()'s digest, but is drawn grey.
+  h.u64(color != nullptr);
   h.h(evaluator.getTree().digest(node));
   for (int row = 0; row < 4; ++row) {
     for (int col = 0; col < 4; ++col) h.f64(matrix(row, col));
   }
-  appendMeshes(evaluator.evaluateGeometry(node, false), kind, matrix, h.finish(), node.index(), out);
+  appendMeshes(evaluator.evaluateGeometry(node, false), kind, color, matrix, h.finish(), node.index(),
+               out);
 }
 
 }  // namespace

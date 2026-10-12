@@ -235,8 +235,13 @@ void VBORenderer::buildTranslucent(const std::vector<std::shared_ptr<const PolyS
     case overlay::Kind::Background:   getColorSchemeColor(ColorMode::BACKGROUND, color); break;
     case overlay::Kind::Interference: continue;
     }
+    // What the faces' colors leave unset is filled in as on the result's surfaces.
+    if (mesh.ownColors) {
+      color = default_color;
+      if (mesh.polyset->getDimension() == 2) getColorSchemeColor(ColorMode::CGAL_FACE_2D_COLOR, color);
+    }
     vbo_builder.writeSurface();
-    vbo_builder.create_surface(*mesh.polyset, Transform3d::Identity(), color, true, true, 0,
+    vbo_builder.create_surface(*mesh.polyset, Transform3d::Identity(), color, true, !mesh.ownColors, 0,
                                FaceFilter::All, 0b111, max_edge, &translucent.centroids);
   }
 
