@@ -440,7 +440,7 @@ void MainWindow::applySimplifyViewerToolbar(bool simplified)
       this->viewActionPerspective, this->viewActionOrthogonal, makeSeparator(),
       this->viewActionRight, this->viewActionLeft,
       this->viewActionBack,  this->viewActionFront,
-      this->viewActionTop,   this->viewActionBottom, makeSeparator(),
+      this->viewActionTop,   this->viewActionBottom, this->viewActionResetView, makeSeparator(),
       this->viewActionShowAxes, this->viewActionShowScaleProportional,
       this->viewActionShowInterference, makeSeparator(),
       this->designActionMeasureDist, this->designActionMeasureAngle,
@@ -3162,6 +3162,13 @@ void MainWindow::onTabManagerEditorContentReloaded(EditorInterface *reloadedEdit
   // associated with the created editor. The reason is that an editor can be created
   // or updated without a file associated with it.
   updateRecentFileActions();
+
+  // The auto-reload poll sees no change in a file just opened, so render it here, once its tab
+  // is current.
+  if (designActionAutoReload->isChecked()) {
+    this->renderRequested = true;
+    QTimer::singleShot(0, this, &MainWindow::renderWhenUnlocked);
+  }
 }
 
 void MainWindow::onTabManagerEditorChanged(EditorInterface *newEditor)
