@@ -1163,6 +1163,8 @@ if(USE_BUILTIN_SOLVESPACE)
   set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
   add_subdirectory("submodules/SolveSpaceLib/libslvs" EXCLUDE_FROM_ALL)
   unset(CMAKE_POLICY_VERSION_MINIMUM)
+  # Under GCC libslvs exports -std=c++11, which would override our C++17
+  set_property(TARGET libslvs PROPERTY INTERFACE_COMPILE_OPTIONS "")
   if(NOT TARGET SolveSpace::libslvs)
     add_library(SolveSpace::libslvs ALIAS libslvs)
   endif()
